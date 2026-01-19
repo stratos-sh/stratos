@@ -67,3 +67,10 @@ When working with any third-party library, framework, or API:
 - No need to wait for explicit instruction to look up documentation
 
 
+
+## Active Technologies
+- Go 1.22+ (latest stable) (001-instance-pool-manager)
+- N/A (state stored in Kubernetes resources: NodePool CRD, Node objects with labels) (001-instance-pool-manager)
+
+## Recent Changes
+- 001-instance-pool-manager: Added Go 1.22+ (latest stable)

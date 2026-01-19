@@ -47,6 +47,12 @@ Stratos is a Kubernetes node scaler that eliminates node provisioning delays. Un
 - Q: What Kubernetes RBAC scope should Stratos require? → A: Cluster-scoped least-privilege (Nodes: full, Pods: watch, NodePools CRD: full, Events: create)
 - Q: Project rename? → A: Renamed from "Presto" to "Stratos" to avoid PrestoDB conflict. Domain: stratos.sh
 
+### Session 2026-01-19
+
+- Q: What is the CRD API version strategy for the NodePool resource? → A: v1alpha1 initially, graduate to v1beta1/v1 based on stability (standard Kubernetes operator convention)
+- Q: How should Stratos handle cloud provider API rate limits? → A: Client-side rate limiting with exponential backoff (proactive throttling + retry on 429/throttle errors)
+- Q: What is the minimum supported Kubernetes version for Stratos? → A: Kubernetes 1.27+ (modern APIs, reasonable production compatibility)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Create and Manage NodePool (Priority: P1)
@@ -223,7 +229,7 @@ As a Kubernetes operator, I want to configure a maximum runtime for nodes so tha
 ### Functional Requirements
 
 **NodePool CRD:**
-- **FR-001**: Stratos MUST provide a NodePool Custom Resource Definition for configuring node pools
+- **FR-001**: Stratos MUST provide a NodePool Custom Resource Definition (API version: v1alpha1, graduating to v1beta1/v1 based on stability) for configuring node pools
 - **FR-002**: NodePool MUST support configurable poolSize (maximum total nodes: standby + running)
 - **FR-003**: NodePool MUST support configurable minStandby (minimum nodes to keep in stopped/standby state)
 - **FR-004**: Stratos MUST validate that minStandby does not exceed poolSize
@@ -266,25 +272,27 @@ As a Kubernetes operator, I want to configure a maximum runtime for nodes so tha
 - **FR-031**: Stratos MUST support pluggable cloud provider implementations for future providers
 - **FR-032**: Cloud provider MUST support: launch, start, stop, get state, and terminate operations
 - **FR-033**: Stratos MUST tag all managed instances with NodePool name and cluster identifier
+- **FR-034**: Stratos MUST implement client-side rate limiting for cloud API calls to avoid hitting provider limits
+- **FR-035**: Stratos MUST use exponential backoff when retrying failed cloud API calls (including rate limit/throttle errors)
 
 **Maximum Node Runtime:**
-- **FR-034**: NodePool MUST support configurable maxNodeRuntime (optional, 0 = disabled)
-- **FR-035**: Stratos MUST automatically drain and stop nodes that exceed maxNodeRuntime
-- **FR-036**: Stratos MUST emit warning events when nodes approach maxNodeRuntime threshold
+- **FR-036**: NodePool MUST support configurable maxNodeRuntime (optional, 0 = disabled)
+- **FR-037**: Stratos MUST automatically drain and stop nodes that exceed maxNodeRuntime
+- **FR-038**: Stratos MUST emit warning events when nodes approach maxNodeRuntime threshold
 
 **Observability:**
-- **FR-037**: Stratos MUST expose Prometheus metrics for: pool size, standby count, running count, warmup count
-- **FR-038**: Stratos MUST expose metrics for scale-up operations: count, latency (time from pending to scheduled)
-- **FR-039**: Stratos MUST expose metrics for scale-down operations: count, drain duration
-- **FR-040**: Stratos MUST emit Kubernetes events for significant operations (node started, node stopped, errors)
+- **FR-039**: Stratos MUST expose Prometheus metrics for: pool size, standby count, running count, warmup count
+- **FR-040**: Stratos MUST expose metrics for scale-up operations: count, latency (time from pending to scheduled)
+- **FR-041**: Stratos MUST expose metrics for scale-down operations: count, drain duration
+- **FR-042**: Stratos MUST emit Kubernetes events for significant operations (node started, node stopped, errors)
 
 **Security & RBAC:**
-- **FR-041**: Stratos MUST operate with cluster-scoped least-privilege RBAC permissions
-- **FR-042**: Stratos MUST have full access to Node objects (get, list, watch, create, update, patch, delete)
-- **FR-043**: Stratos MUST have watch access to Pod objects cluster-wide (get, list, watch)
-- **FR-044**: Stratos MUST have full access to NodePool CRD objects (get, list, watch, create, update, patch, delete)
-- **FR-045**: Stratos MUST have create access to Event objects for operational visibility
-- **FR-046**: Stratos MUST NOT require cluster-admin or access to secrets outside its own namespace
+- **FR-043**: Stratos MUST operate with cluster-scoped least-privilege RBAC permissions
+- **FR-044**: Stratos MUST have full access to Node objects (get, list, watch, create, update, patch, delete)
+- **FR-045**: Stratos MUST have watch access to Pod objects cluster-wide (get, list, watch)
+- **FR-046**: Stratos MUST have full access to NodePool CRD objects (get, list, watch, create, update, patch, delete)
+- **FR-047**: Stratos MUST have create access to Event objects for operational visibility
+- **FR-048**: Stratos MUST NOT require cluster-admin or access to secrets outside its own namespace
 
 ### Key Entities
 
@@ -318,7 +326,7 @@ As a Kubernetes operator, I want to configure a maximum runtime for nodes so tha
 
 ## Assumptions
 
-- Kubernetes cluster is running and accessible by the Stratos controller
+- Kubernetes cluster version 1.27 or later is running and accessible by the Stratos controller
 - Stratos is deployed with appropriate RBAC permissions (ClusterRole with least-privilege access)
 - Cloud provider credentials are configured (via IAM roles, service accounts, or secrets in Stratos's namespace)
 - The cloud provider supports stop and start operations that preserve instance state
