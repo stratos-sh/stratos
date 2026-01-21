@@ -1,0 +1,39 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck      # Check for unchecked errors
+    - gosimple      # Simplify code
+    - govet         # Reports suspicious constructs
+    - ineffassign   # Detects ineffectual assignments
+    - staticcheck   # Go static analysis
+    - unused        # Check for unused code
+    - gosec         # Security issues
+    - gocyclo       # Cyclomatic complexity
+    - misspell      # Spelling mistakes
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    gocyclo:
+      min-complexity: 15
+    govet:
+      enable:
+        - shadow
+        - nilness
+
+run:
+  timeout: 5m
+
+issues:
+  exclude-dirs:
+    - vendor
+    - testdata
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - gosec

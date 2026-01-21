@@ -1,0 +1,160 @@
+/*
+Copyright 2026 Stratos Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1alpha1
+
+import (
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// NodePoolSpec defines the desired state of NodePool
+type NodePoolSpec struct {
+	// PoolSize is the maximum total nodes (standby + running, excluding warmup)
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=1000
+	PoolSize int32 `json:"poolSize"`
+
+	// MinStandby is the minimum number of nodes to maintain in stopped/standby state
+	// +kubebuilder:validation:Minimum=0
+	MinStandby int32 `json:"minStandby"`
+
+	// Template defines the node template for this pool
+	Template NodeTemplate `json:"template"`
+
+	// ScaleDown configures automatic scale-down behavior
+	// +optional
+	ScaleDown *ScaleDownConfig `json:"scaleDown,omitempty"`
+
+	// PreWarm configures the pre-warming lifecycle
+	// +optional
+	PreWarm *PreWarmConfig `json:"preWarm,omitempty"`
+
+	// MaxNodeRuntime configures automatic node recycling.
+	// Zero or nil means disabled.
+	// +optional
+	MaxNodeRuntime *metav1.Duration `json:"maxNodeRuntime,omitempty"`
+
+	// ReconciliationInterval is how often to run the maintenance loop.
+	// Default: 30 seconds
+	// +optional
+	ReconciliationInterval *metav1.Duration `json:"reconciliationInterval,omitempty"`
+}
+
+// NodeTemplate defines the template for nodes in this pool
+type NodeTemplate struct {
+	// Labels to apply to nodes
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// Taints to apply to nodes
+	// +optional
+	Taints []corev1.Taint `json:"taints,omitempty"`
+
+	// CloudProvider specifies the cloud provider configuration
+	CloudProvider CloudProviderConfig `json:"cloudProvider"`
+}
+
+// NodePoolStatus defines the observed state of NodePool
+type NodePoolStatus struct {
+	// Conditions represent the latest available observations
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ObservedGeneration is the last observed generation
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Warmup is the count of nodes currently initializing
+	// +optional
+	Warmup int32 `json:"warmup,omitempty"`
+
+	// Standby is the count of nodes in stopped/standby state
+	// +optional
+	Standby int32 `json:"standby,omitempty"`
+
+	// Running is the count of nodes actively running pods
+	// +optional
+	Running int32 `json:"running,omitempty"`
+
+	// Total is the total node count (warmup + standby + running)
+	// +optional
+	Total int32 `json:"total,omitempty"`
+
+	// LastReconcileTime is when the pool was last reconciled
+	// +optional
+	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster,shortName=np;npool
+// +kubebuilder:printcolumn:name="PoolSize",type=integer,JSONPath=`.spec.poolSize`
+// +kubebuilder:printcolumn:name="MinStandby",type=integer,JSONPath=`.spec.minStandby`
+// +kubebuilder:printcolumn:name="Standby",type=integer,JSONPath=`.status.standby`
+// +kubebuilder:printcolumn:name="Running",type=integer,JSONPath=`.status.running`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+
+// NodePool is the Schema for the nodepools API
+type NodePool struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   NodePoolSpec   `json:"spec,omitempty"`
+	Status NodePoolStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// NodePoolList contains a list of NodePool
+type NodePoolList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []NodePool `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&NodePool{}, &NodePoolList{})
+}
+
+// Condition types for NodePool
+const (
+	// ConditionTypeReady indicates the pool has minStandby nodes available
+	ConditionTypeReady = "Ready"
+
+	// ConditionTypeReconciling indicates the pool is being reconciled
+	ConditionTypeReconciling = "Reconciling"
+
+	// ConditionTypeDegraded indicates the pool cannot meet minStandby
+	ConditionTypeDegraded = "Degraded"
+
+	// ConditionTypeScaleUpInProgress indicates scale-up is in progress
+	ConditionTypeScaleUpInProgress = "ScaleUpInProgress"
+
+	// ConditionTypeScaleDownInProgress indicates scale-down is in progress
+	ConditionTypeScaleDownInProgress = "ScaleDownInProgress"
+)
+
+// Condition reasons
+const (
+	ReasonPoolReady          = "PoolReady"
+	ReasonPoolNotReady       = "PoolNotReady"
+	ReasonReconciling        = "Reconciling"
+	ReasonDegraded           = "Degraded"
+	ReasonScaleUpInProgress  = "ScaleUpInProgress"
+	ReasonScaleDownInProgress = "ScaleDownInProgress"
+)

@@ -1,0 +1,112 @@
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: workers
+spec:
+  # Total number of nodes the pool can manage
+  poolSize: 5
+  # Minimum number of pre-warmed standby nodes to maintain
+  minStandby: 5
+  # How often to reconcile the pool state
+  reconciliationInterval: 30s
+  # Maximum time a node can run before being recycled (optional)
+  maxNodeRuntime: 24h
+
+  # Node template configuration
+  template:
+    # Labels applied to managed nodes
+    labels:
+      stratos.sh/pool: workers
+      node-pool: workers
+    # Taints applied to managed nodes (optional)
+    taints:
+      - key: stratos.sh/prewarmed
+        value: "true"
+        effect: NoSchedule
+    # Cloud provider configuration
+    cloudProvider:
+      provider: aws
+      aws:
+        region: us-east-1
+        instanceType: m5.large
+        ami: ami-0123456789abcdef0  # Replace with your AMI
+        subnetIds:
+          - subnet-12345678
+          - subnet-87654321
+        securityGroupIds:
+          - sg-12345678
+        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/stratos-node
+        # User data script that joins cluster and self-stops when ready
+        userData: |
+          #!/bin/bash
+          set -e
+
+          # Join the EKS cluster (replace 'my-cluster' with your cluster name)
+          /etc/eks/bootstrap.sh my-cluster
+
+          # Wait for kubelet to be healthy
+          # Note: We use the kubelet healthz endpoint because kubectl is not installed on EKS nodes
+          until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do
+            sleep 5
+          done
+
+          # Give time for node to fully register with API server
+          sleep 30
+
+          # Pull commonly used images (optional)
+          # ctr -n k8s.io images pull docker.io/library/nginx:latest
+
+          # Signal that warmup is complete by stopping the instance
+          poweroff
+        blockDeviceMappings:
+          - deviceName: /dev/xvda
+            volumeSize: 50
+            volumeType: gp3
+            encrypted: true
+        tags:
+          Environment: production
+          Team: platform
+
+  # Pre-warm configuration
+  preWarm:
+    timeout: 15m
+    timeoutAction: terminate
+
+  # Scale-down configuration
+  scaleDown:
+    enabled: true
+    emptyNodeTTL: 5m
+    drainTimeout: 5m
+---
+# Example with minimal configuration
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: ci-runners
+spec:
+  poolSize: 5
+  minStandby: 2
+  template:
+    labels:
+      stratos.sh/pool: ci-runners
+      purpose: ci
+    cloudProvider:
+      provider: aws
+      aws:
+        region: us-west-2
+        instanceType: c5.xlarge
+        ami: ami-0123456789abcdef0
+        subnetIds:
+          - subnet-abcdefgh
+        securityGroupIds:
+          - sg-abcdefgh
+        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/ci-runner
+        userData: |
+          #!/bin/bash
+          set -e
+          /etc/eks/bootstrap.sh my-cluster
+          until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do
+            sleep 5
+          done
+          sleep 30
+          poweroff

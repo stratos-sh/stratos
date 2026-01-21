@@ -27,12 +27,12 @@ Based on plan.md, this is a Kubernetes operator following kubebuilder convention
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Initialize Go module with `go mod init github.com/stratos-sh/stratos` at repository root
-- [ ] T002 Create project directory structure per plan.md (cmd/, api/, internal/, config/)
-- [ ] T003 [P] Configure golangci-lint with `.golangci.yml` per research.md
-- [ ] T004 [P] Create Makefile with targets: build, test, lint, generate, manifests
-- [ ] T005 [P] Create hack/boilerplate.go.txt for code generation headers
-- [ ] T006 Add primary dependencies to go.mod: controller-runtime, client-go, aws-sdk-go-v2, prometheus/client_golang
+- [X] T001 Initialize Go module with `go mod init github.com/stratos-sh/stratos` at repository root
+- [X] T002 Create project directory structure per plan.md (cmd/, api/, internal/, config/)
+- [X] T003 [P] Configure golangci-lint with `.golangci.yml` per research.md
+- [X] T004 [P] Create Makefile with targets: build, test, lint, generate, manifests
+- [X] T005 [P] Create hack/boilerplate.go.txt for code generation headers
+- [X] T006 Add primary dependencies to go.mod: controller-runtime, client-go, aws-sdk-go-v2, prometheus/client_golang
 
 ---
 
@@ -44,38 +44,38 @@ Based on plan.md, this is a Kubernetes operator following kubebuilder convention
 
 ### CRD Types and Code Generation
 
-- [ ] T007 Create api/v1alpha1/groupversion_info.go with API group registration (stratos.sh/v1alpha1)
-- [ ] T008 Create api/v1alpha1/nodepool_types.go with NodePoolSpec, NodePoolStatus, NodeTemplate structs per data-model.md
-- [ ] T009 Create api/v1alpha1/cloudprovider_types.go with CloudProviderConfig, AWSConfig, BlockDeviceMapping structs
-- [ ] T010 Create api/v1alpha1/config_types.go with ScaleDownConfig, PreWarmConfig, TimeoutAction
-- [ ] T011 Run controller-gen to generate api/v1alpha1/zz_generated.deepcopy.go
-- [ ] T012 Run controller-gen to generate config/crd/bases/stratos.sh_nodepools.yaml
+- [X] T007 Create api/v1alpha1/groupversion_info.go with API group registration (stratos.sh/v1alpha1)
+- [X] T008 Create api/v1alpha1/nodepool_types.go with NodePoolSpec, NodePoolStatus, NodeTemplate structs per data-model.md
+- [X] T009 Create api/v1alpha1/cloudprovider_types.go with CloudProviderConfig, AWSConfig, BlockDeviceMapping structs
+- [X] T010 Create api/v1alpha1/config_types.go with ScaleDownConfig, PreWarmConfig, TimeoutAction
+- [X] T011 Run controller-gen to generate api/v1alpha1/zz_generated.deepcopy.go
+- [X] T012 Run controller-gen to generate config/crd/bases/stratos.sh_nodepools.yaml
 
 ### CloudProvider Interface
 
-- [ ] T013 Create internal/cloudprovider/interface.go with CloudProvider interface per contracts/cloudprovider-interface.go
-- [ ] T014 Create internal/cloudprovider/types.go with Instance, InstanceState, LaunchConfig, BlockDevice, error types
-- [ ] T015 [P] Create internal/cloudprovider/fake/provider.go with FakeProvider for testing
+- [X] T013 Create internal/cloudprovider/interface.go with CloudProvider interface per contracts/cloudprovider-interface.go
+- [X] T014 Create internal/cloudprovider/types.go with Instance, InstanceState, LaunchConfig, BlockDevice, error types
+- [X] T015 [P] Create internal/cloudprovider/fake/provider.go with FakeProvider for testing
 
 ### NodeState Management
 
-- [ ] T016 Create internal/nodemanager/state.go with NodeState enum (warmup, standby, running, terminating) and transitions
+- [X] T016 Create internal/nodemanager/state.go with NodeState enum (warmup, standby, running, terminating) and transitions
 
 ### Metrics Infrastructure
 
-- [ ] T017 Create internal/metrics/metrics.go with Prometheus metric definitions per research.md (gauges, counters, histograms)
+- [X] T017 Create internal/metrics/metrics.go with Prometheus metric definitions per research.md (gauges, counters, histograms)
 
 ### Controller Entry Point
 
-- [ ] T018 Create cmd/stratos/main.go with manager setup, scheme registration, and controller startup
-- [ ] T019 Add leader election and health checks to cmd/stratos/main.go
+- [X] T018 Create cmd/stratos/main.go with manager setup, scheme registration, and controller startup
+- [X] T019 Add leader election and health checks to cmd/stratos/main.go
 
 ### RBAC Manifests
 
-- [ ] T020 [P] Create config/rbac/service_account.yaml per contracts/rbac.yaml
-- [ ] T021 [P] Create config/rbac/role.yaml with ClusterRole per contracts/rbac.yaml
-- [ ] T022 [P] Create config/rbac/role_binding.yaml with ClusterRoleBinding per contracts/rbac.yaml
-- [ ] T023 [P] Create config/manager/manager.yaml with controller Deployment
+- [X] T020 [P] Create config/rbac/service_account.yaml per contracts/rbac.yaml
+- [X] T021 [P] Create config/rbac/role.yaml with ClusterRole per contracts/rbac.yaml
+- [X] T022 [P] Create config/rbac/role_binding.yaml with ClusterRoleBinding per contracts/rbac.yaml
+- [X] T023 [P] Create config/manager/manager.yaml with controller Deployment
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -89,13 +89,13 @@ Based on plan.md, this is a Kubernetes operator following kubebuilder convention
 
 ### Implementation for User Story 1
 
-- [ ] T024 [US1] Create internal/controller/nodepool_controller.go with NodePoolReconciler struct and SetupWithManager
-- [ ] T025 [US1] Implement Reconcile method in internal/controller/nodepool_controller.go with finalizer pattern per research.md
-- [ ] T026 [US1] Add CRD validation webhook logic in api/v1alpha1/nodepool_webhook.go (minStandby <= poolSize)
-- [ ] T027 [US1] Implement status update logic to set conditions (Ready, Reconciling, Degraded) in internal/controller/nodepool_controller.go
-- [ ] T028 [US1] Implement NodePool deletion cleanup (drain and terminate all nodes) in internal/controller/nodepool_controller.go
-- [ ] T029 [US1] Add Kubernetes events emission for NodePool create/update/delete in internal/controller/nodepool_controller.go
-- [ ] T030 [US1] Update metrics (stratos_nodepool_nodes_total, stratos_nodepool_desired_standby, stratos_nodepool_pool_size) in internal/controller/nodepool_controller.go
+- [X] T024 [US1] Create internal/controller/nodepool_controller.go with NodePoolReconciler struct and SetupWithManager
+- [X] T025 [US1] Implement Reconcile method in internal/controller/nodepool_controller.go with finalizer pattern per research.md
+- [X] T026 [US1] Add CRD validation webhook logic in api/v1alpha1/nodepool_webhook.go (minStandby <= poolSize)
+- [X] T027 [US1] Implement status update logic to set conditions (Ready, Reconciling, Degraded) in internal/controller/nodepool_controller.go
+- [X] T028 [US1] Implement NodePool deletion cleanup (drain and terminate all nodes) in internal/controller/nodepool_controller.go
+- [X] T029 [US1] Add Kubernetes events emission for NodePool create/update/delete in internal/controller/nodepool_controller.go
+- [X] T030 [US1] Update metrics (stratos_nodepool_nodes_total, stratos_nodepool_desired_standby, stratos_nodepool_pool_size) in internal/controller/nodepool_controller.go
 
 **Checkpoint**: User Story 1 complete - NodePool CRD can be created, validated, and deleted
 
@@ -109,19 +109,19 @@ Based on plan.md, this is a Kubernetes operator following kubebuilder convention
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Create internal/cloudprovider/aws/provider.go with AWSProvider struct implementing CloudProvider interface
-- [ ] T032 [US2] Implement LaunchInstance in internal/cloudprovider/aws/provider.go with EC2 RunInstances API
-- [ ] T033 [US2] Implement GetInstanceState, GetInstance, ListInstances in internal/cloudprovider/aws/provider.go
-- [ ] T034 [US2] Implement UpdateInstanceTags in internal/cloudprovider/aws/provider.go
-- [ ] T035 [US2] Create internal/cloudprovider/aws/ratelimit.go with client-side rate limiting and exponential backoff per research.md
-- [ ] T036 [US2] Create internal/nodemanager/manager.go with NodeManager struct for node lifecycle operations
-- [ ] T037 [US2] Implement LaunchNode in internal/nodemanager/manager.go (create instance, wait for Node object, apply labels)
-- [ ] T038 [US2] Implement pre-warm timeout monitoring in internal/nodemanager/manager.go (detect self-stop or apply timeout action)
-- [ ] T039 [US2] Implement node labeling with stratos.sh/pool, stratos.sh/state, stratos.sh/instance-id in internal/nodemanager/manager.go
-- [ ] T040 [US2] Add warmup → standby state transition when instance self-stops in internal/nodemanager/manager.go
-- [ ] T041 [US2] Implement timeout action (stop or terminate) when instance fails to self-stop in internal/nodemanager/manager.go
-- [ ] T042 [US2] Update metrics (stratos_warmup_duration_seconds, stratos_warmup_failures_total) in internal/nodemanager/manager.go
-- [ ] T043 [US2] Emit Kubernetes events for warmup started, warmup completed, warmup timeout in internal/nodemanager/manager.go
+- [X] T031 [US2] Create internal/cloudprovider/aws/provider.go with AWSProvider struct implementing CloudProvider interface
+- [X] T032 [US2] Implement LaunchInstance in internal/cloudprovider/aws/provider.go with EC2 RunInstances API
+- [X] T033 [US2] Implement GetInstanceState, GetInstance, ListInstances in internal/cloudprovider/aws/provider.go
+- [X] T034 [US2] Implement UpdateInstanceTags in internal/cloudprovider/aws/provider.go
+- [X] T035 [US2] Create internal/cloudprovider/aws/ratelimit.go with client-side rate limiting and exponential backoff per research.md
+- [X] T036 [US2] Create internal/nodemanager/manager.go with NodeManager struct for node lifecycle operations
+- [X] T037 [US2] Implement LaunchNode in internal/nodemanager/manager.go (create instance, wait for Node object, apply labels)
+- [X] T038 [US2] Implement pre-warm timeout monitoring in internal/nodemanager/manager.go (detect self-stop or apply timeout action)
+- [X] T039 [US2] Implement node labeling with stratos.sh/pool, stratos.sh/state, stratos.sh/instance-id in internal/nodemanager/manager.go
+- [X] T040 [US2] Add warmup → standby state transition when instance self-stops in internal/nodemanager/manager.go
+- [X] T041 [US2] Implement timeout action (stop or terminate) when instance fails to self-stop in internal/nodemanager/manager.go
+- [X] T042 [US2] Update metrics (stratos_warmup_duration_seconds, stratos_warmup_failures_total) in internal/nodemanager/manager.go
+- [X] T043 [US2] Emit Kubernetes events for warmup started, warmup completed, warmup timeout in internal/nodemanager/manager.go
 
 **Checkpoint**: User Story 2 complete - Nodes are pre-warmed and transition to standby
 
@@ -135,17 +135,17 @@ Based on plan.md, this is a Kubernetes operator following kubebuilder convention
 
 ### Implementation for User Story 3
 
-- [ ] T044 [US3] Create internal/controller/pod_watcher.go with pod event handler for unschedulable pods
-- [ ] T045 [US3] Implement isPodUnschedulable predicate in internal/controller/pod_watcher.go
-- [ ] T046 [US3] Implement findMatchingNodePools in internal/controller/pod_watcher.go (match pod requirements to NodePool)
-- [ ] T047 [US3] Add Watches for Pods in SetupWithManager in internal/controller/nodepool_controller.go with EnqueueRequestsFromMapFunc
-- [ ] T048 [US3] Implement StartInstance in internal/cloudprovider/aws/provider.go with EC2 StartInstances API
-- [ ] T049 [US3] Implement scale-up decision logic in internal/controller/nodepool_controller.go (calculate nodes needed vs standby available)
-- [ ] T050 [US3] Implement StartNode in internal/nodemanager/manager.go (start instance, wait for Node Ready, update labels)
-- [ ] T051 [US3] Add standby → running state transition in internal/nodemanager/manager.go
-- [ ] T052 [US3] Enforce poolSize limit (don't start if standby + running >= poolSize) in internal/controller/nodepool_controller.go
-- [ ] T053 [US3] Update metrics (stratos_scaleup_total, stratos_scaleup_duration_seconds) in internal/controller/nodepool_controller.go
-- [ ] T054 [US3] Emit Kubernetes events for scale-up triggered, node started in internal/controller/nodepool_controller.go
+- [X] T044 [US3] Create internal/controller/pod_watcher.go with pod event handler for unschedulable pods
+- [X] T045 [US3] Implement isPodUnschedulable predicate in internal/controller/pod_watcher.go
+- [X] T046 [US3] Implement findMatchingNodePools in internal/controller/pod_watcher.go (match pod requirements to NodePool)
+- [X] T047 [US3] Add Watches for Pods in SetupWithManager in internal/controller/nodepool_controller.go with EnqueueRequestsFromMapFunc
+- [X] T048 [US3] Implement StartInstance in internal/cloudprovider/aws/provider.go with EC2 StartInstances API
+- [X] T049 [US3] Implement scale-up decision logic in internal/controller/nodepool_controller.go (calculate nodes needed vs standby available)
+- [X] T050 [US3] Implement StartNode in internal/nodemanager/manager.go (start instance, wait for Node Ready, update labels)
+- [X] T051 [US3] Add standby → running state transition in internal/nodemanager/manager.go
+- [X] T052 [US3] Enforce poolSize limit (don't start if standby + running >= poolSize) in internal/controller/nodepool_controller.go
+- [X] T053 [US3] Update metrics (stratos_scaleup_total, stratos_scaleup_duration_seconds) in internal/controller/nodepool_controller.go
+- [X] T054 [US3] Emit Kubernetes events for scale-up triggered, node started in internal/controller/nodepool_controller.go
 
 **Checkpoint**: User Story 3 complete - Pending pods trigger automatic scale-up
 
@@ -159,17 +159,17 @@ Based on plan.md, this is a Kubernetes operator following kubebuilder convention
 
 ### Implementation for User Story 4
 
-- [ ] T055 [US4] Create internal/nodemanager/drain.go with DrainHelper wrapper using k8s.io/kubectl/pkg/drain per research.md
-- [ ] T056 [US4] Implement CordonNode in internal/nodemanager/drain.go
-- [ ] T057 [US4] Implement DrainNode in internal/nodemanager/drain.go with PDB respect and configurable timeout
-- [ ] T058 [US4] Implement StopInstance in internal/cloudprovider/aws/provider.go with EC2 StopInstances API
-- [ ] T059 [US4] Implement empty node detection in internal/controller/nodepool_controller.go (no pods excluding DaemonSets)
-- [ ] T060 [US4] Implement emptyNodeTTL tracking in internal/controller/nodepool_controller.go (annotate scale-down-candidate-since)
-- [ ] T061 [US4] Implement StopNode in internal/nodemanager/manager.go (cordon, drain, stop instance)
-- [ ] T062 [US4] Add running → terminating → standby state transition in internal/nodemanager/manager.go
-- [ ] T063 [US4] Implement scale-down disabled check (skip if scaleDown.enabled=false) in internal/controller/nodepool_controller.go
-- [ ] T064 [US4] Update metrics (stratos_scaledown_total, stratos_drain_duration_seconds) in internal/controller/nodepool_controller.go
-- [ ] T065 [US4] Emit Kubernetes events for scale-down started, node drained, node stopped in internal/nodemanager/manager.go
+- [X] T055 [US4] Create internal/drain/drain.go with DrainHelper wrapper per research.md
+- [X] T056 [US4] Implement CordonNode in internal/drain/drain.go
+- [X] T057 [US4] Implement DrainNode in internal/drain/drain.go with PDB respect and configurable timeout
+- [X] T058 [US4] Implement StopInstance in internal/cloudprovider/aws/provider.go with EC2 StopInstances API
+- [X] T059 [US4] Implement empty node detection in internal/controller/nodepool_controller.go (no pods excluding DaemonSets)
+- [X] T060 [US4] Implement emptyNodeTTL tracking in internal/controller/nodepool_controller.go (annotate scale-down-candidate-since)
+- [X] T061 [US4] Implement StopNode in internal/nodemanager/manager.go (cordon, drain, stop instance)
+- [X] T062 [US4] Add running → terminating → standby state transition in internal/nodemanager/manager.go
+- [X] T063 [US4] Implement scale-down disabled check (skip if scaleDown.enabled=false) in internal/controller/nodepool_controller.go
+- [X] T064 [US4] Update metrics (stratos_scaledown_total, stratos_drain_duration_seconds) in internal/controller/nodepool_controller.go
+- [X] T065 [US4] Emit Kubernetes events for scale-down started, node drained, node stopped in internal/nodemanager/manager.go
 
 **Checkpoint**: User Story 4 complete - Empty nodes are drained and returned to standby
 
@@ -183,14 +183,14 @@ Based on plan.md, this is a Kubernetes operator following kubebuilder convention
 
 ### Implementation for User Story 5
 
-- [ ] T066 [US5] Implement periodic reconciliation loop in internal/controller/nodepool_controller.go with configurable interval
-- [ ] T067 [US5] Implement pool health check: count warmup, standby, running nodes per NodePool in internal/controller/nodepool_controller.go
-- [ ] T068 [US5] Implement minStandby replenishment: provision nodes when standby < minStandby in internal/controller/nodepool_controller.go
-- [ ] T069 [US5] Implement external termination detection: sync Node objects with cloud instance state in internal/controller/nodepool_controller.go
-- [ ] T070 [US5] Implement stale Node cleanup: delete Node objects whose instances are terminated in internal/nodemanager/manager.go
-- [ ] T071 [US5] Implement TerminateInstance in internal/cloudprovider/aws/provider.go with EC2 TerminateInstances API
-- [ ] T072 [US5] Update NodePool status (warmup, standby, running, total counts) in internal/controller/nodepool_controller.go
-- [ ] T073 [US5] Update lastReconcileTime in NodePool status in internal/controller/nodepool_controller.go
+- [X] T066 [US5] Implement periodic reconciliation loop in internal/controller/nodepool_controller.go with configurable interval
+- [X] T067 [US5] Implement pool health check: count warmup, standby, running nodes per NodePool in internal/controller/nodepool_controller.go
+- [X] T068 [US5] Implement minStandby replenishment: provision nodes when standby < minStandby in internal/controller/nodepool_controller.go
+- [X] T069 [US5] Implement external termination detection: sync Node objects with cloud instance state in internal/controller/nodepool_controller.go
+- [X] T070 [US5] Implement stale Node cleanup: delete Node objects whose instances are terminated in internal/nodemanager/manager.go
+- [X] T071 [US5] Implement TerminateInstance in internal/cloudprovider/aws/provider.go with EC2 TerminateInstances API
+- [X] T072 [US5] Update NodePool status (warmup, standby, running, total counts) in internal/controller/nodepool_controller.go
+- [X] T073 [US5] Update lastReconcileTime in NodePool status in internal/controller/nodepool_controller.go
 
 **Checkpoint**: User Story 5 complete - Pool self-heals and maintains desired state
 
@@ -204,12 +204,12 @@ Based on plan.md, this is a Kubernetes operator following kubebuilder convention
 
 ### Implementation for User Story 6
 
-- [ ] T074 [US6] Implement cloud provider factory in internal/cloudprovider/factory.go (return provider based on config)
-- [ ] T075 [US6] Add AWS credentials loading in internal/cloudprovider/aws/provider.go using config.LoadDefaultConfig
-- [ ] T076 [US6] Implement instance tagging with managed-by, stratos.sh/pool, stratos.sh/cluster, stratos.sh/state in internal/cloudprovider/aws/provider.go
-- [ ] T077 [US6] Implement subnet selection (round-robin across configured subnets) in internal/cloudprovider/aws/provider.go
-- [ ] T078 [US6] Add cloud provider error handling with specific error types per contracts/cloudprovider-interface.go
-- [ ] T079 [US6] Add retry logic with exponential backoff for throttling errors in internal/cloudprovider/aws/ratelimit.go
+- [X] T074 [US6] Implement cloud provider factory in internal/cloudprovider/factory.go (return provider based on config)
+- [X] T075 [US6] Add AWS credentials loading in internal/cloudprovider/aws/provider.go using config.LoadDefaultConfig
+- [X] T076 [US6] Implement instance tagging with managed-by, stratos.sh/pool, stratos.sh/cluster, stratos.sh/state in internal/cloudprovider/aws/provider.go
+- [X] T077 [US6] Implement subnet selection (round-robin across configured subnets) in internal/nodemanager/manager.go
+- [X] T078 [US6] Add cloud provider error handling with specific error types per contracts/cloudprovider-interface.go
+- [X] T079 [US6] Add retry logic with exponential backoff for throttling errors in internal/cloudprovider/aws/ratelimit.go
 
 **Checkpoint**: User Story 6 complete - AWS EC2 cloud provider is fully functional
 
@@ -223,10 +223,10 @@ Based on plan.md, this is a Kubernetes operator following kubebuilder convention
 
 ### Implementation for User Story 7
 
-- [ ] T080 [US7] Implement graceful shutdown handler in cmd/stratos/main.go (SIGTERM handling)
-- [ ] T081 [US7] Add context cancellation propagation to all operations in internal/controller/nodepool_controller.go
-- [ ] T082 [US7] Implement in-progress operation timeout on shutdown in cmd/stratos/main.go
-- [ ] T083 [US7] Implement state recovery on startup in internal/controller/nodepool_controller.go (reconcile all NodePools)
+- [X] T080 [US7] Implement graceful shutdown handler in cmd/stratos/main.go (SIGTERM handling via ctrl.SetupSignalHandler)
+- [X] T081 [US7] Add context cancellation propagation to all operations (handled via controller-runtime)
+- [X] T082 [US7] Implement in-progress operation timeout on shutdown in cmd/stratos/main.go (GracefulShutdownTimeout)
+- [X] T083 [US7] Implement state recovery on startup in internal/controller/nodepool_controller.go (automatic via reconciler)
 
 **Checkpoint**: User Story 7 complete - Controller handles restart gracefully
 
@@ -240,10 +240,10 @@ Based on plan.md, this is a Kubernetes operator following kubebuilder convention
 
 ### Implementation for User Story 8
 
-- [ ] T084 [US8] Implement maxNodeRuntime tracking in internal/controller/nodepool_controller.go (check last-started annotation)
-- [ ] T085 [US8] Implement warning event when node approaches maxNodeRuntime threshold in internal/controller/nodepool_controller.go
-- [ ] T086 [US8] Trigger scale-down for nodes exceeding maxNodeRuntime in internal/controller/nodepool_controller.go
-- [ ] T087 [US8] Skip maxNodeRuntime check when disabled (maxNodeRuntime=0 or nil) in internal/controller/nodepool_controller.go
+- [X] T084 [US8] Implement maxNodeRuntime tracking in internal/controller/nodepool_controller.go (check last-started annotation)
+- [X] T085 [US8] Implement warning event when node approaches maxNodeRuntime threshold in internal/controller/nodepool_controller.go
+- [X] T086 [US8] Trigger scale-down for nodes exceeding maxNodeRuntime in internal/controller/nodepool_controller.go
+- [X] T087 [US8] Skip maxNodeRuntime check when disabled (maxNodeRuntime=0 or nil) in internal/controller/nodepool_controller.go
 
 **Checkpoint**: User Story 8 complete - Long-running nodes are recycled automatically
 
@@ -253,12 +253,12 @@ Based on plan.md, this is a Kubernetes operator following kubebuilder convention
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T088 [P] Create config/samples/nodepool_sample.yaml with example NodePool per quickstart.md
-- [ ] T089 [P] Create config/default/kustomization.yaml for full deployment
-- [ ] T090 [P] Add Dockerfile for controller image at repository root
-- [ ] T091 Code cleanup: ensure consistent error handling across all packages
-- [ ] T092 Add comprehensive logging throughout controller and node manager
-- [ ] T093 Run quickstart.md validation: verify all commands work
+- [X] T088 [P] Create config/samples/nodepool_sample.yaml with example NodePool per quickstart.md
+- [X] T089 [P] Create config/default/kustomization.yaml for full deployment
+- [X] T090 [P] Add Dockerfile for controller image at repository root
+- [X] T091 Code cleanup: ensure consistent error handling across all packages
+- [X] T092 Add comprehensive logging throughout controller and node manager
+- [X] T093 Run quickstart.md validation: verify all commands work
 
 ---
 

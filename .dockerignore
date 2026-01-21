@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build artifacts
+bin/
+dist/
+
+# Test artifacts
+cover.out
+coverage.html
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Specs (not needed in container)
+specs/
+
+# Local development
+.env
+.envrc
+
+# OS files
+.DS_Store
+Thumbs.db

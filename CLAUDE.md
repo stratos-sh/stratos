@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 <!-- OPENSPEC:START -->
 # OpenSpec Instructions
 
@@ -17,60 +21,103 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
 
-# Stratos
+## Project Overview
 
-**Fast-booting cloud instances, ready when you need them.**
+Stratos is a Kubernetes operator that eliminates cloud instance cold-start delays by maintaining pools of pre-warmed, stopped instances ready to start in seconds. Built on controller-runtime (kubebuilder pattern).
 
-## About This Project
+## Common Commands
 
-This project is an instance pool manager that eliminates cloud instance cold-start delays. It pre-warms instances in advance and keeps them in a stopped state, ready to start within seconds instead of minutes.
+```bash
+# Build & Run
+make build                    # Build binary (includes fmt, vet)
+make run                      # Run controller locally against kubeconfig
+make docker-build             # Build container image
 
-## The Problem
+# Testing
+make test                     # Unit tests with race detection & coverage
+make test-integration         # Integration tests with envtest
+make coverage                 # Generate HTML coverage report
 
-Spinning up a new cloud instance typically takes 3-5 minutes:
-- Instance provisioning
-- OS boot
-- Application initialization
-- Service readiness checks
+# Code Quality
+make lint                     # Run golangci-lint
+make fmt                      # Format code
+make vet                      # Run go vet
 
-For time-sensitive workloads, this delay is unacceptable.
+# Code Generation (run after modifying api/v1alpha1/*.go)
+make generate                 # Generate deepcopy methods
+make manifests                # Generate CRD and RBAC manifests
 
-## How Stratos Helps
+# Deployment
+make install                  # Install CRDs to cluster
+make deploy                   # Deploy controller to cluster
+```
 
-Stratos maintains a pool of pre-warmed, stopped instances:
+Run a single test:
+```bash
+go test -v -run TestSpecificName ./internal/controller/...
+```
 
-1. **Launch** - Stratos creates instances ahead of time
-2. **Pre-warm** - Instances run initialization (via userdata) and self-stop when ready
-3. **Standby** - Stopped instances wait in the pool, costing minimal resources
-4. **Instant Start** - When needed, instances start in seconds with everything already initialized
+## Architecture
 
-## Example Use Cases
+```
+cmd/stratos/main.go           # Entry point, manager setup, flags
+api/v1alpha1/                 # NodePool CRD types (kubebuilder markers for RBAC/CRD gen)
+internal/
+├── controller/               # Kubernetes reconcilers
+│   ├── nodepool_controller.go    # Main reconciliation loop
+│   └── pod_watcher.go            # Detects pending pods for scale-up
+├── cloudprovider/            # Cloud abstraction layer
+│   ├── interface.go              # CloudProvider interface (all cloud ops go through this)
+│   ├── aws/provider.go           # AWS EC2 implementation with rate limiting
+│   └── fake/provider.go          # Mock provider for testing
+├── nodemanager/              # Node lifecycle (state transitions, labels)
+├── drain/                    # Graceful node eviction (respects PDBs)
+└── metrics/                  # Prometheus metrics
+config/
+├── crd/bases/                # Generated CRD manifests
+├── rbac/                     # Generated RBAC manifests
+└── samples/                  # Example NodePool resources
+specs/001-instance-pool-manager/  # Feature specification and design docs
+```
 
-- **CI/CD Pipelines** - Runners ready instantly, no queue delays
-- **Kubernetes Clusters** - Nodes pre-joined to the cluster, ready for immediate scale-up
-- **ML/LLM Inference** - Models pre-loaded into memory, serve requests within seconds of starting
+**Key patterns:**
+- Event-driven reconciliation with 30s periodic maintenance loop
+- CloudProvider interface abstracts all instance operations (launch, start, stop, terminate)
+- Use fake provider for local development: `--cloud-provider=fake`
+- Node state tracked via labels: `stratos.sh/pool`, `stratos.sh/state`
 
-## Status
+## Key Controller Flags
 
-Stratos is currently in early development.
+```bash
+--cluster-name=<name>         # Required (or CLUSTER_NAME env var)
+--cloud-provider=aws|fake     # Default: aws
+--sync-period=30s             # Reconciliation interval
+--metrics-bind-address=:8080
+--health-probe-bind-address=:8081
+```
 
----
+## Running the Controller Locally
 
-# Context7 MCP Usage
+**IMPORTANT:** Always use `go run` to run the controller locally. Never build a separate binary (`/tmp/stratos`, etc.) as it makes it harder to track running processes.
 
-Always use Context7 MCP when I need library/API documentation, code generation, setup or configuration steps without me having to explicitly ask.
+```bash
+# Run controller locally (standard way)
+go run ./cmd/stratos/main.go --cluster-name=main --cloud-provider=aws
 
-When working with any third-party library, framework, or API:
-- Proactively use Context7 to retrieve current documentation
-- Use it for code examples and best practices
-- Use it for setup and configuration guidance
-- No need to wait for explicit instruction to look up documentation
+# Before starting, always check for and kill any existing controller
+pkill -f "cmd/stratos/main.go" 2>/dev/null
+ps aux | grep -E "main.*--cluster-name" | grep -v grep
 
+# Check if controller is running (go run shows as 'main' in process list)
+ps aux | grep -E "main.*--cluster-name" | grep -v grep
+```
 
+The controller process appears as `main --cluster-name=...` in the process list, not as `stratos`.
 
-## Active Technologies
-- Go 1.22+ (latest stable) (001-instance-pool-manager)
-- N/A (state stored in Kubernetes resources: NodePool CRD, Node objects with labels) (001-instance-pool-manager)
+## Linting
 
-## Recent Changes
-- 001-instance-pool-manager: Added Go 1.22+ (latest stable)
+golangci-lint configured with: errcheck, gosimple, govet (shadow, nilness), staticcheck, unused, gosec, gocyclo (min: 15), misspell. Test files excluded from gocyclo, errcheck, gosec.
+
+## Context7 MCP
+
+Always use Context7 MCP proactively for third-party library documentation (controller-runtime, AWS SDK, client-go, etc.) without waiting for explicit instruction.
