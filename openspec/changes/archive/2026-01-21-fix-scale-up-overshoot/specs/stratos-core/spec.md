@@ -5,7 +5,7 @@
 
 ## MODIFIED Requirements
 
-### FR-016: Start Only Needed Nodes (Enhanced)
+### Requirement: FR-016: Start Only Needed Nodes (Enhanced)
 
 **Priority**: P1
 **Status**: Draft
@@ -46,7 +46,7 @@ Stratos MUST NOT start more nodes than needed to satisfy pending pods. The calcu
 
 ## ADDED Requirements
 
-### FR-049: Track In-Flight Scale-Up Operations
+### Requirement: FR-049: Track In-Flight Scale-Up Operations
 
 **Priority**: P1
 **Status**: Draft
@@ -74,7 +74,7 @@ Stratos MUST track nodes that are in the process of starting for scale-up to pre
 
 ---
 
-### FR-050: Resource-Based Scale-Up Calculation
+### Requirement: FR-050: Resource-Based Scale-Up Calculation
 
 **Priority**: P1
 **Status**: Draft
@@ -98,7 +98,7 @@ Stratos MUST calculate scale-up need based on pod resource requests and node cap
 
 ---
 
-### FR-051: Default Pod Resource Configuration
+### Requirement: FR-051: Default Pod Resource Configuration
 
 **Priority**: P1
 **Status**: Draft
@@ -133,7 +133,7 @@ spec:
 
 ---
 
-### FR-052: AWS Instance Capacity Lookup (Hybrid)
+### Requirement: FR-052: AWS Instance Capacity Lookup (Hybrid)
 
 **Priority**: P1
 **Status**: Draft

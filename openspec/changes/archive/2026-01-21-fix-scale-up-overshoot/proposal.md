@@ -6,6 +6,18 @@
 **Status**: Draft
 **Author**: AI Assistant
 
+## Why
+
+The scale-up logic has two critical bugs causing over-provisioning:
+1. **Duplicate scale-up**: Rapid reconciliation loops start multiple nodes for a single pending pod
+2. **1:1 pod-to-node assumption**: Starts N nodes for N pods even when pods fit on fewer nodes
+
+## What Changes
+
+1. **Resource-based calculation**: Calculate nodes needed based on pod resource requests and node capacity
+2. **In-flight tracking**: Track nodes being started via annotations to prevent duplicate scale-ups
+3. **Default resources config**: Configure default resource requests for pods without explicit requests
+
 ## Summary
 
 Fix a bug where the scale-up logic starts more nodes than needed. The fix introduces:
