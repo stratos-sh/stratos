@@ -29,56 +29,48 @@ import (
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 )
 
-// PodToNodePoolMapper maps unschedulable pods to NodePools that might satisfy them.
-type PodToNodePoolMapper struct {
-	client client.Client
-}
+// podToNodePoolMapper returns a function that maps unschedulable pods to NodePools.
+func podToNodePoolMapper(c client.Client) func(ctx context.Context, obj client.Object) []reconcile.Request {
+	return func(ctx context.Context, obj client.Object) []reconcile.Request {
+		logger := log.FromContext(ctx)
 
-// NewPodToNodePoolMapper creates a new mapper.
-func NewPodToNodePoolMapper(c client.Client) *PodToNodePoolMapper {
-	return &PodToNodePoolMapper{client: c}
-}
-
-// Map returns reconcile requests for NodePools that might be able to schedule the given pod.
-func (m *PodToNodePoolMapper) Map(ctx context.Context, obj client.Object) []reconcile.Request {
-	logger := log.FromContext(ctx)
-
-	pod, ok := obj.(*corev1.Pod)
-	if !ok {
-		return nil
-	}
-
-	// Skip if pod is not unschedulable
-	if !isPodUnschedulable(pod) {
-		return nil
-	}
-
-	logger.V(1).Info("Unschedulable pod detected", "pod", pod.Name, "namespace", pod.Namespace)
-
-	// List all NodePools
-	nodePoolList := &stratosv1alpha1.NodePoolList{}
-	if err := m.client.List(ctx, nodePoolList); err != nil {
-		logger.Error(err, "Failed to list NodePools")
-		return nil
-	}
-
-	// Find NodePools that could potentially satisfy this pod
-	var requests []reconcile.Request
-	for _, pool := range nodePoolList.Items {
-		if couldSatisfyPod(&pool, pod) {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: client.ObjectKeyFromObject(&pool),
-			})
+		pod, ok := obj.(*corev1.Pod)
+		if !ok {
+			return nil
 		}
-	}
 
-	if len(requests) > 0 {
-		logger.Info("Triggering reconciliation for potential scale-up",
-			"pod", pod.Name,
-			"pools", len(requests))
-	}
+		// Skip if pod is not unschedulable
+		if !isPodUnschedulable(pod) {
+			return nil
+		}
 
-	return requests
+		logger.V(1).Info("Unschedulable pod detected", "pod", pod.Name, "namespace", pod.Namespace)
+
+		// List all NodePools
+		nodePoolList := &stratosv1alpha1.NodePoolList{}
+		if err := c.List(ctx, nodePoolList); err != nil {
+			logger.Error(err, "Failed to list NodePools")
+			return nil
+		}
+
+		// Find NodePools that could potentially satisfy this pod
+		var requests []reconcile.Request
+		for _, pool := range nodePoolList.Items {
+			if couldSatisfyPod(&pool, pod) {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: client.ObjectKeyFromObject(&pool),
+				})
+			}
+		}
+
+		if len(requests) > 0 {
+			logger.Info("Triggering reconciliation for potential scale-up",
+				"pod", pod.Name,
+				"pools", len(requests))
+		}
+
+		return requests
+	}
 }
 
 // isPodUnschedulable checks if a pod is in an unschedulable state.
@@ -196,6 +188,5 @@ func UnschedulablePodPredicate() predicate.Predicate {
 
 // PodEventHandler returns an event handler that maps unschedulable pods to NodePools.
 func PodEventHandler(c client.Client) handler.EventHandler {
-	mapper := NewPodToNodePoolMapper(c)
-	return handler.EnqueueRequestsFromMapFunc(mapper.Map)
+	return handler.EnqueueRequestsFromMapFunc(podToNodePoolMapper(c))
 }
