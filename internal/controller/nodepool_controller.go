@@ -42,7 +42,6 @@ import (
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
 	"github.com/stratos-sh/stratos/internal/cloudprovider/aws"
 	"github.com/stratos-sh/stratos/internal/cloudprovider/fake"
-	"github.com/stratos-sh/stratos/internal/drain"
 	"github.com/stratos-sh/stratos/internal/metrics"
 	"github.com/stratos-sh/stratos/internal/nodemanager"
 )
@@ -1090,7 +1089,7 @@ func (r *NodePoolReconciler) recycleNodesForMaxRuntime(ctx context.Context, node
 	}
 
 	// Create drain helper
-	drainConfig := &drain.DrainConfig{
+	drainConfig := &nodemanager.DrainConfig{
 		GracePeriodSeconds:  -1,
 		IgnoreAllDaemonSets: true,
 		DeleteEmptyDirData:  false,
@@ -1100,7 +1099,7 @@ func (r *NodePoolReconciler) recycleNodesForMaxRuntime(ctx context.Context, node
 	if nodePool.Spec.ScaleDown != nil {
 		drainConfig.Timeout = nodePool.Spec.ScaleDown.GetDrainTimeout().Duration
 	}
-	drainHelper := drain.NewDrainHelper(r.Client, r.Recorder, drainConfig)
+	drainHelper := nodemanager.NewDrainHelper(r.Client, r.Recorder, drainConfig)
 
 	// Create node manager
 	nodeMgr := nodemanager.NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
@@ -1203,7 +1202,7 @@ func (r *NodePoolReconciler) findScaleDownCandidates(ctx context.Context, nodePo
 
 	for _, node := range nodes {
 		// Check if node is empty
-		empty, err := drain.IsNodeEmpty(ctx, r.Client, node.Name)
+		empty, err := nodemanager.IsNodeEmpty(ctx, r.Client, node.Name)
 		if err != nil {
 			logger.Error(err, "Failed to check if node is empty", "node", node.Name)
 			continue
@@ -1274,14 +1273,14 @@ func (r *NodePoolReconciler) scaleDown(ctx context.Context, nodePool *stratosv1a
 	}
 
 	// Create drain helper
-	drainConfig := &drain.DrainConfig{
+	drainConfig := &nodemanager.DrainConfig{
 		GracePeriodSeconds:  -1,
 		IgnoreAllDaemonSets: true,
 		DeleteEmptyDirData:  false,
 		Force:               false,
 		Timeout:             nodePool.Spec.ScaleDown.GetDrainTimeout().Duration,
 	}
-	drainHelper := drain.NewDrainHelper(r.Client, r.Recorder, drainConfig)
+	drainHelper := nodemanager.NewDrainHelper(r.Client, r.Recorder, drainConfig)
 
 	// Create node manager
 	nodeMgr := nodemanager.NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)

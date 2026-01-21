@@ -14,8 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package drain provides utilities for draining Kubernetes nodes.
-package drain
+package nodemanager
 
 import (
 	"context"
