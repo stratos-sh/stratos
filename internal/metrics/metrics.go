@@ -39,6 +39,18 @@ var (
 		[]string{"pool", "state"},
 	)
 
+	// StartingNodes tracks the number of nodes currently in the process of starting.
+	// These are nodes that have been triggered for scale-up but are not yet Ready.
+	StartingNodes = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "starting_nodes",
+			Help:      "Number of nodes currently starting (in-flight scale-up)",
+		},
+		[]string{"pool"},
+	)
+
 	// DesiredStandby tracks the desired standby count per pool.
 	DesiredStandby = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -179,6 +191,7 @@ func init() {
 	// Register all metrics with controller-runtime's metrics registry
 	metrics.Registry.MustRegister(
 		NodesTotal,
+		StartingNodes,
 		DesiredStandby,
 		PoolSize,
 		ScaleUpTotal,
@@ -216,6 +229,11 @@ func RecordScaleUp(pool string) {
 // RecordScaleDown records a scale-down operation.
 func RecordScaleDown(pool string) {
 	ScaleDownTotal.WithLabelValues(pool).Inc()
+}
+
+// RecordStartingNodes updates the starting nodes gauge for a pool.
+func RecordStartingNodes(pool string, count int) {
+	StartingNodes.WithLabelValues(pool).Set(float64(count))
 }
 
 // RecordWarmupFailure records a warmup failure.
@@ -260,6 +278,7 @@ func CleanupPoolMetrics(pool string) {
 	NodesTotal.DeleteLabelValues(pool, "standby")
 	NodesTotal.DeleteLabelValues(pool, "running")
 	NodesTotal.DeleteLabelValues(pool, "terminating")
+	StartingNodes.DeleteLabelValues(pool)
 	DesiredStandby.DeleteLabelValues(pool)
 	PoolSize.DeleteLabelValues(pool)
 }

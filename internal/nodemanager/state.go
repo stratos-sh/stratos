@@ -17,7 +17,10 @@ limitations under the License.
 // Package nodemanager handles the lifecycle of Stratos-managed Kubernetes nodes.
 package nodemanager
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // NodeState represents the lifecycle state of a Stratos-managed node.
 type NodeState string
@@ -64,6 +67,17 @@ const (
 
 	// AnnotationScaleDownCandidateSince records when the node became a scale-down candidate
 	AnnotationScaleDownCandidateSince = "stratos.sh/scale-down-candidate-since"
+
+	// AnnotationScaleUpStarted marks when a node was started for scale-up.
+	// Used for in-flight tracking to prevent duplicate scale-ups.
+	AnnotationScaleUpStarted = "stratos.sh/scale-up-started"
+)
+
+// Scale-up tracking constants
+const (
+	// ScaleUpStartedTTL is how long to consider a node as "starting" for in-flight tracking.
+	// After this duration, the annotation is considered stale and will be ignored/cleared.
+	ScaleUpStartedTTL = 60 * time.Second
 )
 
 // Taints used for Stratos-managed nodes

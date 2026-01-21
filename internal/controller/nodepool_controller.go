@@ -248,6 +248,11 @@ func (r *NodePoolReconciler) reconcileNodePool(ctx context.Context, nodePool *st
 		}
 	}
 
+	// Clean up stale scale-up annotations (nodes that became Ready or past TTL)
+	if err := r.clearStaleScaleUpAnnotations(ctx, nodePool.Name); err != nil {
+		logger.Error(err, "Failed to clear stale scale-up annotations")
+	}
+
 	// Count nodes by state
 	warmup, standby, running, terminating, err := r.countNodesByState(ctx, nodePool.Name)
 	if err != nil {
@@ -616,7 +621,115 @@ func (r *NodePoolReconciler) getUnschedulablePods(ctx context.Context, nodePool 
 	return unschedulable, nil
 }
 
+// countStartingNodes counts nodes that are in the process of starting (in-flight scale-up).
+// A node is considered "starting" if it has the scale-up-started annotation within the TTL
+// and is not yet Ready.
+func (r *NodePoolReconciler) countStartingNodes(ctx context.Context, poolName string) (int, error) {
+	nodes, err := r.getNodesForPool(ctx, poolName)
+	if err != nil {
+		return 0, err
+	}
+
+	count := 0
+	now := time.Now()
+
+	for i := range nodes {
+		node := &nodes[i]
+		ts, ok := node.Annotations[nodemanager.AnnotationScaleUpStarted]
+		if !ok {
+			continue
+		}
+
+		startedAt, err := time.Parse(time.RFC3339, ts)
+		if err != nil {
+			continue
+		}
+
+		// Check if within TTL and node is not yet Ready
+		if now.Sub(startedAt) < nodemanager.ScaleUpStartedTTL && !isNodeReady(node) {
+			count++
+		}
+	}
+
+	return count, nil
+}
+
+// isNodeReady checks if a node has Ready condition = True.
+func isNodeReady(node *corev1.Node) bool {
+	for _, cond := range node.Status.Conditions {
+		if cond.Type == corev1.NodeReady {
+			return cond.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// clearStaleScaleUpAnnotations removes scale-up-started annotations from nodes that are:
+// 1. Ready (scale-up completed successfully)
+// 2. Past the TTL (stale annotation)
+func (r *NodePoolReconciler) clearStaleScaleUpAnnotations(ctx context.Context, poolName string) error {
+	logger := log.FromContext(ctx)
+
+	nodes, err := r.getNodesForPool(ctx, poolName)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	cleared := 0
+
+	for i := range nodes {
+		node := &nodes[i]
+		ts, ok := node.Annotations[nodemanager.AnnotationScaleUpStarted]
+		if !ok {
+			continue
+		}
+
+		startedAt, err := time.Parse(time.RFC3339, ts)
+		if err != nil {
+			// Invalid timestamp, remove it
+			if err := r.removeScaleUpAnnotation(ctx, node); err != nil {
+				logger.Error(err, "Failed to remove invalid scale-up annotation", "node", node.Name)
+			}
+			cleared++
+			continue
+		}
+
+		// Remove annotation if: node is Ready OR past TTL
+		shouldClear := isNodeReady(node) || now.Sub(startedAt) >= nodemanager.ScaleUpStartedTTL
+		if shouldClear {
+			if err := r.removeScaleUpAnnotation(ctx, node); err != nil {
+				logger.Error(err, "Failed to remove scale-up annotation", "node", node.Name)
+				continue
+			}
+			cleared++
+		}
+	}
+
+	if cleared > 0 {
+		logger.V(1).Info("Cleared stale scale-up annotations", "pool", poolName, "cleared", cleared)
+	}
+
+	return nil
+}
+
+// removeScaleUpAnnotation removes the scale-up-started annotation from a node.
+func (r *NodePoolReconciler) removeScaleUpAnnotation(ctx context.Context, node *corev1.Node) error {
+	if node.Annotations == nil {
+		return nil
+	}
+	if _, ok := node.Annotations[nodemanager.AnnotationScaleUpStarted]; !ok {
+		return nil
+	}
+
+	patch := client.MergeFrom(node.DeepCopy())
+	delete(node.Annotations, nodemanager.AnnotationScaleUpStarted)
+	return r.Patch(ctx, node, patch)
+}
+
 // calculateScaleUpNeeded determines how many nodes to start for scale-up.
+// Uses resource-based calculation to determine optimal number of nodes needed,
+// and tracks in-flight scale-ups to prevent duplicate starts.
 func (r *NodePoolReconciler) calculateScaleUpNeeded(ctx context.Context, nodePool *stratosv1alpha1.NodePool) (int, error) {
 	logger := log.FromContext(ctx)
 
@@ -632,34 +745,72 @@ func (r *NodePoolReconciler) calculateScaleUpNeeded(ctx context.Context, nodePoo
 
 	logger.Info("Found unschedulable pods", "count", len(pods))
 
-	// Get current counts
+	// Get existing nodes for capacity lookup
+	existingNodes, err := r.getNodesForPool(ctx, nodePool.Name)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get existing nodes: %w", err)
+	}
+
+	// Calculate nodes needed based on resource requests
+	calculator := NewScaleCalculator(nodePool)
+	nodesNeeded := calculator.CalculateNodesNeeded(pods, existingNodes)
+
+	logger.Info("Calculated nodes needed from resources",
+		"pendingPods", len(pods),
+		"nodesNeeded", nodesNeeded)
+
+	// Get current node counts
 	_, standby, running, _, err := r.countNodesByState(ctx, nodePool.Name)
 	if err != nil {
 		return 0, err
 	}
 
-	// Calculate how many we can start
-	// Can't exceed poolSize for running nodes
-	// Note: standby nodes are NOT counted as "active" - they're available to be started
-	maxRunning := int(nodePool.Spec.PoolSize)
-	canStart := maxRunning - running
-	if canStart <= 0 {
-		logger.Info("Pool at capacity, cannot scale up",
-			"poolSize", nodePool.Spec.PoolSize,
-			"running", running)
+	// Count nodes that are currently starting (in-flight scale-up)
+	starting, err := r.countStartingNodes(ctx, nodePool.Name)
+	if err != nil {
+		logger.Error(err, "Failed to count starting nodes")
+		starting = 0
+	}
+
+	// Record starting nodes metric
+	metrics.RecordStartingNodes(nodePool.Name, starting)
+
+	// Subtract starting nodes - they will satisfy some demand once ready
+	calculatedNeed := nodesNeeded
+	nodesNeeded = nodesNeeded - starting
+	if nodesNeeded <= 0 {
+		logger.Info("Scale-up already in progress",
+			"calculatedNeed", calculatedNeed,
+			"startingNodes", starting)
 		return 0, nil
 	}
 
-	// Start min(available standby, needed, canStart)
-	needed := len(pods) // Simple 1:1 mapping, could be more sophisticated
-	if needed > standby {
-		needed = standby
-	}
-	if needed > canStart {
-		needed = canStart
+	// Check pool capacity
+	maxRunning := int(nodePool.Spec.PoolSize)
+	canStart := maxRunning - running - starting
+	if canStart <= 0 {
+		logger.Info("Pool at capacity, cannot scale up",
+			"poolSize", nodePool.Spec.PoolSize,
+			"running", running,
+			"starting", starting)
+		return 0, nil
 	}
 
-	return needed, nil
+	// Cap at available standby and capacity
+	if nodesNeeded > standby {
+		nodesNeeded = standby
+	}
+	if nodesNeeded > canStart {
+		nodesNeeded = canStart
+	}
+
+	logger.Info("Final scale-up decision",
+		"pendingPods", len(pods),
+		"nodesNeeded", nodesNeeded,
+		"startingNodes", starting,
+		"standbyAvailable", standby)
+
+	return nodesNeeded, nil
 }
 
 // scaleUp starts standby nodes to handle unschedulable pods.

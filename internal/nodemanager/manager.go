@@ -359,11 +359,16 @@ func (m *NodeManager) StartNode(ctx context.Context, pool *stratosv1alpha1.NodeP
 		logger.Error(err, "Failed to update instance tags", "instanceID", instanceID)
 	}
 
-	// Set last started annotation
+	// Set scale-up started annotation (for in-flight tracking) and last started annotation
+	now := time.Now().Format(time.RFC3339)
 	patch := client.MergeFrom(node.DeepCopy())
-	node.Annotations[AnnotationLastStarted] = time.Now().Format(time.RFC3339)
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
+	}
+	node.Annotations[AnnotationScaleUpStarted] = now
+	node.Annotations[AnnotationLastStarted] = now
 	if err := m.client.Patch(ctx, node, patch); err != nil {
-		logger.Error(err, "Failed to set last started annotation")
+		logger.Error(err, "Failed to set scale-up annotations")
 	}
 
 	// Record event

@@ -71,6 +71,15 @@ spec:
     timeout: 15m
     timeoutAction: terminate
 
+  # Scale-up configuration
+  scaleUp:
+    # Default resource requests for pods without explicit requests.
+    # Used in resource-based scale-up calculations to estimate node requirements.
+    defaultPodResources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+
   # Scale-down configuration
   scaleDown:
     enabled: true

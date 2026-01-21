@@ -52,6 +52,19 @@ type NodePoolSpec struct {
 	// Default: 30 seconds
 	// +optional
 	ReconciliationInterval *metav1.Duration `json:"reconciliationInterval,omitempty"`
+
+	// ScaleUp configures scale-up behavior including resource-based calculation
+	// +optional
+	ScaleUp *ScaleUpConfig `json:"scaleUp,omitempty"`
+}
+
+// ScaleUpConfig configures scale-up behavior
+type ScaleUpConfig struct {
+	// DefaultPodResources specifies default resource requests for pods
+	// that don't have explicit requests. Used in scale-up calculations
+	// to estimate how many nodes are needed.
+	// +optional
+	DefaultPodResources *corev1.ResourceRequirements `json:"defaultPodResources,omitempty"`
 }
 
 // NodeTemplate defines the template for nodes in this pool
