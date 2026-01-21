@@ -43,7 +43,6 @@ import (
 	"github.com/stratos-sh/stratos/internal/cloudprovider/aws"
 	"github.com/stratos-sh/stratos/internal/cloudprovider/fake"
 	"github.com/stratos-sh/stratos/internal/metrics"
-	"github.com/stratos-sh/stratos/internal/nodemanager"
 )
 
 const (
@@ -193,7 +192,7 @@ func (r *NodePoolReconciler) cleanupNodePoolResources(ctx context.Context, nodeP
 
 	// Terminate all instances and delete nodes
 	for _, node := range nodes {
-		instanceID := node.Labels[nodemanager.LabelInstanceID]
+		instanceID := node.Labels[LabelInstanceID]
 		if instanceID != "" && provider != nil {
 			logger.Info("Terminating instance", "instanceID", instanceID, "node", node.Name)
 			if err := provider.TerminateInstance(ctx, instanceID); err != nil {
@@ -469,15 +468,15 @@ func (r *NodePoolReconciler) countNodesByState(ctx context.Context, poolName str
 	}
 
 	for _, node := range nodes {
-		state := nodemanager.ParseNodeState(node.Labels[nodemanager.LabelState])
+		state := ParseNodeState(node.Labels[LabelState])
 		switch state {
-		case nodemanager.NodeStateWarmup:
+		case NodeStateWarmup:
 			warmup++
-		case nodemanager.NodeStateStandby:
+		case NodeStateStandby:
 			standby++
-		case nodemanager.NodeStateRunning:
+		case NodeStateRunning:
 			running++
-		case nodemanager.NodeStateTerminating:
+		case NodeStateTerminating:
 			terminating++
 		}
 	}
@@ -489,7 +488,7 @@ func (r *NodePoolReconciler) countNodesByState(ctx context.Context, poolName str
 func (r *NodePoolReconciler) getNodesForPool(ctx context.Context, poolName string) ([]corev1.Node, error) {
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList, client.MatchingLabels{
-		nodemanager.LabelPool: poolName,
+		LabelPool: poolName,
 	}); err != nil {
 		return nil, err
 	}
@@ -593,7 +592,7 @@ func (m *NodeToNodePoolMapper) Map(ctx context.Context, obj client.Object) []rec
 	}
 
 	// Check if this is a Stratos-managed node
-	poolName, ok := node.Labels[nodemanager.LabelPool]
+	poolName, ok := node.Labels[LabelPool]
 	if !ok {
 		return nil
 	}
@@ -634,7 +633,7 @@ func (r *NodePoolReconciler) countStartingNodes(ctx context.Context, poolName st
 
 	for i := range nodes {
 		node := &nodes[i]
-		ts, ok := node.Annotations[nodemanager.AnnotationScaleUpStarted]
+		ts, ok := node.Annotations[AnnotationScaleUpStarted]
 		if !ok {
 			continue
 		}
@@ -645,7 +644,7 @@ func (r *NodePoolReconciler) countStartingNodes(ctx context.Context, poolName st
 		}
 
 		// Check if within TTL and node is not yet Ready
-		if now.Sub(startedAt) < nodemanager.ScaleUpStartedTTL && !isNodeReady(node) {
+		if now.Sub(startedAt) < ScaleUpStartedTTL && !isNodeReady(node) {
 			count++
 		}
 	}
@@ -679,7 +678,7 @@ func (r *NodePoolReconciler) clearStaleScaleUpAnnotations(ctx context.Context, p
 
 	for i := range nodes {
 		node := &nodes[i]
-		ts, ok := node.Annotations[nodemanager.AnnotationScaleUpStarted]
+		ts, ok := node.Annotations[AnnotationScaleUpStarted]
 		if !ok {
 			continue
 		}
@@ -695,7 +694,7 @@ func (r *NodePoolReconciler) clearStaleScaleUpAnnotations(ctx context.Context, p
 		}
 
 		// Remove annotation if: node is Ready OR past TTL
-		shouldClear := isNodeReady(node) || now.Sub(startedAt) >= nodemanager.ScaleUpStartedTTL
+		shouldClear := isNodeReady(node) || now.Sub(startedAt) >= ScaleUpStartedTTL
 		if shouldClear {
 			if err := r.removeScaleUpAnnotation(ctx, node); err != nil {
 				logger.Error(err, "Failed to remove scale-up annotation", "node", node.Name)
@@ -717,12 +716,12 @@ func (r *NodePoolReconciler) removeScaleUpAnnotation(ctx context.Context, node *
 	if node.Annotations == nil {
 		return nil
 	}
-	if _, ok := node.Annotations[nodemanager.AnnotationScaleUpStarted]; !ok {
+	if _, ok := node.Annotations[AnnotationScaleUpStarted]; !ok {
 		return nil
 	}
 
 	patch := client.MergeFrom(node.DeepCopy())
-	delete(node.Annotations, nodemanager.AnnotationScaleUpStarted)
+	delete(node.Annotations, AnnotationScaleUpStarted)
 	return r.Patch(ctx, node, patch)
 }
 
@@ -751,7 +750,7 @@ func (r *NodePoolReconciler) calculateScaleUpNeeded(ctx context.Context, nodePoo
 	}
 
 	// Calculate nodes needed based on resource requests
-	calculator := nodemanager.NewScaleCalculator(nodePool)
+	calculator := NewScaleCalculator(nodePool)
 	nodesNeeded := calculator.CalculateNodesNeeded(pods, existingNodes)
 
 	logger.Info("Calculated nodes needed from resources",
@@ -839,7 +838,7 @@ func (r *NodePoolReconciler) scaleUp(ctx context.Context, nodePool *stratosv1alp
 	}
 
 	// Create node manager
-	nodeMgr := nodemanager.NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
+	nodeMgr := NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
 
 	// Start nodes
 	startTime := time.Now()
@@ -868,8 +867,8 @@ func (r *NodePoolReconciler) scaleUp(ctx context.Context, nodePool *stratosv1alp
 func (r *NodePoolReconciler) getStandbyNodes(ctx context.Context, poolName string) ([]corev1.Node, error) {
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList, client.MatchingLabels{
-		nodemanager.LabelPool:  poolName,
-		nodemanager.LabelState: string(nodemanager.NodeStateStandby),
+		LabelPool:  poolName,
+		LabelState: string(NodeStateStandby),
 	}); err != nil {
 		return nil, err
 	}
@@ -880,8 +879,8 @@ func (r *NodePoolReconciler) getStandbyNodes(ctx context.Context, poolName strin
 func (r *NodePoolReconciler) getRunningNodes(ctx context.Context, poolName string) ([]corev1.Node, error) {
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList, client.MatchingLabels{
-		nodemanager.LabelPool:  poolName,
-		nodemanager.LabelState: string(nodemanager.NodeStateRunning),
+		LabelPool:  poolName,
+		LabelState: string(NodeStateRunning),
 	}); err != nil {
 		return nil, err
 	}
@@ -913,8 +912,8 @@ func (r *NodePoolReconciler) countCloudInstances(ctx context.Context, nodePool *
 func (r *NodePoolReconciler) getWarmupNodes(ctx context.Context, poolName string) ([]corev1.Node, error) {
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList, client.MatchingLabels{
-		nodemanager.LabelPool:  poolName,
-		nodemanager.LabelState: string(nodemanager.NodeStateWarmup),
+		LabelPool:  poolName,
+		LabelState: string(NodeStateWarmup),
 	}); err != nil {
 		return nil, err
 	}
@@ -931,7 +930,7 @@ func (r *NodePoolReconciler) syncNodesWithCloud(ctx context.Context, nodePool *s
 		return fmt.Errorf("failed to get nodes: %w", err)
 	}
 
-	nodeMgr := nodemanager.NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
+	nodeMgr := NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
 
 	for i := range nodes {
 		node := &nodes[i]
@@ -957,7 +956,7 @@ func (r *NodePoolReconciler) monitorWarmupNodes(ctx context.Context, nodePool *s
 		return nil
 	}
 
-	nodeMgr := nodemanager.NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
+	nodeMgr := NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
 
 	for i := range nodes {
 		node := &nodes[i]
@@ -978,8 +977,8 @@ func (r *NodePoolReconciler) monitorCloudWarmupInstances(ctx context.Context, no
 
 	// List all instances for this pool that are tagged as warmup state
 	instances, err := provider.ListInstances(ctx, map[string]string{
-		nodemanager.TagPool:  nodePool.Name,
-		nodemanager.TagState: string(nodemanager.NodeStateWarmup),
+		TagPool:  nodePool.Name,
+		TagState: string(NodeStateWarmup),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to list cloud warmup instances: %w", err)
@@ -991,7 +990,7 @@ func (r *NodePoolReconciler) monitorCloudWarmupInstances(ctx context.Context, no
 
 	logger.V(1).Info("Monitoring cloud warmup instances", "count", len(instances))
 
-	nodeMgr := nodemanager.NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
+	nodeMgr := NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
 
 	for _, instance := range instances {
 		// Skip terminated instances
@@ -1033,7 +1032,7 @@ func (r *NodePoolReconciler) checkMaxNodeRuntime(ctx context.Context, nodePool *
 		node := &nodes[i]
 
 		// Get last started time from annotation
-		lastStartedStr := node.Annotations[nodemanager.AnnotationLastStarted]
+		lastStartedStr := node.Annotations[AnnotationLastStarted]
 		if lastStartedStr == "" {
 			continue
 		}
@@ -1089,7 +1088,7 @@ func (r *NodePoolReconciler) recycleNodesForMaxRuntime(ctx context.Context, node
 	}
 
 	// Create drain helper
-	drainConfig := &nodemanager.DrainConfig{
+	drainConfig := &DrainConfig{
 		GracePeriodSeconds:  -1,
 		IgnoreAllDaemonSets: true,
 		DeleteEmptyDirData:  false,
@@ -1099,10 +1098,10 @@ func (r *NodePoolReconciler) recycleNodesForMaxRuntime(ctx context.Context, node
 	if nodePool.Spec.ScaleDown != nil {
 		drainConfig.Timeout = nodePool.Spec.ScaleDown.GetDrainTimeout().Duration
 	}
-	drainHelper := nodemanager.NewDrainHelper(r.Client, r.Recorder, drainConfig)
+	drainHelper := NewDrainHelper(r.Client, r.Recorder, drainConfig)
 
 	// Create node manager
-	nodeMgr := nodemanager.NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
+	nodeMgr := NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
 
 	recycled := 0
 	for i := range nodes {
@@ -1113,7 +1112,7 @@ func (r *NodePoolReconciler) recycleNodesForMaxRuntime(ctx context.Context, node
 			fmt.Sprintf("Recycling node %s due to max runtime exceeded", node.Name))
 
 		// Transition to terminating state
-		if err := nodeMgr.TransitionState(ctx, node, nodemanager.NodeStateTerminating); err != nil {
+		if err := nodeMgr.TransitionState(ctx, node, NodeStateTerminating); err != nil {
 			logger.Error(err, "Failed to transition node to terminating", "node", node.Name)
 			continue
 		}
@@ -1156,7 +1155,7 @@ func (r *NodePoolReconciler) replenishStandby(ctx context.Context, nodePool *str
 		return fmt.Errorf("no cloud provider for pool %s", nodePool.Name)
 	}
 
-	nodeMgr := nodemanager.NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
+	nodeMgr := NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
 
 	// Launch new nodes
 	launched := 0
@@ -1202,7 +1201,7 @@ func (r *NodePoolReconciler) findScaleDownCandidates(ctx context.Context, nodePo
 
 	for _, node := range nodes {
 		// Check if node is empty
-		empty, err := nodemanager.IsNodeEmpty(ctx, r.Client, node.Name)
+		empty, err := IsNodeEmpty(ctx, r.Client, node.Name)
 		if err != nil {
 			logger.Error(err, "Failed to check if node is empty", "node", node.Name)
 			continue
@@ -1211,9 +1210,9 @@ func (r *NodePoolReconciler) findScaleDownCandidates(ctx context.Context, nodePo
 		if !empty {
 			// Remove scale-down candidate annotation if present
 			if node.Annotations != nil {
-				if _, ok := node.Annotations[nodemanager.AnnotationScaleDownCandidateSince]; ok {
+				if _, ok := node.Annotations[AnnotationScaleDownCandidateSince]; ok {
 					patch := client.MergeFrom(node.DeepCopy())
-					delete(node.Annotations, nodemanager.AnnotationScaleDownCandidateSince)
+					delete(node.Annotations, AnnotationScaleDownCandidateSince)
 					if err := r.Patch(ctx, &node, patch); err != nil {
 						logger.Error(err, "Failed to remove scale-down annotation")
 					}
@@ -1225,7 +1224,7 @@ func (r *NodePoolReconciler) findScaleDownCandidates(ctx context.Context, nodePo
 		// Node is empty - check or set candidate timestamp
 		var candidateSince time.Time
 		if node.Annotations != nil {
-			if ts, ok := node.Annotations[nodemanager.AnnotationScaleDownCandidateSince]; ok {
+			if ts, ok := node.Annotations[AnnotationScaleDownCandidateSince]; ok {
 				candidateSince, _ = time.Parse(time.RFC3339, ts)
 			}
 		}
@@ -1236,7 +1235,7 @@ func (r *NodePoolReconciler) findScaleDownCandidates(ctx context.Context, nodePo
 			if node.Annotations == nil {
 				node.Annotations = make(map[string]string)
 			}
-			node.Annotations[nodemanager.AnnotationScaleDownCandidateSince] = time.Now().Format(time.RFC3339)
+			node.Annotations[AnnotationScaleDownCandidateSince] = time.Now().Format(time.RFC3339)
 			if err := r.Patch(ctx, &node, patch); err != nil {
 				logger.Error(err, "Failed to set scale-down annotation")
 			}
@@ -1273,24 +1272,24 @@ func (r *NodePoolReconciler) scaleDown(ctx context.Context, nodePool *stratosv1a
 	}
 
 	// Create drain helper
-	drainConfig := &nodemanager.DrainConfig{
+	drainConfig := &DrainConfig{
 		GracePeriodSeconds:  -1,
 		IgnoreAllDaemonSets: true,
 		DeleteEmptyDirData:  false,
 		Force:               false,
 		Timeout:             nodePool.Spec.ScaleDown.GetDrainTimeout().Duration,
 	}
-	drainHelper := nodemanager.NewDrainHelper(r.Client, r.Recorder, drainConfig)
+	drainHelper := NewDrainHelper(r.Client, r.Recorder, drainConfig)
 
 	// Create node manager
-	nodeMgr := nodemanager.NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
+	nodeMgr := NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
 
 	stopped := 0
 	for _, node := range candidates {
 		nodeCopy := node.DeepCopy()
 
 		// Transition to terminating state
-		if err := nodeMgr.TransitionState(ctx, nodeCopy, nodemanager.NodeStateTerminating); err != nil {
+		if err := nodeMgr.TransitionState(ctx, nodeCopy, NodeStateTerminating); err != nil {
 			logger.Error(err, "Failed to transition node to terminating", "node", node.Name)
 			continue
 		}

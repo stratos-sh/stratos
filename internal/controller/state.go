@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package nodemanager handles the lifecycle of Stratos-managed Kubernetes nodes.
-package nodemanager
+package controller
 
 import (
 	"fmt"
