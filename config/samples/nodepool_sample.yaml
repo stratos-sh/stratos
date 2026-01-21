@@ -40,8 +40,6 @@ spec:
         userData: |
           #!/bin/bash
           set -e
-
-          # Join the EKS cluster (replace 'my-cluster' with your cluster name)
           /etc/eks/bootstrap.sh my-cluster
 
           # Wait for kubelet to be healthy
@@ -58,6 +56,7 @@ spec:
 
           # Signal that warmup is complete by stopping the instance
           poweroff
+
         blockDeviceMappings:
           - deviceName: /dev/xvda
             volumeSize: 50
@@ -101,12 +100,3 @@ spec:
         securityGroupIds:
           - sg-abcdefgh
         iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/ci-runner
-        userData: |
-          #!/bin/bash
-          set -e
-          /etc/eks/bootstrap.sh my-cluster
-          until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do
-            sleep 5
-          done
-          sleep 30
-          poweroff
