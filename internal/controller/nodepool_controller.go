@@ -752,7 +752,7 @@ func (r *NodePoolReconciler) calculateScaleUpNeeded(ctx context.Context, nodePoo
 	}
 
 	// Calculate nodes needed based on resource requests
-	calculator := NewScaleCalculator(nodePool)
+	calculator := nodemanager.NewScaleCalculator(nodePool)
 	nodesNeeded := calculator.CalculateNodesNeeded(pods, existingNodes)
 
 	logger.Info("Calculated nodes needed from resources",
