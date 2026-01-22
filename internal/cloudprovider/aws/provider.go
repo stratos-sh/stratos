@@ -96,11 +96,11 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, cfg *cloudprovider.Lau
 	}
 
 	input := &ec2.RunInstancesInput{
-		ImageId:      aws.String(cfg.ImageID),
-		InstanceType: types.InstanceType(cfg.InstanceType),
-		MinCount:     aws.Int32(1),
-		MaxCount:     aws.Int32(1),
-		SubnetId:     aws.String(cfg.SubnetID),
+		ImageId:          aws.String(cfg.ImageID),
+		InstanceType:     types.InstanceType(cfg.InstanceType),
+		MinCount:         aws.Int32(1),
+		MaxCount:         aws.Int32(1),
+		SubnetId:         aws.String(cfg.SubnetID),
 		SecurityGroupIds: cfg.SecurityGroupIDs,
 		TagSpecifications: []types.TagSpecification{
 			{

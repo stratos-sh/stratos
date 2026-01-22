@@ -164,10 +164,10 @@ const (
 
 // Condition reasons
 const (
-	ReasonPoolReady          = "PoolReady"
-	ReasonPoolNotReady       = "PoolNotReady"
-	ReasonReconciling        = "Reconciling"
-	ReasonDegraded           = "Degraded"
-	ReasonScaleUpInProgress  = "ScaleUpInProgress"
+	ReasonPoolReady           = "PoolReady"
+	ReasonPoolNotReady        = "PoolNotReady"
+	ReasonReconciling         = "Reconciling"
+	ReasonDegraded            = "Degraded"
+	ReasonScaleUpInProgress   = "ScaleUpInProgress"
 	ReasonScaleDownInProgress = "ScaleDownInProgress"
 )

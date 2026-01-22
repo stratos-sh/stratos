@@ -44,13 +44,13 @@ var defaultLimits = map[string]struct {
 	maxTokens  float64
 	refillRate float64
 }{
-	"RunInstances":        {maxTokens: 100, refillRate: 2},
-	"StartInstances":      {maxTokens: 100, refillRate: 2},
-	"StopInstances":       {maxTokens: 100, refillRate: 20},
-	"TerminateInstances":  {maxTokens: 100, refillRate: 20},
-	"DescribeInstances":   {maxTokens: 100, refillRate: 10},
-	"CreateTags":          {maxTokens: 100, refillRate: 10},
-	"default":             {maxTokens: 100, refillRate: 5},
+	"RunInstances":       {maxTokens: 100, refillRate: 2},
+	"StartInstances":     {maxTokens: 100, refillRate: 2},
+	"StopInstances":      {maxTokens: 100, refillRate: 20},
+	"TerminateInstances": {maxTokens: 100, refillRate: 20},
+	"DescribeInstances":  {maxTokens: 100, refillRate: 10},
+	"CreateTags":         {maxTokens: 100, refillRate: 10},
+	"default":            {maxTokens: 100, refillRate: 5},
 }
 
 // NewRateLimiter creates a new rate limiter.
