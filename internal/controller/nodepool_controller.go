@@ -20,6 +20,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -61,6 +62,8 @@ type NodePoolReconciler struct {
 	ClusterName   string
 	CloudProvider string
 
+	// cloudProvidersMu protects cloudProviders map from concurrent access
+	cloudProvidersMu sync.RWMutex
 	// cloudProviders caches cloud provider instances per pool
 	cloudProviders map[string]cloudprovider.CloudProvider
 }
@@ -418,10 +421,24 @@ func (r *NodePoolReconciler) validateNodePool(nodePool *stratosv1alpha1.NodePool
 
 // ensureCloudProvider ensures the cloud provider is initialized for this pool.
 func (r *NodePoolReconciler) ensureCloudProvider(nodePool *stratosv1alpha1.NodePool) error {
+	// Fast path: check with read lock if provider already exists
+	r.cloudProvidersMu.RLock()
+	if r.cloudProviders != nil {
+		if _, ok := r.cloudProviders[nodePool.Name]; ok {
+			r.cloudProvidersMu.RUnlock()
+			return nil
+		}
+	}
+	r.cloudProvidersMu.RUnlock()
+
+	// Slow path: acquire write lock to create provider
+	r.cloudProvidersMu.Lock()
+	defer r.cloudProvidersMu.Unlock()
+
+	// Double-check after acquiring write lock
 	if r.cloudProviders == nil {
 		r.cloudProviders = make(map[string]cloudprovider.CloudProvider)
 	}
-
 	if _, ok := r.cloudProviders[nodePool.Name]; ok {
 		return nil
 	}
@@ -454,6 +471,9 @@ func (r *NodePoolReconciler) ensureCloudProvider(nodePool *stratosv1alpha1.NodeP
 
 // getCloudProvider returns the cloud provider for a pool.
 func (r *NodePoolReconciler) getCloudProvider(poolName string) cloudprovider.CloudProvider {
+	r.cloudProvidersMu.RLock()
+	defer r.cloudProvidersMu.RUnlock()
+
 	if r.cloudProviders == nil {
 		return nil
 	}
@@ -463,6 +483,9 @@ func (r *NodePoolReconciler) getCloudProvider(poolName string) cloudprovider.Clo
 // InjectCloudProvider allows tests to inject a cloud provider for a specific pool.
 // This is primarily used for integration testing with the fake provider.
 func (r *NodePoolReconciler) InjectCloudProvider(poolName string, provider cloudprovider.CloudProvider) {
+	r.cloudProvidersMu.Lock()
+	defer r.cloudProvidersMu.Unlock()
+
 	if r.cloudProviders == nil {
 		r.cloudProviders = make(map[string]cloudprovider.CloudProvider)
 	}

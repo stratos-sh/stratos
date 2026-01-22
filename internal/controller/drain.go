@@ -231,12 +231,7 @@ func (d *DrainHelper) filterPodsToEvict(pods []corev1.Pod) []corev1.Pod {
 
 // isDaemonSetPod checks if a pod is managed by a DaemonSet.
 func (d *DrainHelper) isDaemonSetPod(pod *corev1.Pod) bool {
-	for _, owner := range pod.OwnerReferences {
-		if owner.Kind == "DaemonSet" {
-			return true
-		}
-	}
-	return false
+	return isDaemonSetPod(pod)
 }
 
 // hasLocalStorage checks if a pod uses local storage (emptyDir).
@@ -346,10 +341,8 @@ func IsNodeEmpty(ctx context.Context, c client.Client, nodeName string) (bool, e
 		}
 
 		// Skip DaemonSet pods
-		for _, owner := range pod.OwnerReferences {
-			if owner.Kind == "DaemonSet" {
-				continue
-			}
+		if isDaemonSetPod(&pod) {
+			continue
 		}
 
 		// Found a non-DaemonSet pod
@@ -357,4 +350,14 @@ func IsNodeEmpty(ctx context.Context, c client.Client, nodeName string) (bool, e
 	}
 
 	return true, nil
+}
+
+// isDaemonSetPod checks if a pod is managed by a DaemonSet.
+func isDaemonSetPod(pod *corev1.Pod) bool {
+	for _, owner := range pod.OwnerReferences {
+		if owner.Kind == "DaemonSet" {
+			return true
+		}
+	}
+	return false
 }
