@@ -32,34 +32,34 @@ import (
 
 // DrainHelper assists with draining nodes.
 type DrainHelper struct {
-	client               client.Client
-	recorder             record.EventRecorder
-	gracePeriodSeconds   int64
-	ignoreAllDaemonSets  bool
-	deleteEmptyDirData   bool
-	force                bool
-	timeout              time.Duration
+	client                   client.Client
+	recorder                 record.EventRecorder
+	gracePeriodSeconds       int64
+	ignoreAllDaemonSets      bool
+	deleteEmptyDirData       bool
+	force                    bool
+	timeout                  time.Duration
 	skipWaitForDeleteTimeout time.Duration
 }
 
 // DrainConfig configures the drain helper.
 type DrainConfig struct {
-	GracePeriodSeconds   int64
-	IgnoreAllDaemonSets  bool
-	DeleteEmptyDirData   bool
-	Force                bool
-	Timeout              time.Duration
+	GracePeriodSeconds       int64
+	IgnoreAllDaemonSets      bool
+	DeleteEmptyDirData       bool
+	Force                    bool
+	Timeout                  time.Duration
 	SkipWaitForDeleteTimeout time.Duration
 }
 
 // DefaultDrainConfig returns the default drain configuration.
 func DefaultDrainConfig() *DrainConfig {
 	return &DrainConfig{
-		GracePeriodSeconds:   -1, // Use pod default
-		IgnoreAllDaemonSets:  true,
-		DeleteEmptyDirData:   false,
-		Force:                false,
-		Timeout:              5 * time.Minute,
+		GracePeriodSeconds:       -1, // Use pod default
+		IgnoreAllDaemonSets:      true,
+		DeleteEmptyDirData:       false,
+		Force:                    false,
+		Timeout:                  5 * time.Minute,
 		SkipWaitForDeleteTimeout: 10 * time.Second,
 	}
 }
@@ -70,13 +70,13 @@ func NewDrainHelper(c client.Client, recorder record.EventRecorder, config *Drai
 		config = DefaultDrainConfig()
 	}
 	return &DrainHelper{
-		client:               c,
-		recorder:             recorder,
-		gracePeriodSeconds:   config.GracePeriodSeconds,
-		ignoreAllDaemonSets:  config.IgnoreAllDaemonSets,
-		deleteEmptyDirData:   config.DeleteEmptyDirData,
-		force:                config.Force,
-		timeout:              config.Timeout,
+		client:                   c,
+		recorder:                 recorder,
+		gracePeriodSeconds:       config.GracePeriodSeconds,
+		ignoreAllDaemonSets:      config.IgnoreAllDaemonSets,
+		deleteEmptyDirData:       config.DeleteEmptyDirData,
+		force:                    config.Force,
+		timeout:                  config.Timeout,
 		skipWaitForDeleteTimeout: config.SkipWaitForDeleteTimeout,
 	}
 }

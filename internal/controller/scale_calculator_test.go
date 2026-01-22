@@ -145,8 +145,8 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 				},
 			},
 			pods: append(
-				makePods(5, "500m", "1Gi"),         // 5 pods with explicit requests
-				makePodsWithoutRequests(5)...,     // 5 pods without requests (use defaults)
+				makePods(5, "500m", "1Gi"),    // 5 pods with explicit requests
+				makePodsWithoutRequests(5)..., // 5 pods without requests (use defaults)
 			),
 			existingNodes: nil,
 			// Pods with requests: 5 * 500m = 2500m CPU, 5 * 1Gi = 5Gi memory

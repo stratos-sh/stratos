@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -93,6 +94,23 @@ func isPodUnschedulable(pod *corev1.Pod) bool {
 	return false
 }
 
+// isWellKnownLabel returns true if the label key is a well-known Kubernetes label
+// that kubelet or cloud controllers add automatically (not defined in NodePool template).
+func isWellKnownLabel(key string) bool {
+	wellKnownPrefixes := []string{
+		"kubernetes.io/",
+		"node.kubernetes.io/",
+		"topology.kubernetes.io/",
+		"node-role.kubernetes.io/",
+	}
+	for _, prefix := range wellKnownPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // couldSatisfyPod checks if a NodePool could potentially satisfy a pod's requirements.
 // This is a simple check - a more sophisticated version would check resource requests,
 // node selectors, taints/tolerations, etc.
@@ -107,14 +125,15 @@ func couldSatisfyPod(pool *stratosv1alpha1.NodePool, pod *corev1.Pod) bool {
 		// Check if pool nodes would match the node selector
 		for key, value := range pod.Spec.NodeSelector {
 			// Check if the pool template has this label
-			if pool.Spec.Template.Labels != nil {
-				if poolValue, ok := pool.Spec.Template.Labels[key]; ok {
-					if poolValue != value {
-						return false
-					}
-				} else {
-					// Pool doesn't have this label, might not match
-					// Could still match if the label is on the node from kubelet
+			if poolValue, ok := pool.Spec.Template.Labels[key]; ok {
+				if poolValue != value {
+					return false
+				}
+			} else {
+				// Pool doesn't have this label
+				// Only allow if it's a well-known label that kubelet provides
+				if !isWellKnownLabel(key) {
+					return false
 				}
 			}
 		}

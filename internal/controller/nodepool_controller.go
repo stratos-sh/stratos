@@ -460,6 +460,15 @@ func (r *NodePoolReconciler) getCloudProvider(poolName string) cloudprovider.Clo
 	return r.cloudProviders[poolName]
 }
 
+// InjectCloudProvider allows tests to inject a cloud provider for a specific pool.
+// This is primarily used for integration testing with the fake provider.
+func (r *NodePoolReconciler) InjectCloudProvider(poolName string, provider cloudprovider.CloudProvider) {
+	if r.cloudProviders == nil {
+		r.cloudProviders = make(map[string]cloudprovider.CloudProvider)
+	}
+	r.cloudProviders[poolName] = provider
+}
+
 // countNodesByState counts nodes by their Stratos state.
 func (r *NodePoolReconciler) countNodesByState(ctx context.Context, poolName string) (warmup, standby, running, terminating int, err error) {
 	nodes, err := r.getNodesForPool(ctx, poolName)

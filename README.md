@@ -33,6 +33,44 @@ Stratos maintains a pool of pre-warmed, stopped instances:
 - **Kubernetes Clusters** - Nodes pre-joined to the cluster, ready for immediate scale-up
 - **ML/LLM Inference** - Models pre-loaded into memory, serve requests within seconds of starting
 
+## Testing
+
+### Unit Tests
+
+```bash
+go test ./internal/... ./api/...
+```
+
+### Integration Tests
+
+Integration tests use [envtest](https://book.kubebuilder.io/reference/envtest.html) to run a real Kubernetes API server locally with the fake cloud provider.
+
+**Setup (one-time):**
+```bash
+# Install setup-envtest
+GOBIN=$(pwd)/bin go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+# Download Kubernetes binaries
+./bin/setup-envtest use 1.28.0 --bin-dir ./bin
+```
+
+**Run integration tests:**
+```bash
+KUBEBUILDER_ASSETS="$(pwd)/bin/k8s/1.28.0-linux-amd64" go test ./tests/integration/... -tags=integration -v
+```
+
+Or using Make:
+```bash
+make test-integration
+```
+
+**What the integration tests cover:**
+- NodePool lifecycle (creation, deletion, finalizers, status updates)
+- Scale-up behavior (pending pod detection, standby→running transitions)
+- Scale-down behavior (empty node detection, TTL, candidate tracking)
+- State transitions (warmup→standby→running→terminating)
+- Error handling (cloud provider failures, transient errors)
+
 ## Status
 
 Stratos is currently in early development.
