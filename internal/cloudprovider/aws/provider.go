@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -58,11 +59,13 @@ func NewAWSProvider(ctx context.Context, region string) (*AWSProvider, error) {
 // LaunchInstance creates a new EC2 instance.
 func (p *AWSProvider) LaunchInstance(ctx context.Context, cfg *cloudprovider.LaunchConfig) (*cloudprovider.Instance, error) {
 	startTime := time.Now()
+	status := "success"
 	defer func() {
-		metrics.RecordCloudProviderCall("aws", "LaunchInstance", "success", time.Since(startTime).Seconds())
+		metrics.RecordCloudProviderCall("aws", "LaunchInstance", status, time.Since(startTime).Seconds())
 	}()
 
 	if err := p.rateLimiter.Wait(ctx, "RunInstances"); err != nil {
+		status = "error"
 		return nil, err
 	}
 
@@ -125,11 +128,12 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, cfg *cloudprovider.Lau
 
 	result, err := p.client.RunInstances(ctx, input)
 	if err != nil {
-		metrics.RecordCloudProviderCall("aws", "LaunchInstance", "error", time.Since(startTime).Seconds())
+		status = "error"
 		return nil, p.handleError(err, "LaunchInstance")
 	}
 
 	if len(result.Instances) == 0 {
+		status = "error"
 		return nil, fmt.Errorf("no instances launched")
 	}
 
@@ -140,11 +144,13 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, cfg *cloudprovider.Lau
 // StartInstance starts a stopped EC2 instance.
 func (p *AWSProvider) StartInstance(ctx context.Context, instanceID string) error {
 	startTime := time.Now()
+	status := "success"
 	defer func() {
-		metrics.RecordCloudProviderCall("aws", "StartInstance", "success", time.Since(startTime).Seconds())
+		metrics.RecordCloudProviderCall("aws", "StartInstance", status, time.Since(startTime).Seconds())
 	}()
 
 	if err := p.rateLimiter.Wait(ctx, "StartInstances"); err != nil {
+		status = "error"
 		return err
 	}
 
@@ -152,7 +158,7 @@ func (p *AWSProvider) StartInstance(ctx context.Context, instanceID string) erro
 		InstanceIds: []string{instanceID},
 	})
 	if err != nil {
-		metrics.RecordCloudProviderCall("aws", "StartInstance", "error", time.Since(startTime).Seconds())
+		status = "error"
 		return p.handleError(err, "StartInstance")
 	}
 
@@ -162,11 +168,13 @@ func (p *AWSProvider) StartInstance(ctx context.Context, instanceID string) erro
 // StopInstance stops a running EC2 instance.
 func (p *AWSProvider) StopInstance(ctx context.Context, instanceID string, force bool) error {
 	startTime := time.Now()
+	status := "success"
 	defer func() {
-		metrics.RecordCloudProviderCall("aws", "StopInstance", "success", time.Since(startTime).Seconds())
+		metrics.RecordCloudProviderCall("aws", "StopInstance", status, time.Since(startTime).Seconds())
 	}()
 
 	if err := p.rateLimiter.Wait(ctx, "StopInstances"); err != nil {
+		status = "error"
 		return err
 	}
 
@@ -175,7 +183,7 @@ func (p *AWSProvider) StopInstance(ctx context.Context, instanceID string, force
 		Force:       aws.Bool(force),
 	})
 	if err != nil {
-		metrics.RecordCloudProviderCall("aws", "StopInstance", "error", time.Since(startTime).Seconds())
+		status = "error"
 		return p.handleError(err, "StopInstance")
 	}
 
@@ -185,11 +193,13 @@ func (p *AWSProvider) StopInstance(ctx context.Context, instanceID string, force
 // TerminateInstance terminates an EC2 instance.
 func (p *AWSProvider) TerminateInstance(ctx context.Context, instanceID string) error {
 	startTime := time.Now()
+	status := "success"
 	defer func() {
-		metrics.RecordCloudProviderCall("aws", "TerminateInstance", "success", time.Since(startTime).Seconds())
+		metrics.RecordCloudProviderCall("aws", "TerminateInstance", status, time.Since(startTime).Seconds())
 	}()
 
 	if err := p.rateLimiter.Wait(ctx, "TerminateInstances"); err != nil {
+		status = "error"
 		return err
 	}
 
@@ -197,7 +207,7 @@ func (p *AWSProvider) TerminateInstance(ctx context.Context, instanceID string) 
 		InstanceIds: []string{instanceID},
 	})
 	if err != nil {
-		metrics.RecordCloudProviderCall("aws", "TerminateInstance", "error", time.Since(startTime).Seconds())
+		status = "error"
 		return p.handleError(err, "TerminateInstance")
 	}
 
@@ -219,11 +229,13 @@ func (p *AWSProvider) GetInstanceState(ctx context.Context, instanceID string) (
 // GetInstance returns full details of an EC2 instance.
 func (p *AWSProvider) GetInstance(ctx context.Context, instanceID string) (*cloudprovider.Instance, error) {
 	startTime := time.Now()
+	status := "success"
 	defer func() {
-		metrics.RecordCloudProviderCall("aws", "GetInstance", "success", time.Since(startTime).Seconds())
+		metrics.RecordCloudProviderCall("aws", "GetInstance", status, time.Since(startTime).Seconds())
 	}()
 
 	if err := p.rateLimiter.Wait(ctx, "DescribeInstances"); err != nil {
+		status = "error"
 		return nil, err
 	}
 
@@ -231,7 +243,7 @@ func (p *AWSProvider) GetInstance(ctx context.Context, instanceID string) (*clou
 		InstanceIds: []string{instanceID},
 	})
 	if err != nil {
-		metrics.RecordCloudProviderCall("aws", "GetInstance", "error", time.Since(startTime).Seconds())
+		status = "error"
 		return nil, p.handleError(err, "GetInstance")
 	}
 
@@ -241,17 +253,20 @@ func (p *AWSProvider) GetInstance(ctx context.Context, instanceID string) (*clou
 		}
 	}
 
+	status = "error"
 	return nil, &cloudprovider.InstanceNotFoundError{InstanceID: instanceID}
 }
 
 // ListInstances returns instances matching the given tags.
 func (p *AWSProvider) ListInstances(ctx context.Context, tags map[string]string) ([]*cloudprovider.Instance, error) {
 	startTime := time.Now()
+	status := "success"
 	defer func() {
-		metrics.RecordCloudProviderCall("aws", "ListInstances", "success", time.Since(startTime).Seconds())
+		metrics.RecordCloudProviderCall("aws", "ListInstances", status, time.Since(startTime).Seconds())
 	}()
 
 	if err := p.rateLimiter.Wait(ctx, "DescribeInstances"); err != nil {
+		status = "error"
 		return nil, err
 	}
 
@@ -279,7 +294,7 @@ func (p *AWSProvider) ListInstances(ctx context.Context, tags map[string]string)
 	for paginator.HasMorePages() {
 		result, err := paginator.NextPage(ctx)
 		if err != nil {
-			metrics.RecordCloudProviderCall("aws", "ListInstances", "error", time.Since(startTime).Seconds())
+			status = "error"
 			return nil, p.handleError(err, "ListInstances")
 		}
 
@@ -296,11 +311,13 @@ func (p *AWSProvider) ListInstances(ctx context.Context, tags map[string]string)
 // UpdateInstanceTags updates tags on an EC2 instance.
 func (p *AWSProvider) UpdateInstanceTags(ctx context.Context, instanceID string, tags map[string]string) error {
 	startTime := time.Now()
+	status := "success"
 	defer func() {
-		metrics.RecordCloudProviderCall("aws", "UpdateInstanceTags", "success", time.Since(startTime).Seconds())
+		metrics.RecordCloudProviderCall("aws", "UpdateInstanceTags", status, time.Since(startTime).Seconds())
 	}()
 
 	if err := p.rateLimiter.Wait(ctx, "CreateTags"); err != nil {
+		status = "error"
 		return err
 	}
 
@@ -314,7 +331,7 @@ func (p *AWSProvider) UpdateInstanceTags(ctx context.Context, instanceID string,
 		Tags:      ec2Tags,
 	})
 	if err != nil {
-		metrics.RecordCloudProviderCall("aws", "UpdateInstanceTags", "error", time.Since(startTime).Seconds())
+		status = "error"
 		return p.handleError(err, "UpdateInstanceTags")
 	}
 
@@ -374,39 +391,19 @@ func (p *AWSProvider) convertState(state *types.InstanceState) cloudprovider.Ins
 
 // handleError converts AWS errors to cloudprovider errors.
 func (p *AWSProvider) handleError(err error, operation string) error {
-	// Check for specific error types
-	// AWS SDK v2 uses different error handling
 	errStr := err.Error()
 
-	if contains(errStr, "InvalidInstanceID.NotFound") {
+	if strings.Contains(errStr, "InvalidInstanceID.NotFound") {
 		return &cloudprovider.InstanceNotFoundError{InstanceID: "unknown"}
 	}
-
-	if contains(errStr, "Throttling") || contains(errStr, "RequestLimitExceeded") {
+	if strings.Contains(errStr, "Throttling") || strings.Contains(errStr, "RequestLimitExceeded") {
 		return &cloudprovider.RateLimitError{RetryAfter: time.Second * 5}
 	}
-
-	if contains(errStr, "InsufficientInstanceCapacity") {
-		return &cloudprovider.InsufficientCapacityError{
-			InstanceType: "unknown",
-		}
+	if strings.Contains(errStr, "InsufficientInstanceCapacity") {
+		return &cloudprovider.InsufficientCapacityError{InstanceType: "unknown"}
 	}
 
 	return fmt.Errorf("%s failed: %w", operation, err)
-}
-
-// contains checks if s contains substr.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 // Ensure AWSProvider implements CloudProvider interface.

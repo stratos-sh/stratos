@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"fmt"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -265,7 +266,7 @@ func makePods(n int, cpu, memory string) []corev1.Pod {
 	for i := 0; i < n; i++ {
 		pods[i] = corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-pod",
+				Name:      fmt.Sprintf("test-pod-%d", i),
 				Namespace: "default",
 			},
 			Spec: corev1.PodSpec{
@@ -293,7 +294,7 @@ func makePodsWithoutRequests(n int) []corev1.Pod {
 	for i := 0; i < n; i++ {
 		pods[i] = corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-pod-no-requests",
+				Name:      fmt.Sprintf("test-pod-no-requests-%d", i),
 				Namespace: "default",
 			},
 			Spec: corev1.PodSpec{

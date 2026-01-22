@@ -32,6 +32,9 @@ type FakeProvider struct {
 	instances map[string]*cloudprovider.Instance
 	counter   int
 
+	// wg tracks pending goroutines for state transitions
+	wg sync.WaitGroup
+
 	// Hooks for testing
 	LaunchHook    func(ctx context.Context, cfg *cloudprovider.LaunchConfig) error
 	StartHook     func(ctx context.Context, instanceID string) error
@@ -85,7 +88,9 @@ func (f *FakeProvider) LaunchInstance(ctx context.Context, cfg *cloudprovider.La
 	f.instances[instanceID] = instance
 
 	// Simulate instance becoming running after launch
+	f.wg.Add(1)
 	go func() {
+		defer f.wg.Done()
 		time.Sleep(100 * time.Millisecond)
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -124,7 +129,9 @@ func (f *FakeProvider) StartInstance(ctx context.Context, instanceID string) err
 	inst.State = cloudprovider.InstanceStatePending
 
 	// Simulate instance becoming running after start
+	f.wg.Add(1)
 	go func() {
+		defer f.wg.Done()
 		time.Sleep(100 * time.Millisecond)
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -163,7 +170,9 @@ func (f *FakeProvider) StopInstance(ctx context.Context, instanceID string, forc
 	inst.State = cloudprovider.InstanceStateStopping
 
 	// Simulate instance becoming stopped
+	f.wg.Add(1)
 	go func() {
+		defer f.wg.Done()
 		time.Sleep(100 * time.Millisecond)
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -194,7 +203,9 @@ func (f *FakeProvider) TerminateInstance(ctx context.Context, instanceID string)
 	inst.State = cloudprovider.InstanceStateShuttingDown
 
 	// Simulate instance becoming terminated
+	f.wg.Add(1)
 	go func() {
+		defer f.wg.Done()
 		time.Sleep(100 * time.Millisecond)
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -313,7 +324,11 @@ func (f *FakeProvider) GetAllInstances() []*cloudprovider.Instance {
 }
 
 // Reset clears all instances (for testing).
+// It waits for all pending state transition goroutines to complete first.
 func (f *FakeProvider) Reset() {
+	// Wait for all pending goroutines to complete
+	f.wg.Wait()
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.instances = make(map[string]*cloudprovider.Instance)

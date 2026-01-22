@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -753,16 +754,7 @@ func (m *NodeManager) adoptAndTransitionToStandby(ctx context.Context, pool *str
 func containsInstanceID(providerID, instanceID string) bool {
 	// AWS provider ID format: aws:///region/instance-id
 	return len(providerID) > 0 && len(instanceID) > 0 &&
-		(providerID == instanceID || containsString(providerID, instanceID))
-}
-
-func containsString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+		(providerID == instanceID || strings.Contains(providerID, instanceID))
 }
 
 // hasTaint checks if a taint with the given key exists in the slice.
