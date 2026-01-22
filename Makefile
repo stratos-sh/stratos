@@ -10,7 +10,7 @@ GOMOD=$(GOCMD) mod
 BINARY_NAME=stratos
 
 # Tool versions
-CONTROLLER_GEN_VERSION=v0.14.0
+CONTROLLER_GEN_VERSION=v0.16.5
 ENVTEST_VERSION=release-0.17
 
 # Build variables
