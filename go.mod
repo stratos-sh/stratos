@@ -5,7 +5,7 @@ go 1.25.5
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.279.2
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.280.0
 	github.com/onsi/ginkgo/v2 v2.27.5
 	github.com/onsi/gomega v1.39.0
 	github.com/prometheus/client_golang v1.23.2
