@@ -78,3 +78,8 @@ Stratos is currently in early development.
 ## License
 
 TBD
+
+  aws eks update-addon \
+    --cluster-name main \
+    --addon-name vpc-cni \
+    --configuration-values '{"env":{"TAINT_MANAGED":"true","TAINT_KEY":"node.eks.amazonaws.com/not-ready"}}'

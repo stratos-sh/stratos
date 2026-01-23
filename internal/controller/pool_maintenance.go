@@ -101,9 +101,45 @@ func (r *NodePoolReconciler) syncNodesWithCloud(ctx context.Context, nodePool *s
 
 	for i := range nodes {
 		node := &nodes[i]
-		if err := nodeMgr.SyncNodeState(ctx, node); err != nil {
+		if err := nodeMgr.SyncNodeState(ctx, nodePool, node); err != nil {
 			logger.Error(err, "Failed to sync node state", "node", node.Name)
 			// Continue with other nodes
+		}
+	}
+
+	return nil
+}
+
+// processRunningNodesStartupTaints processes startup taint removal for all running nodes in a pool.
+func (r *NodePoolReconciler) processRunningNodesStartupTaints(ctx context.Context, nodePool *stratosv1alpha1.NodePool, provider cloudprovider.CloudProvider) error {
+	logger := log.FromContext(ctx)
+
+	// Skip if no startup taints configured
+	if len(nodePool.Spec.Template.StartupTaints) == 0 {
+		return nil
+	}
+
+	nodes, err := r.getRunningNodes(ctx, nodePool.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get running nodes: %w", err)
+	}
+
+	if len(nodes) == 0 {
+		return nil
+	}
+
+	nodeMgr := NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
+
+	for i := range nodes {
+		node := &nodes[i]
+		removed, err := nodeMgr.ProcessStartupTaints(ctx, nodePool, node)
+		if err != nil {
+			logger.Error(err, "Failed to process startup taints", "node", node.Name)
+			// Continue with other nodes
+			continue
+		}
+		if removed {
+			logger.V(1).Info("Startup taints removed", "node", node.Name)
 		}
 	}
 

@@ -95,7 +95,7 @@ func (r *NodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Reconciling NodePool", "name", nodePool.Name, "generation", nodePool.Generation)
+	// logger.Info("Reconciling NodePool", "name", nodePool.Name, "generation", nodePool.Generation)
 
 	// Handle deletion
 	if nodePool.ObjectMeta.DeletionTimestamp != nil {
@@ -247,6 +247,10 @@ func (r *NodePoolReconciler) reconcileNodePool(ctx context.Context, nodePool *st
 		if err := r.monitorWarmupNodes(ctx, nodePool, provider); err != nil {
 			logger.Error(err, "Failed to monitor warmup nodes")
 		}
+		// Process startup taint removal for running nodes
+		if err := r.processRunningNodesStartupTaints(ctx, nodePool, provider); err != nil {
+			logger.Error(err, "Failed to process startup taints for running nodes")
+		}
 	}
 
 	// Clean up stale scale-up annotations (nodes that became Ready or past TTL)
@@ -260,12 +264,12 @@ func (r *NodePoolReconciler) reconcileNodePool(ctx context.Context, nodePool *st
 		return ctrl.Result{}, fmt.Errorf("failed to count nodes: %w", err)
 	}
 
-	logger.V(1).Info("Current node counts",
-		"warmup", warmup,
-		"standby", standby,
-		"running", running,
-		"terminating", terminating,
-	)
+	// logger.V(1).Info("Current node counts",
+	// 	"warmup", warmup,
+	// 	"standby", standby,
+	// 	"running", running,
+	// 	"terminating", terminating,
+	// )
 
 	// Update metrics
 	metrics.RecordNodeCounts(nodePool.Name, warmup, standby, running, terminating)

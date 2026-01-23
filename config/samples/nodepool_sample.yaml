@@ -1,3 +1,16 @@
+# Stratos NodePool Sample Configuration
+#
+# Startup Taints: Nodes register with a startup taint to prevent pod scheduling until
+# the CNI (AWS VPC CNI, Cilium, Calico, etc.) is fully ready. This prevents
+# "connection refused on port 50051" errors during pod sandbox creation.
+#
+# The startup taint in userData (--register-with-taints) MUST match the startupTaints
+# field in the NodePool spec. Stratos removes these taints when network conditions
+# indicate the CNI is ready:
+# - EKS: NetworkingReady=True condition (set by eks-node-monitoring-agent)
+# - Cilium: NetworkUnavailable=False with reason "CiliumIsUp"
+# - Calico: NetworkUnavailable=False with reason "CalicoIsUp"
+---
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
 metadata:
@@ -18,11 +31,21 @@ spec:
     labels:
       stratos.sh/pool: workers
       node-pool: workers
-    # Taints applied to managed nodes (optional)
+    # Taints applied to managed nodes (optional, permanent taints for workload isolation)
     taints:
       - key: stratos.sh/prewarmed
         value: "true"
         effect: NoSchedule
+    # Startup taints - must match --register-with-taints in userData
+    # Stratos removes these taints when the CNI is ready
+    startupTaints:
+      - key: node.eks.amazonaws.com/not-ready
+        value: "true"
+        effect: NoSchedule
+    # How startup taints are removed:
+    # - WhenNetworkReady (default): Stratos removes taints when network conditions indicate CNI ready
+    # - External: Stratos waits for taints to be removed by CNI plugin or external controller
+    startupTaintRemoval: WhenNetworkReady
     # Cloud provider configuration
     cloudProvider:
       provider: aws
@@ -40,7 +63,12 @@ spec:
         userData: |
           #!/bin/bash
           set -e
-          /etc/eks/bootstrap.sh my-cluster
+
+          # Register with startup taint to prevent pod scheduling until CNI is ready.
+          # IMPORTANT: This taint MUST match the startupTaints field in the NodePool spec.
+          # Stratos will remove this taint after verifying the CNI is ready.
+          /etc/eks/bootstrap.sh my-cluster \
+            --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
 
           # Wait for kubelet to be healthy
           # Note: We use the kubelet healthz endpoint because kubectl is not installed on EKS nodes
@@ -98,6 +126,11 @@ spec:
     labels:
       stratos.sh/pool: ci-runners
       purpose: ci
+    # Startup taints for CNI readiness
+    startupTaints:
+      - key: node.eks.amazonaws.com/not-ready
+        value: "true"
+        effect: NoSchedule
     cloudProvider:
       provider: aws
       aws:
@@ -109,3 +142,51 @@ spec:
         securityGroupIds:
           - sg-abcdefgh
         iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/ci-runner
+        userData: |
+          #!/bin/bash
+          set -e
+          # Startup taint MUST match startupTaints in spec
+          /etc/eks/bootstrap.sh my-cluster \
+            --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
+          until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do sleep 5; done
+          sleep 30
+          poweroff
+---
+# Example with Cilium CNI (External taint removal)
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: cilium-workers
+spec:
+  poolSize: 5
+  minStandby: 2
+  template:
+    labels:
+      stratos.sh/pool: cilium-workers
+    # Cilium-managed startup taint
+    startupTaints:
+      - key: node.cilium.io/agent-not-ready
+        value: "true"
+        effect: NoSchedule
+    # External mode: Cilium removes the taint when the agent is ready
+    startupTaintRemoval: External
+    cloudProvider:
+      provider: aws
+      aws:
+        region: us-west-2
+        instanceType: m5.large
+        ami: ami-0123456789abcdef0
+        subnetIds:
+          - subnet-abcdefgh
+        securityGroupIds:
+          - sg-abcdefgh
+        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/stratos-node
+        userData: |
+          #!/bin/bash
+          set -e
+          # Cilium removes this taint automatically when the agent is ready
+          /etc/eks/bootstrap.sh my-cluster \
+            --kubelet-extra-args '--register-with-taints=node.cilium.io/agent-not-ready=true:NoSchedule'
+          until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do sleep 5; done
+          sleep 30
+          poweroff

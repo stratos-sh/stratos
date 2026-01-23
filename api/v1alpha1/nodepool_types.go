@@ -67,15 +67,41 @@ type ScaleUpConfig struct {
 	DefaultPodResources *corev1.ResourceRequirements `json:"defaultPodResources,omitempty"`
 }
 
+// StartupTaintRemovalMode determines how startup taints are removed
+type StartupTaintRemovalMode string
+
+const (
+	// StartupTaintRemovalWhenNetworkReady - Stratos removes taints when network conditions indicate ready
+	StartupTaintRemovalWhenNetworkReady StartupTaintRemovalMode = "WhenNetworkReady"
+
+	// StartupTaintRemovalExternal - Stratos waits for external controller to remove taints
+	StartupTaintRemovalExternal StartupTaintRemovalMode = "External"
+)
+
 // NodeTemplate defines the template for nodes in this pool
 type NodeTemplate struct {
 	// Labels to apply to nodes
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 
-	// Taints to apply to nodes
+	// Taints to apply to nodes (permanent taints for workload isolation)
 	// +optional
 	Taints []corev1.Taint `json:"taints,omitempty"`
+
+	// StartupTaints are taints applied during node startup that block pod scheduling
+	// until the node is fully ready. These should match the taints configured in
+	// kubelet --register-with-taints. Stratos will remove these taints based on
+	// the StartupTaintRemoval mode.
+	// +optional
+	StartupTaints []corev1.Taint `json:"startupTaints,omitempty"`
+
+	// StartupTaintRemoval determines how startup taints are removed:
+	// - WhenNetworkReady (default): Stratos removes taints when network conditions indicate CNI is ready
+	// - External: Stratos waits for taints to be removed by CNI plugin or external controller
+	// +kubebuilder:validation:Enum=WhenNetworkReady;External
+	// +kubebuilder:default=WhenNetworkReady
+	// +optional
+	StartupTaintRemoval StartupTaintRemovalMode `json:"startupTaintRemoval,omitempty"`
 
 	// CloudProvider specifies the cloud provider configuration
 	CloudProvider CloudProviderConfig `json:"cloudProvider"`

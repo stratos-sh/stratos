@@ -233,8 +233,8 @@ func (m *NodeManager) MonitorWarmup(ctx context.Context, pool *stratosv1alpha1.N
 			metrics.RecordWarmupDuration(pool.Name, duration)
 		}
 
-		// Prepare node for standby (cordon + taint)
-		if err := m.prepareNodeForStandby(ctx, node); err != nil {
+		// Prepare node for standby (cordon + taint + re-add startup taints)
+		if err := m.prepareNodeForStandby(ctx, pool, node); err != nil {
 			return err
 		}
 
@@ -337,8 +337,9 @@ func (m *NodeManager) StartNode(ctx context.Context, pool *stratosv1alpha1.NodeP
 		return fmt.Errorf("node %s has no instance ID label", node.Name)
 	}
 
-	// Prepare node for running (uncordon + remove taint) before starting
-	if err := m.prepareNodeForRunning(ctx, node); err != nil {
+	// Prepare node for running (uncordon + remove standby taint) before starting
+	// Note: Startup taints are preserved and removed later after CNI is ready
+	if err := m.prepareNodeForRunning(ctx, pool, node); err != nil {
 		return err
 	}
 
@@ -392,8 +393,8 @@ func (m *NodeManager) StopNode(ctx context.Context, pool *stratosv1alpha1.NodePo
 		return fmt.Errorf("node %s has no instance ID label", node.Name)
 	}
 
-	// Prepare node for standby (cordon + taint) before stopping
-	if err := m.prepareNodeForStandby(ctx, node); err != nil {
+	// Prepare node for standby (cordon + taint + re-add startup taints) before stopping
+	if err := m.prepareNodeForStandby(ctx, pool, node); err != nil {
 		return err
 	}
 
@@ -470,7 +471,7 @@ func (m *NodeManager) GetRunningNodes(ctx context.Context, poolName string) ([]c
 }
 
 // SyncNodeState synchronizes the node state with the cloud provider instance state.
-func (m *NodeManager) SyncNodeState(ctx context.Context, node *corev1.Node) error {
+func (m *NodeManager) SyncNodeState(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node) error {
 	logger := log.FromContext(ctx)
 
 	instanceID := node.Labels[LabelInstanceID]
@@ -496,7 +497,7 @@ func (m *NodeManager) SyncNodeState(ctx context.Context, node *corev1.Node) erro
 	case cloudState == cloudprovider.InstanceStateStopped && nodeState == NodeStateRunning:
 		// Instance was stopped externally
 		logger.Info("Instance stopped externally, updating node state", "node", node.Name)
-		if err := m.prepareNodeForStandby(ctx, node); err != nil {
+		if err := m.prepareNodeForStandby(ctx, pool, node); err != nil {
 			return err
 		}
 		return m.TransitionState(ctx, node, NodeStateStandby)
@@ -504,8 +505,13 @@ func (m *NodeManager) SyncNodeState(ctx context.Context, node *corev1.Node) erro
 	case cloudState == cloudprovider.InstanceStateRunning && nodeState == NodeStateStandby:
 		// Instance was started externally
 		logger.Info("Instance started externally, updating node state", "node", node.Name)
-		if err := m.prepareNodeForRunning(ctx, node); err != nil {
+		if err := m.prepareNodeForRunning(ctx, pool, node); err != nil {
 			return err
+		}
+		// Set the last started annotation (for startup taint grace period tracking)
+		if err := m.setLastStartedAnnotation(ctx, node); err != nil {
+			logger.Error(err, "Failed to set last started annotation", "node", node.Name)
+			// Continue anyway - this is not fatal
 		}
 		return m.TransitionState(ctx, node, NodeStateRunning)
 	}
@@ -778,20 +784,43 @@ func removeTaint(taints []corev1.Taint, key string) []corev1.Taint {
 	return result
 }
 
-// prepareNodeForStandby cordons a node and adds the NoExecute standby taint.
-// This prevents scheduling and evicts any stale pods showing as running.
-func (m *NodeManager) prepareNodeForStandby(ctx context.Context, node *corev1.Node) error {
+// hasTaintWithKeyAndEffect checks if a taint with the given key and effect exists.
+func hasTaintWithKeyAndEffect(taints []corev1.Taint, key string, effect corev1.TaintEffect) bool {
+	for _, t := range taints {
+		if t.Key == key && t.Effect == effect {
+			return true
+		}
+	}
+	return false
+}
+
+// removeTaintByKeyAndEffect returns a new slice with the taint matching key and effect removed.
+func removeTaintByKeyAndEffect(taints []corev1.Taint, key string, effect corev1.TaintEffect) []corev1.Taint {
+	result := make([]corev1.Taint, 0, len(taints))
+	for _, t := range taints {
+		if t.Key != key || t.Effect != effect {
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
+// prepareNodeForStandby cordons a node, adds the NoExecute standby taint,
+// and re-adds any configured startup taints.
+// This prevents scheduling, evicts stale pods, and ensures startup taints
+// are present when the node starts from standby (since kubelet doesn't
+// re-apply --register-with-taints on restart).
+func (m *NodeManager) prepareNodeForStandby(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node) error {
 	logger := log.FromContext(ctx)
 
-	// Check if already cordoned and tainted
-	if node.Spec.Unschedulable && hasTaint(node.Spec.Taints, TaintKeyStandby) {
-		return nil
-	}
-
 	patch := client.MergeFrom(node.DeepCopy())
+	modified := false
 
 	// Cordon the node
-	node.Spec.Unschedulable = true
+	if !node.Spec.Unschedulable {
+		node.Spec.Unschedulable = true
+		modified = true
+	}
 
 	// Add standby taint if not present
 	if !hasTaint(node.Spec.Taints, TaintKeyStandby) {
@@ -799,19 +828,36 @@ func (m *NodeManager) prepareNodeForStandby(ctx context.Context, node *corev1.No
 			Key:    TaintKeyStandby,
 			Effect: corev1.TaintEffectNoExecute,
 		})
+		modified = true
+	}
+
+	// Re-add startup taints so they're present when node starts from standby.
+	// EKS removes these during warmup when CNI becomes ready, but kubelet
+	// doesn't re-apply --register-with-taints on restart from standby.
+	for _, st := range pool.Spec.Template.StartupTaints {
+		if !hasTaintWithKeyAndEffect(node.Spec.Taints, st.Key, st.Effect) {
+			node.Spec.Taints = append(node.Spec.Taints, st)
+			modified = true
+		}
+	}
+
+	if !modified {
+		return nil
 	}
 
 	if err := m.client.Patch(ctx, node, patch); err != nil {
-		return fmt.Errorf("failed to cordon and taint node: %w", err)
+		return fmt.Errorf("failed to prepare node for standby: %w", err)
 	}
 
-	logger.Info("Prepared node for standby (cordoned + tainted)", "node", node.Name)
+	logger.Info("Prepared node for standby (cordoned + tainted)",
+		"node", node.Name, "startupTaintsAdded", len(pool.Spec.Template.StartupTaints))
 	return nil
 }
 
 // prepareNodeForRunning uncordons a node and removes the standby taint.
-// This allows the node to accept new pods.
-func (m *NodeManager) prepareNodeForRunning(ctx context.Context, node *corev1.Node) error {
+// Startup taints are preserved and will be removed later by ProcessStartupTaints
+// after the CNI is ready.
+func (m *NodeManager) prepareNodeForRunning(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node) error {
 	logger := log.FromContext(ctx)
 
 	// Check if already uncordoned and untainted
@@ -827,12 +873,32 @@ func (m *NodeManager) prepareNodeForRunning(ctx context.Context, node *corev1.No
 	// Remove standby taint if present
 	node.Spec.Taints = removeTaint(node.Spec.Taints, TaintKeyStandby)
 
+	// NOTE: Do NOT remove startup taints here
+	// They will be removed by ProcessStartupTaints() after CNI is ready
+
 	if err := m.client.Patch(ctx, node, patch); err != nil {
 		return fmt.Errorf("failed to uncordon and untaint node: %w", err)
 	}
 
-	logger.Info("Prepared node for running (uncordoned + untainted)", "node", node.Name)
+	hasStartupTaints := len(pool.Spec.Template.StartupTaints) > 0
+	logger.Info("Prepared node for running (uncordoned + standby taint removed)",
+		"node", node.Name, "hasStartupTaints", hasStartupTaints)
 	return nil
+}
+
+// setLastStartedAnnotation sets the AnnotationLastStarted annotation on a node if not already set.
+// This is used for tracking when the node started (for startup taint grace period).
+func (m *NodeManager) setLastStartedAnnotation(ctx context.Context, node *corev1.Node) error {
+	// Only set if not already present (allows pre-setting for tests or manual override)
+	if node.Annotations != nil && node.Annotations[AnnotationLastStarted] != "" {
+		return nil
+	}
+	patch := client.MergeFrom(node.DeepCopy())
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
+	}
+	node.Annotations[AnnotationLastStarted] = time.Now().Format(time.RFC3339)
+	return m.client.Patch(ctx, node, patch)
 }
 
 // parseUnixTimestamp parses a Unix timestamp string and returns the corresponding time.
@@ -846,4 +912,194 @@ func parseUnixTimestamp(ts string) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(unix, 0)
+}
+
+// ProcessStartupTaints handles startup taint removal based on the configured mode.
+// Returns (removed, error) where removed is true ONLY if we actually removed taints this call.
+// Returns false if taints are already gone, waiting for conditions, or in External mode.
+func (m *NodeManager) ProcessStartupTaints(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node) (bool, error) {
+	logger := log.FromContext(ctx)
+	startupTaints := pool.Spec.Template.StartupTaints
+	if len(startupTaints) == 0 {
+		return false, nil // No startup taints configured
+	}
+
+	// Check if node still has any startup taints
+	hasStartupTaints := m.nodeHasStartupTaints(node, startupTaints)
+	if !hasStartupTaints {
+		return false, nil // Already removed (by Stratos or external controller)
+	}
+
+	removalMode := pool.Spec.Template.StartupTaintRemoval
+	if removalMode == "" {
+		removalMode = stratosv1alpha1.StartupTaintRemovalWhenNetworkReady // default
+	}
+
+	// Get the node start time for timeout check
+	startedAt := m.getNodeStartTime(node)
+
+	// Check for timeout
+	timedOut := !startedAt.IsZero() && time.Since(startedAt) > StartupTaintRemovalTimeout
+	if timedOut {
+		return m.handleStartupTaintTimeout(ctx, pool, node, removalMode, startedAt)
+	}
+
+	switch removalMode {
+	case stratosv1alpha1.StartupTaintRemovalWhenNetworkReady:
+		return m.removeStartupTaintsWhenNetworkReady(ctx, pool, node, startupTaints, startedAt)
+
+	case stratosv1alpha1.StartupTaintRemovalExternal:
+		// In External mode, just log that we're waiting
+		// We don't remove them - external controller should
+		logger.V(1).Info("Waiting for external controller to remove startup taints",
+			"node", node.Name, "mode", "External")
+		return false, nil
+	}
+
+	return false, nil
+}
+
+// nodeHasStartupTaints checks if the node has any of the configured startup taints.
+func (m *NodeManager) nodeHasStartupTaints(node *corev1.Node, startupTaints []corev1.Taint) bool {
+	for _, st := range startupTaints {
+		if hasTaintWithKeyAndEffect(node.Spec.Taints, st.Key, st.Effect) {
+			return true
+		}
+	}
+	return false
+}
+
+// getNodeStartTime returns the time the node was started (from annotation).
+// Returns zero time if annotation is missing or invalid.
+func (m *NodeManager) getNodeStartTime(node *corev1.Node) time.Time {
+	startedAtStr := node.Annotations[AnnotationLastStarted]
+	if startedAtStr == "" {
+		return time.Time{}
+	}
+
+	startedAt, err := time.Parse(time.RFC3339, startedAtStr)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return startedAt
+}
+
+// checkStartupTaintTimeout checks if the node has exceeded the startup taint removal timeout.
+// Returns (timedOut, startedAt) where startedAt is the time the node was started.
+func (m *NodeManager) checkStartupTaintTimeout(node *corev1.Node) (bool, time.Time) {
+	startedAt := m.getNodeStartTime(node)
+	if startedAt.IsZero() {
+		return false, time.Time{}
+	}
+	return time.Since(startedAt) > StartupTaintRemovalTimeout, startedAt
+}
+
+// handleStartupTaintTimeout handles the case where startup taint removal has timed out.
+func (m *NodeManager) handleStartupTaintTimeout(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node, mode stratosv1alpha1.StartupTaintRemovalMode, startedAt time.Time) (bool, error) {
+	logger := log.FromContext(ctx)
+
+	switch mode {
+	case stratosv1alpha1.StartupTaintRemovalWhenNetworkReady:
+		// In WhenNetworkReady mode, force remove taints after timeout
+		logger.Info("Startup taint timeout, removing taints despite CNI not ready",
+			"node", node.Name, "timeout", StartupTaintRemovalTimeout)
+
+		// Emit warning event
+		if m.recorder != nil {
+			m.recorder.Eventf(pool, corev1.EventTypeWarning, "StartupTaintTimeout",
+				"Node %s startup taints removed after timeout (CNI may not be ready)", node.Name)
+		}
+
+		if err := m.forceRemoveStartupTaints(ctx, pool, node); err != nil {
+			metrics.RecordStartupTaintRemoval(pool.Name, "timeout", "error")
+			return false, err
+		}
+
+		// Record metrics
+		if !startedAt.IsZero() {
+			metrics.RecordStartupTaintDuration(pool.Name, time.Since(startedAt).Seconds())
+		}
+		metrics.RecordStartupTaintRemoval(pool.Name, "timeout", "success")
+		return true, nil
+
+	case stratosv1alpha1.StartupTaintRemovalExternal:
+		// In External mode, emit warning but do NOT remove taints
+		logger.Info("Startup taint timeout in External mode, waiting for external controller",
+			"node", node.Name, "timeout", StartupTaintRemovalTimeout)
+
+		if m.recorder != nil {
+			m.recorder.Eventf(pool, corev1.EventTypeWarning, "StartupTaintTimeoutExternal",
+				"Node %s waiting for external controller to remove startup taints (timeout exceeded)", node.Name)
+		}
+		return false, nil
+	}
+
+	return false, nil
+}
+
+// removeStartupTaintsWhenNetworkReady removes startup taints when CNI is actually ready.
+// For EKS, we check both the NetworkingReady condition AND the aws-node pod status,
+// because the condition may be stale after node restart while the pod status is accurate.
+// For other CNIs (Cilium, Calico), we trust the NetworkUnavailable condition.
+func (m *NodeManager) removeStartupTaintsWhenNetworkReady(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node, startupTaints []corev1.Taint, startedAt time.Time) (bool, error) {
+	logger := log.FromContext(ctx)
+
+	checker := NewNetworkReadinessChecker(m.client)
+
+	// First check node conditions (fast, works for all CNIs)
+	if !checker.IsReady(node) {
+		logger.V(1).Info("Network not ready (node condition), waiting to remove startup taints", "node", node.Name)
+		return false, nil
+	}
+
+	// For EKS (detected by presence of NetworkingReady condition), also verify
+	// aws-node pod is Ready. This is needed because NetworkingReady may be stale
+	// after node restart, but aws-node pod only becomes Ready when IPAMD is listening.
+	if checker.HasNetworkingReadyCondition(node) && !checker.IsAwsNodePodReady(ctx, node.Name) {
+		logger.V(1).Info("Network not ready (aws-node pod not ready), waiting to remove startup taints", "node", node.Name)
+		return false, nil
+	}
+
+	reason := checker.GetNetworkConditionReason(node)
+
+	// Network is ready with fresh condition - remove startup taints
+	logger.Info("Network ready, removing startup taints", "node", node.Name, "reason", reason)
+
+	patch := client.MergeFrom(node.DeepCopy())
+	for _, st := range startupTaints {
+		node.Spec.Taints = removeTaintByKeyAndEffect(node.Spec.Taints, st.Key, st.Effect)
+	}
+	if err := m.client.Patch(ctx, node, patch); err != nil {
+		metrics.RecordStartupTaintRemoval(pool.Name, "network_ready", "error")
+		return false, fmt.Errorf("failed to remove startup taints: %w", err)
+	}
+
+	// Record metrics
+	if !startedAt.IsZero() {
+		metrics.RecordStartupTaintDuration(pool.Name, time.Since(startedAt).Seconds())
+	}
+	metrics.RecordStartupTaintRemoval(pool.Name, "network_ready", "success")
+
+	// Emit event
+	if m.recorder != nil {
+		m.recorder.Eventf(pool, corev1.EventTypeNormal, "StartupTaintsRemoved",
+			"Removed startup taints from node %s after network ready (%s)", node.Name, reason)
+	}
+
+	return true, nil
+}
+
+// forceRemoveStartupTaints forcibly removes all startup taints from a node.
+func (m *NodeManager) forceRemoveStartupTaints(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node) error {
+	startupTaints := pool.Spec.Template.StartupTaints
+	if len(startupTaints) == 0 {
+		return nil
+	}
+
+	patch := client.MergeFrom(node.DeepCopy())
+	for _, st := range startupTaints {
+		node.Spec.Taints = removeTaintByKeyAndEffect(node.Spec.Taints, st.Key, st.Effect)
+	}
+	return m.client.Patch(ctx, node, patch)
 }

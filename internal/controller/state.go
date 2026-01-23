@@ -20,6 +20,8 @@ package controller
 import (
 	"fmt"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // NodeState represents the lifecycle state of a Stratos-managed node.
@@ -78,6 +80,18 @@ const (
 	// ScaleUpStartedTTL is how long to consider a node as "starting" for in-flight tracking.
 	// After this duration, the annotation is considered stale and will be ignored/cleared.
 	ScaleUpStartedTTL = 60 * time.Second
+)
+
+// Startup taint constants
+const (
+	// StartupTaintRemovalTimeout is how long to wait for CNI readiness before timing out.
+	// After this duration, startup taints are forcibly removed (WhenNetworkReady mode)
+	// or a warning is emitted (External mode).
+	StartupTaintRemovalTimeout = 2 * time.Minute
+
+// NetworkingReadyCondition is the EKS-specific condition type set by eks-node-monitoring-agent
+	// when the VPC CNI IPAMD is connected and networking is functional.
+	NetworkingReadyCondition corev1.NodeConditionType = "NetworkingReady"
 )
 
 // Taints used for Stratos-managed nodes

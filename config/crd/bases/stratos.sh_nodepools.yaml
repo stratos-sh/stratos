@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.0
+    controller-gen.kubebuilder.io/version: v0.16.5
   name: nodepools.stratos.sh
 spec:
   group: stratos.sh
@@ -125,6 +125,73 @@ spec:
                       Default: true
                     type: boolean
                 type: object
+              scaleUp:
+                description: ScaleUp configures scale-up behavior including resource-based
+                  calculation
+                properties:
+                  defaultPodResources:
+                    description: |-
+                      DefaultPodResources specifies default resource requests for pods
+                      that don't have explicit requests. Used in scale-up calculations
+                      to estimate how many nodes are needed.
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This field depends on the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                type: object
               template:
                 description: Template defines the node template for this pool
                 properties:
@@ -232,8 +299,54 @@ spec:
                       type: string
                     description: Labels to apply to nodes
                     type: object
+                  startupTaintRemoval:
+                    default: WhenNetworkReady
+                    description: |-
+                      StartupTaintRemoval determines how startup taints are removed:
+                      - WhenNetworkReady (default): Stratos removes taints when network conditions indicate CNI is ready
+                      - External: Stratos waits for taints to be removed by CNI plugin or external controller
+                    enum:
+                    - WhenNetworkReady
+                    - External
+                    type: string
+                  startupTaints:
+                    description: |-
+                      StartupTaints are taints applied during node startup that block pod scheduling
+                      until the node is fully ready. These should match the taints configured in
+                      kubelet --register-with-taints. Stratos will remove these taints based on
+                      the StartupTaintRemoval mode.
+                    items:
+                      description: |-
+                        The node this Taint is attached to has the "effect" on
+                        any pod that does not tolerate the Taint.
+                      properties:
+                        effect:
+                          description: |-
+                            Required. The effect of the taint on pods
+                            that do not tolerate the taint.
+                            Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
+                          type: string
+                        key:
+                          description: Required. The taint key to be applied to a
+                            node.
+                          type: string
+                        timeAdded:
+                          description: TimeAdded represents the time at which the
+                            taint was added.
+                          format: date-time
+                          type: string
+                        value:
+                          description: The taint value corresponding to the taint
+                            key.
+                          type: string
+                      required:
+                      - effect
+                      - key
+                      type: object
+                    type: array
                   taints:
-                    description: Taints to apply to nodes
+                    description: Taints to apply to nodes (permanent taints for workload
+                      isolation)
                     items:
                       description: |-
                         The node this Taint is attached to has the "effect" on

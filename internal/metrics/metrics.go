@@ -185,6 +185,29 @@ var (
 		},
 		[]string{"provider", "operation"},
 	)
+
+	// StartupTaintRemovalTotal tracks the total number of startup taint removals.
+	StartupTaintRemovalTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "startup_taint_removal_total",
+			Help:      "Total startup taint removals by trigger (network_ready, timeout, external)",
+		},
+		[]string{"pool", "trigger", "result"},
+	)
+
+	// StartupTaintDuration tracks the duration from node start to startup taint removal.
+	StartupTaintDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "startup_taint_duration_seconds",
+			Help:      "Time from node start to startup taint removal",
+			Buckets:   []float64{5, 10, 15, 30, 60, 120, 180},
+		},
+		[]string{"pool"},
+	)
 )
 
 func init() {
@@ -204,6 +227,8 @@ func init() {
 		ReconciliationErrors,
 		CloudProviderCalls,
 		CloudProviderLatency,
+		StartupTaintRemovalTotal,
+		StartupTaintDuration,
 	)
 }
 
@@ -281,4 +306,16 @@ func CleanupPoolMetrics(pool string) {
 	StartingNodes.DeleteLabelValues(pool)
 	DesiredStandby.DeleteLabelValues(pool)
 	PoolSize.DeleteLabelValues(pool)
+}
+
+// RecordStartupTaintRemoval records a startup taint removal operation.
+// trigger is the reason for removal: "network_ready", "timeout", or "external"
+// result is "success" or "error"
+func RecordStartupTaintRemoval(pool, trigger, result string) {
+	StartupTaintRemovalTotal.WithLabelValues(pool, trigger, result).Inc()
+}
+
+// RecordStartupTaintDuration records the duration from node start to startup taint removal.
+func RecordStartupTaintDuration(pool string, durationSeconds float64) {
+	StartupTaintDuration.WithLabelValues(pool).Observe(durationSeconds)
 }

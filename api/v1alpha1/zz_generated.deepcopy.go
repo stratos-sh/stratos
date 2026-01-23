@@ -241,6 +241,13 @@ func (in *NodeTemplate) DeepCopyInto(out *NodeTemplate) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.StartupTaints != nil {
+		in, out := &in.StartupTaints, &out.StartupTaints
+		*out = make([]corev1.Taint, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	in.CloudProvider.DeepCopyInto(&out.CloudProvider)
 }
 
