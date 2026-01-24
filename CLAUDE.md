@@ -65,19 +65,26 @@ api/v1alpha1/                 # NodePool CRD types (kubebuilder markers for RBAC
 internal/
 ├── controller/               # Kubernetes reconcilers
 │   ├── nodepool_controller.go    # Main reconciliation loop
-│   └── pod_watcher.go            # Detects pending pods for scale-up
+│   ├── pod_watcher.go            # Detects pending pods for scale-up
+│   ├── state.go                  # Node state machine with valid transitions
+│   ├── scale_up.go               # Scale-up logic (standby → running)
+│   ├── scale_down.go             # Scale-down logic (drain, stop)
+│   ├── scale_calculator.go       # Pod-to-node capacity calculation
+│   ├── pool_maintenance.go       # Pool maintenance operations
+│   └── network_readiness.go      # CNI readiness detection
 ├── cloudprovider/            # Cloud abstraction layer
 │   ├── interface.go              # CloudProvider interface (all cloud ops go through this)
-│   ├── aws/provider.go           # AWS EC2 implementation with rate limiting
-│   └── fake/provider.go          # Mock provider for testing
-├── nodemanager/              # Node lifecycle (state transitions, labels)
-├── drain/                    # Graceful node eviction (respects PDBs)
+│   ├── types.go                  # Cloud-agnostic types (LaunchConfig, Instance, errors)
+│   ├── factory.go                # Provider factory (creates aws/fake based on config)
+│   ├── aws/provider.go           # AWS EC2 implementation
+│   ├── aws/ratelimit.go          # AWS API rate limiting
+│   ├── aws/instance_types.go     # Instance type → capacity mapping
+│   └── fake/provider.go          # Mock provider for testing (with hooks)
 └── metrics/                  # Prometheus metrics
 config/
 ├── crd/bases/                # Generated CRD manifests
 ├── rbac/                     # Generated RBAC manifests
 └── samples/                  # Example NodePool resources
-specs/001-instance-pool-manager/  # Feature specification and design docs
 ```
 
 **Key patterns:**
@@ -85,6 +92,33 @@ specs/001-instance-pool-manager/  # Feature specification and design docs
 - CloudProvider interface abstracts all instance operations (launch, start, stop, terminate)
 - Use fake provider for local development: `--cloud-provider=fake`
 - Node state tracked via labels: `stratos.sh/pool`, `stratos.sh/state`
+
+### Node State Machine
+
+```
+warmup → standby → running → terminating
+```
+
+- **warmup**: Instance launched, running user data script, will self-stop when ready (10min timeout)
+- **standby**: Instance stopped, ready for instant start (seconds vs minutes)
+- **running**: Active node with pods scheduled
+- **terminating**: Node draining (respects PodDisruptionBudgets), then stops
+
+State transitions are defined in `internal/controller/state.go` with explicit validation.
+
+### Labels & Tags
+
+**Kubernetes Node Labels** (set by controller):
+- `stratos.sh/pool`: Pool name managing this node
+- `stratos.sh/state`: Current state (warmup/standby/running/terminating)
+- `stratos.sh/instance-id`: Cloud instance ID
+- `stratos.sh/state-since`: Timestamp when state changed
+
+**Cloud Instance Tags** (for discovery and sync):
+- `managed-by`: "stratos"
+- `stratos.sh/pool`: Pool name
+- `stratos.sh/cluster`: Cluster identifier
+- `stratos.sh/state`: Current state
 
 ## Key Controller Flags
 
@@ -116,7 +150,19 @@ The controller process appears as `main --cluster-name=...` in the process list,
 
 ## Linting
 
-golangci-lint configured with: errcheck, gosimple, govet (shadow, nilness), staticcheck, unused, gosec, gocyclo (min: 15), misspell. Test files excluded from gocyclo, errcheck, gosec.
+golangci-lint configured with: errcheck, gosimple, govet (shadow, nilness), ineffassign, staticcheck, unused, gosec, gocyclo (min: 15), misspell. Test files excluded from gocyclo, errcheck, gosec.
+
+## Testing Patterns
+
+- **Unit tests**: Standard Go tests in `*_test.go` files alongside source
+- **Integration tests**: Use `envtest` (in-memory K8s API server) in `tests/integration/`
+- **Fake provider**: `internal/cloudprovider/fake/provider.go` supports hooks for intercepting cloud operations
+- **BDD style**: Integration tests use Ginkgo/Gomega for readable assertions
+
+```bash
+# Run specific integration test
+go test -v -tags=integration -run TestNodePoolLifecycle ./tests/integration/...
+```
 
 ## Context7 MCP
 
