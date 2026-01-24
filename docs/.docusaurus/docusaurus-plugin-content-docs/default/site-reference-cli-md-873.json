@@ -1,0 +1,29 @@
+{
+  "id": "reference/cli",
+  "title": "CLI Reference",
+  "description": "Stratos controller command-line flags reference",
+  "source": "@site/reference/cli.md",
+  "sourceDirName": "reference",
+  "slug": "/reference/cli",
+  "permalink": "/reference/cli",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/stratos-sh/stratos/tree/main/docs/reference/cli.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 2,
+  "frontMatter": {
+    "sidebar_position": 2,
+    "title": "CLI Reference",
+    "description": "Stratos controller command-line flags reference"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "NodePool",
+    "permalink": "/reference/api/nodepool"
+  },
+  "next": {
+    "title": "Labels and Annotations",
+    "permalink": "/reference/labels-annotations"
+  }
+}

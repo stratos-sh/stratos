@@ -1,0 +1,29 @@
+{
+  "id": "guides/monitoring",
+  "title": "Monitoring",
+  "description": "Monitor Stratos with Prometheus metrics and alerts",
+  "source": "@site/guides/monitoring.md",
+  "sourceDirName": "guides",
+  "slug": "/guides/monitoring",
+  "permalink": "/guides/monitoring",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/stratos-sh/stratos/tree/main/docs/guides/monitoring.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 3,
+  "frontMatter": {
+    "sidebar_position": 3,
+    "title": "Monitoring",
+    "description": "Monitor Stratos with Prometheus metrics and alerts"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Scaling Policies",
+    "permalink": "/guides/scaling-policies"
+  },
+  "next": {
+    "title": "Reference",
+    "permalink": "/category/reference"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "development/testing",
+  "title": "Testing",
+  "description": "Testing patterns and practices for Stratos",
+  "source": "@site/development/testing.md",
+  "sourceDirName": "development",
+  "slug": "/development/testing",
+  "permalink": "/development/testing",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/stratos-sh/stratos/tree/main/docs/development/testing.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 3,
+  "frontMatter": {
+    "sidebar_position": 3,
+    "title": "Testing",
+    "description": "Testing patterns and practices for Stratos"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Local Development",
+    "permalink": "/development/local-development"
+  }
+}

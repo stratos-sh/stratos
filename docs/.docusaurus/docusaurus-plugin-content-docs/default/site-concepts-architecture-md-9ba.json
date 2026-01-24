@@ -1,0 +1,29 @@
+{
+  "id": "concepts/architecture",
+  "title": "Architecture",
+  "description": "Understand the Stratos system architecture and components",
+  "source": "@site/concepts/architecture.md",
+  "sourceDirName": "concepts",
+  "slug": "/concepts/architecture",
+  "permalink": "/concepts/architecture",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/stratos-sh/stratos/tree/main/docs/concepts/architecture.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 1,
+  "frontMatter": {
+    "sidebar_position": 1,
+    "title": "Architecture",
+    "description": "Understand the Stratos system architecture and components"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Concepts",
+    "permalink": "/category/concepts"
+  },
+  "next": {
+    "title": "Node Lifecycle",
+    "permalink": "/concepts/node-lifecycle"
+  }
+}

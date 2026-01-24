@@ -1,0 +1,26 @@
+{
+  "id": "intro",
+  "title": "Introduction",
+  "description": "Stratos is a Kubernetes operator that eliminates cloud instance cold-start delays by maintaining pools of pre-warmed, stopped instances.",
+  "source": "@site/intro.md",
+  "sourceDirName": ".",
+  "slug": "/",
+  "permalink": "/",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/stratos-sh/stratos/tree/main/docs/intro.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 1,
+  "frontMatter": {
+    "sidebar_position": 1,
+    "title": "Introduction",
+    "description": "Stratos is a Kubernetes operator that eliminates cloud instance cold-start delays by maintaining pools of pre-warmed, stopped instances.",
+    "slug": "/"
+  },
+  "sidebar": "docs",
+  "next": {
+    "title": "Getting Started",
+    "permalink": "/category/getting-started"
+  }
+}

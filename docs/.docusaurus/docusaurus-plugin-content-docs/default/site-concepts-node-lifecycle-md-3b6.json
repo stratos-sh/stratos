@@ -1,0 +1,29 @@
+{
+  "id": "concepts/node-lifecycle",
+  "title": "Node Lifecycle",
+  "description": "Understand the Stratos node state machine and lifecycle",
+  "source": "@site/concepts/node-lifecycle.md",
+  "sourceDirName": "concepts",
+  "slug": "/concepts/node-lifecycle",
+  "permalink": "/concepts/node-lifecycle",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/stratos-sh/stratos/tree/main/docs/concepts/node-lifecycle.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 2,
+  "frontMatter": {
+    "sidebar_position": 2,
+    "title": "Node Lifecycle",
+    "description": "Understand the Stratos node state machine and lifecycle"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Architecture",
+    "permalink": "/concepts/architecture"
+  },
+  "next": {
+    "title": "Cloud Providers",
+    "permalink": "/concepts/cloud-providers"
+  }
+}

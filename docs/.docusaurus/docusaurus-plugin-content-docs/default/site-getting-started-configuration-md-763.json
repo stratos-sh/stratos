@@ -1,0 +1,29 @@
+{
+  "id": "getting-started/configuration",
+  "title": "Configuration",
+  "description": "Configure the Stratos controller",
+  "source": "@site/getting-started/configuration.md",
+  "sourceDirName": "getting-started",
+  "slug": "/getting-started/configuration",
+  "permalink": "/getting-started/configuration",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/stratos-sh/stratos/tree/main/docs/getting-started/configuration.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 2,
+  "frontMatter": {
+    "sidebar_position": 2,
+    "title": "Configuration",
+    "description": "Configure the Stratos controller"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "Installation",
+    "permalink": "/getting-started/installation"
+  },
+  "next": {
+    "title": "First NodePool",
+    "permalink": "/getting-started/first-nodepool"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "guides/scaling-policies",
+  "title": "Scaling Policies",
+  "description": "Configure Stratos scaling behavior",
+  "source": "@site/guides/scaling-policies.md",
+  "sourceDirName": "guides",
+  "slug": "/guides/scaling-policies",
+  "permalink": "/guides/scaling-policies",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/stratos-sh/stratos/tree/main/docs/guides/scaling-policies.md",
+  "tags": [],
+  "version": "current",
+  "sidebarPosition": 2,
+  "frontMatter": {
+    "sidebar_position": 2,
+    "title": "Scaling Policies",
+    "description": "Configure Stratos scaling behavior"
+  },
+  "sidebar": "docs",
+  "previous": {
+    "title": "AWS Setup",
+    "permalink": "/guides/aws-setup"
+  },
+  "next": {
+    "title": "Monitoring",
+    "permalink": "/guides/monitoring"
+  }
+}
