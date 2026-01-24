@@ -95,6 +95,19 @@ When `completionMode: ControllerStop`, Stratos stops the instance when:
 
 This ensures the node is fully initialized before stopping.
 
+> **Note**: The `startupTaintRemoval: WhenNetworkReady` setting is reused to determine whether ControllerStop mode should wait for network readiness before stopping. This provides consistent behavior - if you want taints removed only after network is ready, you likely also want the warmup to complete only after network is ready.
+
+### Monitoring Function Ownership
+
+**`MonitorWarmup`** is the sole owner of the ControllerStop logic. It has access to the node object and handles the decision to stop.
+
+**`MonitorCloudWarmup`** handles instances that exist in EC2 but may not have a K8s node yet. Its only responsibility in ControllerStop mode is to ensure the node is labeled correctly. The actual stop decision is delegated to `MonitorWarmup` via the normal reconciliation cycle.
+
+This separation ensures:
+- Clear ownership of the stop logic
+- No duplicate stop attempts
+- Consistent behavior regardless of which function processes the node first
+
 ## Alternatives Considered
 
 1. **Bootstrap containers for Bottlerocket**: Works but adds complexity (need to build/host container image, configure in TOML).
