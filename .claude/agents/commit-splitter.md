@@ -108,6 +108,21 @@ all updates for today
 - Review the diff one more time before each commit
 - If unsure about grouping, ask the user for clarification
 
+## Output Format
+
+**IMPORTANT**: Always end your response with a summary table showing all commits created:
+
+```markdown
+| Commit | Message |
+|--------|---------|
+| `abc1234` | feat: short commit message |
+| `def5678` | fix: another commit message |
+```
+
+This table must include:
+- **Commit**: The short SHA (7 characters) wrapped in backticks
+- **Message**: The full commit message (type + description)
+
 ## Project-Specific Considerations
 
 If working in a project with a CLAUDE.md or similar configuration:
