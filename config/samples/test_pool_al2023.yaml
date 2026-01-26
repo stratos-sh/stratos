@@ -6,12 +6,16 @@ spec:
   minStandby: 2
   poolSize: 2
   preWarm:
+    # completionMode: SelfStop (default) - Instance self-stops via userdata script
+    # completionMode: ControllerStop - Stratos stops instance when node is Ready
+    #   Use ControllerStop for OS images that can't run shutdown scripts
+    #   (e.g., Bottlerocket with TOML-only configuration)
     timeout: 10m0s
     timeoutAction: stop
   reconciliationInterval: 30s
   scaleDown:
-    drainTimeout: 2m0s
-    emptyNodeTTL: 2m0s
+    drainTimeout: 1m0s
+    emptyNodeTTL: 1m0s
     enabled: true
   template:
     cloudProvider:
