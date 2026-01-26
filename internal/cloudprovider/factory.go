@@ -20,11 +20,11 @@ package cloudprovider
 import (
 	"context"
 	"fmt"
-
-	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 )
 
 // ProviderFactory creates cloud provider instances.
+// Note: With the NodeClass-based architecture, the controller creates providers directly
+// based on the NodeClassRef.Kind. This factory is kept for potential future use.
 type ProviderFactory struct {
 	// providers caches provider instances by key (provider-region)
 	providers map[string]CloudProvider
@@ -44,9 +44,6 @@ type ProviderConfig struct {
 
 	// Region is the cloud provider region (for AWS)
 	Region string
-
-	// AWS-specific configuration
-	AWS *stratosv1alpha1.AWSConfig
 }
 
 // GetProvider returns a cloud provider based on the configuration.
@@ -101,27 +98,4 @@ func (f *ProviderFactory) createAWSProvider(ctx context.Context, cfg *ProviderCo
 func (f *ProviderFactory) createFakeProvider() (CloudProvider, error) {
 	// Note: The actual Fake provider is created in the fake subpackage.
 	return nil, fmt.Errorf("use fake.NewFakeProvider directly for fake provider")
-}
-
-// NewProviderFromNodePool creates a cloud provider from a NodePool's configuration.
-func NewProviderFromNodePool(ctx context.Context, pool *stratosv1alpha1.NodePool) (CloudProvider, error) {
-	cpCfg := pool.Spec.Template.CloudProvider
-	if cpCfg.Provider == "" {
-		return nil, fmt.Errorf("cloud provider not specified in NodePool")
-	}
-
-	cfg := &ProviderConfig{
-		Provider: cpCfg.Provider,
-		AWS:      cpCfg.AWS,
-	}
-
-	// Set region from AWS config if available
-	if cpCfg.AWS != nil && cpCfg.AWS.Region != "" {
-		cfg.Region = cpCfg.AWS.Region
-	}
-
-	// For AWS, we need to create the provider directly
-	// This is a placeholder - the actual creation happens in the controller
-	// which has access to the aws package
-	return nil, fmt.Errorf("provider creation not supported via factory, use specific provider package")
 }

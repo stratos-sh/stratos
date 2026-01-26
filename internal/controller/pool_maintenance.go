@@ -22,6 +22,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -191,7 +192,7 @@ func (r *NodePoolReconciler) monitorCloudWarmupInstances(ctx context.Context, no
 		return nil
 	}
 
-	logger.V(1).Info("Monitoring cloud warmup instances", "count", len(instances))
+	// logger.V(1).Info("Monitoring cloud warmup instances", "count", len(instances))
 
 	nodeMgr := NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
 
@@ -358,13 +359,31 @@ func (r *NodePoolReconciler) replenishStandby(ctx context.Context, nodePool *str
 		return fmt.Errorf("no cloud provider for pool %s", nodePool.Name)
 	}
 
+	// Get the NodeLauncher interface from the provider
+	launcher, ok := provider.(NodeLauncher)
+	if !ok {
+		return fmt.Errorf("cloud provider does not implement NodeLauncher interface")
+	}
+
+	// Fetch the NodeClass
+	nodeClass, err := r.getNodeClass(ctx, nodePool.Spec.Template.NodeClassRef)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			r.setDegradedCondition(ctx, nodePool, stratosv1alpha1.ReasonNodeClassNotFound,
+				fmt.Sprintf("NodeClass %s not found", nodePool.Spec.Template.NodeClassRef.Name))
+			r.recordEvent(nodePool, corev1.EventTypeWarning, "NodeClassNotFound",
+				fmt.Sprintf("AWSNodeClass %s not found", nodePool.Spec.Template.NodeClassRef.Name))
+			return fmt.Errorf("nodeClass %s not found: %w", nodePool.Spec.Template.NodeClassRef.Name, err)
+		}
+		return fmt.Errorf("failed to fetch nodeClass: %w", err)
+	}
+
 	nodeMgr := NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
 
 	// Launch new nodes
 	launched := 0
 	for i := 0; i < count; i++ {
-		// Round-robin across subnets
-		_, err := nodeMgr.LaunchNode(ctx, nodePool, launched)
+		_, err := nodeMgr.LaunchNode(ctx, nodePool, nodeClass, launcher)
 		if err != nil {
 			logger.Error(err, "Failed to launch node for replenishment")
 			continue
@@ -375,6 +394,7 @@ func (r *NodePoolReconciler) replenishStandby(ctx context.Context, nodePool *str
 	if launched > 0 {
 		logger.Info("Launched nodes for standby replenishment",
 			"pool", nodePool.Name,
+			"nodeClass", nodeClass.Name,
 			"requested", count,
 			"launched", launched)
 		r.recordEvent(nodePool, corev1.EventTypeNormal, "Replenishing",

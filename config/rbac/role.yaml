@@ -68,6 +68,32 @@ rules:
 - apiGroups:
   - stratos.sh
   resources:
+  - awsnodeclasses
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - stratos.sh
+  resources:
+  - awsnodeclasses/finalizers
+  - nodepools/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - stratos.sh
+  resources:
+  - awsnodeclasses/status
+  - nodepools/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - stratos.sh
+  resources:
   - nodepools
   verbs:
   - create
@@ -77,17 +103,3 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - stratos.sh
-  resources:
-  - nodepools/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - stratos.sh
-  resources:
-  - nodepools/status
-  verbs:
-  - get
-  - patch
-  - update

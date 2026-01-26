@@ -21,49 +21,6 @@ import (
 	"time"
 )
 
-// LaunchConfig contains all parameters needed to launch an instance.
-type LaunchConfig struct {
-	// PoolName is the NodePool this instance belongs to
-	PoolName string
-
-	// ClusterName is the Kubernetes cluster identifier
-	ClusterName string
-
-	// InstanceType is the cloud-specific instance type (e.g., "m5.large")
-	InstanceType string
-
-	// ImageID is the cloud-specific image ID (e.g., AMI)
-	ImageID string
-
-	// SubnetID is the network subnet to launch in
-	SubnetID string
-
-	// SecurityGroupIDs are the security groups to attach
-	SecurityGroupIDs []string
-
-	// IAMInstanceProfile is the IAM profile for the instance (AWS-specific)
-	IAMInstanceProfile string
-
-	// UserData is the initialization script (base64-encoded)
-	UserData string
-
-	// BlockDevices defines the storage configuration
-	BlockDevices []BlockDevice
-
-	// Tags are additional tags to apply to the instance
-	Tags map[string]string
-}
-
-// BlockDevice defines a block storage device.
-type BlockDevice struct {
-	DeviceName string
-	VolumeSize int32  // GB
-	VolumeType string // e.g., "gp3", "io1"
-	Encrypted  bool
-	IOPS       int32 // For io1/io2 volumes
-	Throughput int32 // For gp3 volumes (MB/s)
-}
-
 // Instance represents a cloud compute instance.
 type Instance struct {
 	// ID is the cloud-specific instance identifier

@@ -55,6 +55,9 @@ var _ = Describe("NodePool Lifecycle", func() {
 		})
 
 		It("should validate spec correctly", func() {
+			// Create an AWSNodeClass for this test
+			createTestAWSNodeClass("test-invalid-pool-nodeclass")
+
 			// Create a NodePool where minStandby > poolSize (invalid)
 			np := &stratosv1alpha1.NodePool{
 				ObjectMeta: metav1.ObjectMeta{
@@ -64,16 +67,9 @@ var _ = Describe("NodePool Lifecycle", func() {
 					PoolSize:   2,
 					MinStandby: 5, // Invalid: minStandby > poolSize
 					Template: stratosv1alpha1.NodeTemplate{
-						CloudProvider: stratosv1alpha1.CloudProviderConfig{
-							Provider: "aws",
-							AWS: &stratosv1alpha1.AWSConfig{
-								Region:             "us-east-1",
-								InstanceType:       "m5.large",
-								AMI:                "ami-12345678",
-								SubnetIDs:          []string{"subnet-12345678"},
-								SecurityGroupIDs:   []string{"sg-12345678"},
-								IAMInstanceProfile: "test-profile",
-							},
+						NodeClassRef: stratosv1alpha1.NodeClassRef{
+							Kind: "AWSNodeClass",
+							Name: "test-invalid-pool-nodeclass",
 						},
 					},
 				},

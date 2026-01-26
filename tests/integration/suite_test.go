@@ -145,9 +145,23 @@ var _ = AfterEach(func() {
 
 // cleanupTestResources removes all test resources after each test
 func cleanupTestResources() {
+	// Delete all Pods in default and test namespaces to prevent test isolation issues
+	// (pending pods from previous tests can trigger scale-up in subsequent tests)
+	podList := &corev1.PodList{}
+	err := k8sClient.List(ctx, podList)
+	if err == nil {
+		for i := range podList.Items {
+			pod := &podList.Items[i]
+			// Delete test pods (skip system pods in kube-system)
+			if pod.Namespace != "kube-system" {
+				_ = k8sClient.Delete(ctx, pod)
+			}
+		}
+	}
+
 	// Delete all NodePools
 	nodePoolList := &stratosv1alpha1.NodePoolList{}
-	err := k8sClient.List(ctx, nodePoolList)
+	err = k8sClient.List(ctx, nodePoolList)
 	if err == nil {
 		for i := range nodePoolList.Items {
 			np := &nodePoolList.Items[i]
@@ -155,6 +169,19 @@ func cleanupTestResources() {
 			np.Finalizers = nil
 			_ = k8sClient.Update(ctx, np)
 			_ = k8sClient.Delete(ctx, np)
+		}
+	}
+
+	// Delete all AWSNodeClasses
+	nodeClassList := &stratosv1alpha1.AWSNodeClassList{}
+	err = k8sClient.List(ctx, nodeClassList)
+	if err == nil {
+		for i := range nodeClassList.Items {
+			nc := &nodeClassList.Items[i]
+			// Remove finalizer first to allow deletion
+			nc.Finalizers = nil
+			_ = k8sClient.Update(ctx, nc)
+			_ = k8sClient.Delete(ctx, nc)
 		}
 	}
 

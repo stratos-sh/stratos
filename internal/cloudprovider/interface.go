@@ -21,14 +21,15 @@ import (
 	"context"
 )
 
-// CloudProvider defines the interface for cloud instance operations.
+// CloudProvider defines the interface for cloud instance lifecycle operations.
 // Implementations must be thread-safe for concurrent use.
+//
+// Note: LaunchInstance is NOT part of this interface because launch requires
+// cloud-specific configuration (e.g., AWSNodeClass). Each provider implements
+// its own LaunchInstance method that takes its specific NodeClass type.
+// This interface only contains operations that work with instance IDs,
+// which are truly cloud-agnostic.
 type CloudProvider interface {
-	// LaunchInstance creates a new instance from the launch configuration.
-	// The instance should be launched in a running state.
-	// Returns the instance details or an error.
-	LaunchInstance(ctx context.Context, cfg *LaunchConfig) (*Instance, error)
-
 	// StartInstance starts a stopped instance.
 	// This is an asynchronous operation - the instance may not be running
 	// immediately after this call returns.

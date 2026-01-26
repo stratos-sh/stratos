@@ -52,7 +52,7 @@ var _ = Describe("Error Handling", func() {
 			np := createTestNodePool("test-launch-error", 5, 2)
 
 			// Inject launch hook that returns an error
-			fakeProvider.LaunchHook = func(ctx context.Context, cfg *cloudprovider.LaunchConfig) error {
+			fakeProvider.LaunchHook = func(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) error {
 				return fmt.Errorf("simulated EC2 launch failure")
 			}
 
@@ -303,7 +303,7 @@ var _ = Describe("Error Handling", func() {
 
 			// Track launch attempts
 			launchAttempts := 0
-			fakeProvider.LaunchHook = func(ctx context.Context, cfg *cloudprovider.LaunchConfig) error {
+			fakeProvider.LaunchHook = func(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) error {
 				launchAttempts++
 				if launchAttempts < 3 {
 					return fmt.Errorf("simulated transient failure")

@@ -34,6 +34,22 @@ import (
 	fakeprovider "github.com/stratos-sh/stratos/internal/cloudprovider/fake"
 )
 
+// testNodeClass returns a minimal AWSNodeClass for testing
+func testNodeClass() *stratosv1alpha1.AWSNodeClass {
+	return &stratosv1alpha1.AWSNodeClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-class",
+		},
+		Spec: stratosv1alpha1.AWSNodeClassSpec{
+			InstanceType:       "m5.large",
+			AMI:                "ami-12345678",
+			SubnetIDs:          []string{"subnet-1"},
+			SecurityGroupIDs:   []string{"sg-1"},
+			IAMInstanceProfile: "test-profile",
+		},
+	}
+}
+
 func TestIsNodeReady(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -115,10 +131,7 @@ func TestMonitorWarmup_SelfStop_InstanceStopped(t *testing.T) {
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	// Manually add an instance in stopped state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), &cloudprovider.LaunchConfig{
-		PoolName:    "test-pool",
-		ClusterName: "test-cluster",
-	})
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateStopped)
 
 	// Update node to match instance ID
@@ -181,10 +194,7 @@ func TestMonitorWarmup_ControllerStop_NodeNotReady(t *testing.T) {
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	// Create instance in running state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), &cloudprovider.LaunchConfig{
-		PoolName:    "test-pool",
-		ClusterName: "test-cluster",
-	})
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Update node to match instance ID
@@ -261,10 +271,7 @@ func TestMonitorWarmup_ControllerStop_NodeReady(t *testing.T) {
 	}
 
 	// Create instance in running state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), &cloudprovider.LaunchConfig{
-		PoolName:    "test-pool",
-		ClusterName: "test-cluster",
-	})
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Update node to match instance ID
@@ -341,10 +348,7 @@ func TestMonitorWarmup_ControllerStop_WaitsForNetworkReady(t *testing.T) {
 	}
 
 	// Create instance in running state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), &cloudprovider.LaunchConfig{
-		PoolName:    "test-pool",
-		ClusterName: "test-cluster",
-	})
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Update node to match instance ID
@@ -425,10 +429,7 @@ func TestMonitorWarmup_ControllerStop_NetworkReady(t *testing.T) {
 	}
 
 	// Create instance in running state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), &cloudprovider.LaunchConfig{
-		PoolName:    "test-pool",
-		ClusterName: "test-cluster",
-	})
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Update node to match instance ID
@@ -480,10 +481,7 @@ func TestMonitorCloudWarmup_PoolOnlyLabel_LabelsNode(t *testing.T) {
 
 	// Create instance first
 	fakeProvider := fakeprovider.NewFakeProvider()
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), &cloudprovider.LaunchConfig{
-		PoolName:    "test-pool",
-		ClusterName: "test-cluster",
-	})
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Node with ONLY LabelPool set (mimics Bottlerocket user data behavior)
@@ -549,10 +547,7 @@ func TestMonitorCloudWarmup_NoLabels_LabelsNode(t *testing.T) {
 
 	// Create instance first
 	fakeProvider := fakeprovider.NewFakeProvider()
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), &cloudprovider.LaunchConfig{
-		PoolName:    "test-pool",
-		ClusterName: "test-cluster",
-	})
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Node with NO Stratos labels
@@ -619,10 +614,7 @@ func TestMonitorCloudWarmup_PoolOnlyLabel_InstanceStopped_AdoptsToStandby(t *tes
 
 	// Create instance in stopped state
 	fakeProvider := fakeprovider.NewFakeProvider()
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), &cloudprovider.LaunchConfig{
-		PoolName:    "test-pool",
-		ClusterName: "test-cluster",
-	})
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateStopped)
 
 	// Node with ONLY LabelPool set
@@ -700,10 +692,7 @@ func TestMonitorCloudWarmup_FullyLabeled_NoChange(t *testing.T) {
 
 	// Create instance
 	fakeProvider := fakeprovider.NewFakeProvider()
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), &cloudprovider.LaunchConfig{
-		PoolName:    "test-pool",
-		ClusterName: "test-cluster",
-	})
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	originalStateSince := fmt.Sprintf("%d", time.Now().Add(-5*time.Minute).Unix())
@@ -800,10 +789,7 @@ func TestMonitorWarmup_SelfStop_BackwardCompatibility(t *testing.T) {
 	}
 
 	// Create instance in running state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), &cloudprovider.LaunchConfig{
-		PoolName:    "test-pool",
-		ClusterName: "test-cluster",
-	})
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Update node to match instance ID

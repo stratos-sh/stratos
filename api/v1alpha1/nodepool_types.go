@@ -67,6 +67,18 @@ type ScaleUpConfig struct {
 	DefaultPodResources *corev1.ResourceRequirements `json:"defaultPodResources,omitempty"`
 }
 
+// NodeClassRef references a cloud-specific NodeClass resource
+type NodeClassRef struct {
+	// Kind is the NodeClass kind (e.g., "AWSNodeClass", "GCPNodeClass")
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=AWSNodeClass
+	Kind string `json:"kind"`
+
+	// Name is the name of the NodeClass resource
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+}
+
 // StartupTaintRemovalMode determines how startup taints are removed
 type StartupTaintRemovalMode string
 
@@ -103,8 +115,10 @@ type NodeTemplate struct {
 	// +optional
 	StartupTaintRemoval StartupTaintRemovalMode `json:"startupTaintRemoval,omitempty"`
 
-	// CloudProvider specifies the cloud provider configuration
-	CloudProvider CloudProviderConfig `json:"cloudProvider"`
+	// NodeClassRef references the cloud-specific NodeClass that defines
+	// instance configuration (e.g., AWSNodeClass for AWS).
+	// +kubebuilder:validation:Required
+	NodeClassRef NodeClassRef `json:"nodeClassRef"`
 }
 
 // NodePoolStatus defines the observed state of NodePool
@@ -196,4 +210,5 @@ const (
 	ReasonDegraded            = "Degraded"
 	ReasonScaleUpInProgress   = "ScaleUpInProgress"
 	ReasonScaleDownInProgress = "ScaleDownInProgress"
+	ReasonNodeClassNotFound   = "NodeClassNotFound"
 )

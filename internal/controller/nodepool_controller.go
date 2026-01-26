@@ -71,6 +71,9 @@ type NodePoolReconciler struct {
 // +kubebuilder:rbac:groups=stratos.sh,resources=nodepools,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=stratos.sh,resources=nodepools/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=stratos.sh,resources=nodepools/finalizers,verbs=update
+// +kubebuilder:rbac:groups=stratos.sh,resources=awsnodeclasses,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=stratos.sh,resources=awsnodeclasses/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=stratos.sh,resources=awsnodeclasses/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=nodes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
@@ -112,6 +115,12 @@ func (r *NodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// Record event for NodePool creation
 		r.recordEvent(nodePool, corev1.EventTypeNormal, "Created", "NodePool created successfully")
 		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Update AWSNodeClass lifecycle (finalizer, status) for the referenced NodeClass
+	if err := r.updateNodeClassLifecycle(ctx, nodePool); err != nil {
+		logger.Error(err, "Failed to update NodeClass lifecycle")
+		// Continue reconciliation - this is not critical
 	}
 
 	// Validate NodePool spec
@@ -163,6 +172,12 @@ func (r *NodePoolReconciler) handleDeletion(ctx context.Context, nodePool *strat
 
 	// Clean up metrics for this pool
 	metrics.CleanupPoolMetrics(nodePool.Name)
+
+	// Update NodeClass lifecycle (may remove finalizer if this was the last referencing pool)
+	if err := r.cleanupNodeClassReference(ctx, nodePool); err != nil {
+		logger.Error(err, "Failed to cleanup NodeClass reference")
+		// Continue with deletion - this is not critical
+	}
 
 	// Remove finalizer
 	logger.Info("Removing finalizer from NodePool")
@@ -397,27 +412,18 @@ func (r *NodePoolReconciler) validateNodePool(nodePool *stratosv1alpha1.NodePool
 			nodePool.Spec.MinStandby, nodePool.Spec.PoolSize)
 	}
 
-	if nodePool.Spec.Template.CloudProvider.Provider == "" {
-		return fmt.Errorf("cloud provider must be specified")
+	// Validate NodeClassRef
+	ref := nodePool.Spec.Template.NodeClassRef
+	if ref.Kind == "" {
+		return fmt.Errorf("nodeClassRef.kind must be specified")
+	}
+	if ref.Name == "" {
+		return fmt.Errorf("nodeClassRef.name must be specified")
 	}
 
-	if nodePool.Spec.Template.CloudProvider.Provider == "aws" {
-		aws := nodePool.Spec.Template.CloudProvider.AWS
-		if aws == nil {
-			return fmt.Errorf("AWS configuration must be provided when provider is 'aws'")
-		}
-		if aws.InstanceType == "" {
-			return fmt.Errorf("AWS instanceType must be specified")
-		}
-		if aws.AMI == "" {
-			return fmt.Errorf("AWS AMI must be specified")
-		}
-		if len(aws.SubnetIDs) == 0 {
-			return fmt.Errorf("at least one subnet must be specified")
-		}
-		if len(aws.SecurityGroupIDs) == 0 {
-			return fmt.Errorf("at least one security group must be specified")
-		}
+	// Currently only AWSNodeClass is supported
+	if ref.Kind != "AWSNodeClass" {
+		return fmt.Errorf("unsupported nodeClassRef.kind: %s (only AWSNodeClass is supported)", ref.Kind)
 	}
 
 	return nil
@@ -447,26 +453,35 @@ func (r *NodePoolReconciler) ensureCloudProvider(nodePool *stratosv1alpha1.NodeP
 		return nil
 	}
 
-	// Create cloud provider based on NodePool configuration
-	cpConfig := nodePool.Spec.Template.CloudProvider
+	// Create cloud provider based on NodeClassRef
+	ref := nodePool.Spec.Template.NodeClassRef
 	var provider cloudprovider.CloudProvider
 	var err error
 
-	switch cpConfig.Provider {
-	case "fake", "":
-		provider = fake.NewFakeProvider()
-	case "aws":
-		// Determine region from AWS config
-		region := "us-east-1" // default
-		if cpConfig.AWS != nil && cpConfig.AWS.Region != "" {
-			region = cpConfig.AWS.Region
-		}
-		provider, err = aws.NewAWSProvider(context.Background(), region)
-		if err != nil {
-			return fmt.Errorf("failed to create AWS provider: %w", err)
+	switch ref.Kind {
+	case "AWSNodeClass":
+		// If overridden to use fake provider, use that
+		if r.CloudProvider == "fake" {
+			provider = fake.NewFakeProvider()
+		} else {
+			// Fetch the AWSNodeClass to get the region
+			nodeClass, fetchErr := r.getAWSNodeClass(context.Background(), ref.Name)
+			if fetchErr != nil {
+				return fmt.Errorf("failed to fetch AWSNodeClass %s: %w", ref.Name, fetchErr)
+			}
+
+			// Determine region from AWSNodeClass
+			region := "us-east-1" // default
+			if nodeClass.Spec.Region != "" {
+				region = nodeClass.Spec.Region
+			}
+			provider, err = aws.NewAWSProvider(context.Background(), region)
+			if err != nil {
+				return fmt.Errorf("failed to create AWS provider: %w", err)
+			}
 		}
 	default:
-		return fmt.Errorf("unsupported cloud provider: %s", cpConfig.Provider)
+		return fmt.Errorf("unsupported nodeClassRef.kind: %s", ref.Kind)
 	}
 
 	r.cloudProviders[nodePool.Name] = provider
@@ -484,6 +499,26 @@ func (r *NodePoolReconciler) getCloudProvider(poolName string) cloudprovider.Clo
 	return r.cloudProviders[poolName]
 }
 
+// getAWSNodeClass fetches an AWSNodeClass by name.
+func (r *NodePoolReconciler) getAWSNodeClass(ctx context.Context, name string) (*stratosv1alpha1.AWSNodeClass, error) {
+	nodeClass := &stratosv1alpha1.AWSNodeClass{}
+	if err := r.Get(ctx, types.NamespacedName{Name: name}, nodeClass); err != nil {
+		return nil, err
+	}
+	return nodeClass, nil
+}
+
+// getNodeClass fetches the NodeClass referenced by a NodePool based on its kind.
+// Currently only AWSNodeClass is supported.
+func (r *NodePoolReconciler) getNodeClass(ctx context.Context, ref stratosv1alpha1.NodeClassRef) (*stratosv1alpha1.AWSNodeClass, error) {
+	switch ref.Kind {
+	case "AWSNodeClass":
+		return r.getAWSNodeClass(ctx, ref.Name)
+	default:
+		return nil, fmt.Errorf("unsupported nodeClassRef.kind: %s", ref.Kind)
+	}
+}
+
 // InjectCloudProvider allows tests to inject a cloud provider for a specific pool.
 // This is primarily used for integration testing with the fake provider.
 func (r *NodePoolReconciler) InjectCloudProvider(poolName string, provider cloudprovider.CloudProvider) {
@@ -494,6 +529,237 @@ func (r *NodePoolReconciler) InjectCloudProvider(poolName string, provider cloud
 		r.cloudProviders = make(map[string]cloudprovider.CloudProvider)
 	}
 	r.cloudProviders[poolName] = provider
+}
+
+// updateNodeClassLifecycle updates the AWSNodeClass finalizer and status for a NodePool.
+// This adds the in-use finalizer and updates the nodePoolCount and conditions.
+func (r *NodePoolReconciler) updateNodeClassLifecycle(ctx context.Context, nodePool *stratosv1alpha1.NodePool) error {
+	ref := nodePool.Spec.Template.NodeClassRef
+	if ref.Kind != "AWSNodeClass" {
+		return nil // Only AWSNodeClass is supported
+	}
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		nodeClass, err := r.getAWSNodeClass(ctx, ref.Name)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil // NodeClass not found, nothing to update
+			}
+			return err
+		}
+
+		// Count how many NodePools reference this NodeClass
+		count, err := r.countNodePoolsReferencingNodeClass(ctx, ref.Kind, ref.Name)
+		if err != nil {
+			return err
+		}
+
+		// Determine if we need to update
+		needsUpdate := false
+		needsStatusUpdate := false
+
+		// Add finalizer if referenced and not already present
+		if count > 0 && !controllerutil.ContainsFinalizer(nodeClass, stratosv1alpha1.AWSNodeClassFinalizerInUse) {
+			controllerutil.AddFinalizer(nodeClass, stratosv1alpha1.AWSNodeClassFinalizerInUse)
+			needsUpdate = true
+		}
+
+		// Update status if count changed
+		if nodeClass.Status.NodePoolCount != int32(count) {
+			nodeClass.Status.NodePoolCount = int32(count)
+			needsStatusUpdate = true
+		}
+
+		// Update InUse condition
+		inUseCondition := r.getInUseCondition(count)
+		if !conditionMatches(nodeClass.Status.Conditions, inUseCondition) {
+			meta.SetStatusCondition(&nodeClass.Status.Conditions, inUseCondition)
+			needsStatusUpdate = true
+		}
+
+		// Update Valid condition
+		validCondition := r.getValidCondition(nodeClass)
+		if !conditionMatches(nodeClass.Status.Conditions, validCondition) {
+			meta.SetStatusCondition(&nodeClass.Status.Conditions, validCondition)
+			needsStatusUpdate = true
+		}
+
+		// Apply updates
+		if needsUpdate {
+			if err := r.Update(ctx, nodeClass); err != nil {
+				return err
+			}
+		}
+		if needsStatusUpdate {
+			if err := r.Status().Update(ctx, nodeClass); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// cleanupNodeClassReference updates the AWSNodeClass when a NodePool is deleted.
+// This may remove the finalizer if no other NodePools reference the NodeClass.
+func (r *NodePoolReconciler) cleanupNodeClassReference(ctx context.Context, nodePool *stratosv1alpha1.NodePool) error {
+	ref := nodePool.Spec.Template.NodeClassRef
+	if ref.Kind != "AWSNodeClass" {
+		return nil
+	}
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		nodeClass, err := r.getAWSNodeClass(ctx, ref.Name)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil // NodeClass already deleted
+			}
+			return err
+		}
+
+		// Count remaining NodePools (excluding the one being deleted)
+		count, err := r.countNodePoolsReferencingNodeClassExcluding(ctx, ref.Kind, ref.Name, nodePool.Name)
+		if err != nil {
+			return err
+		}
+
+		needsUpdate := false
+		needsStatusUpdate := false
+
+		// Remove finalizer if no more references
+		if count == 0 && controllerutil.ContainsFinalizer(nodeClass, stratosv1alpha1.AWSNodeClassFinalizerInUse) {
+			controllerutil.RemoveFinalizer(nodeClass, stratosv1alpha1.AWSNodeClassFinalizerInUse)
+			needsUpdate = true
+		}
+
+		// Update status
+		if nodeClass.Status.NodePoolCount != int32(count) {
+			nodeClass.Status.NodePoolCount = int32(count)
+			needsStatusUpdate = true
+		}
+
+		// Update InUse condition
+		inUseCondition := r.getInUseCondition(count)
+		if !conditionMatches(nodeClass.Status.Conditions, inUseCondition) {
+			meta.SetStatusCondition(&nodeClass.Status.Conditions, inUseCondition)
+			needsStatusUpdate = true
+		}
+
+		// Apply updates
+		if needsUpdate {
+			if err := r.Update(ctx, nodeClass); err != nil {
+				return err
+			}
+		}
+		if needsStatusUpdate {
+			if err := r.Status().Update(ctx, nodeClass); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// countNodePoolsReferencingNodeClass counts how many NodePools reference a given NodeClass.
+func (r *NodePoolReconciler) countNodePoolsReferencingNodeClass(ctx context.Context, kind, name string) (int, error) {
+	poolList := &stratosv1alpha1.NodePoolList{}
+	if err := r.List(ctx, poolList); err != nil {
+		return 0, err
+	}
+
+	count := 0
+	for _, pool := range poolList.Items {
+		// Skip pools that are being deleted
+		if pool.DeletionTimestamp != nil {
+			continue
+		}
+		ref := pool.Spec.Template.NodeClassRef
+		if ref.Kind == kind && ref.Name == name {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// countNodePoolsReferencingNodeClassExcluding counts NodePools referencing a NodeClass,
+// excluding a specific pool by name.
+func (r *NodePoolReconciler) countNodePoolsReferencingNodeClassExcluding(ctx context.Context, kind, name, excludePool string) (int, error) {
+	poolList := &stratosv1alpha1.NodePoolList{}
+	if err := r.List(ctx, poolList); err != nil {
+		return 0, err
+	}
+
+	count := 0
+	for _, pool := range poolList.Items {
+		// Skip the excluded pool
+		if pool.Name == excludePool {
+			continue
+		}
+		// Skip pools that are being deleted
+		if pool.DeletionTimestamp != nil {
+			continue
+		}
+		ref := pool.Spec.Template.NodeClassRef
+		if ref.Kind == kind && ref.Name == name {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// getInUseCondition returns the InUse condition based on reference count.
+func (r *NodePoolReconciler) getInUseCondition(refCount int) metav1.Condition {
+	if refCount > 0 {
+		return metav1.Condition{
+			Type:               stratosv1alpha1.AWSNodeClassConditionTypeInUse,
+			Status:             metav1.ConditionTrue,
+			Reason:             stratosv1alpha1.AWSNodeClassReasonReferencedByPools,
+			Message:            fmt.Sprintf("Referenced by %d NodePool(s)", refCount),
+			LastTransitionTime: metav1.Now(),
+		}
+	}
+	return metav1.Condition{
+		Type:               stratosv1alpha1.AWSNodeClassConditionTypeInUse,
+		Status:             metav1.ConditionFalse,
+		Reason:             stratosv1alpha1.AWSNodeClassReasonNotReferenced,
+		Message:            "Not referenced by any NodePool",
+		LastTransitionTime: metav1.Now(),
+	}
+}
+
+// getValidCondition returns the Valid condition based on spec validation.
+func (r *NodePoolReconciler) getValidCondition(nodeClass *stratosv1alpha1.AWSNodeClass) metav1.Condition {
+	// Validate AMI format - must start with "ami-" and have content after
+	if nodeClass.Spec.AMI != "" {
+		if len(nodeClass.Spec.AMI) <= 4 || nodeClass.Spec.AMI[:4] != "ami-" {
+			return metav1.Condition{
+				Type:               stratosv1alpha1.AWSNodeClassConditionTypeValid,
+				Status:             metav1.ConditionFalse,
+				Reason:             stratosv1alpha1.AWSNodeClassReasonInvalidAMI,
+				Message:            "AMI must start with 'ami-' and include an ID",
+				LastTransitionTime: metav1.Now(),
+			}
+		}
+	}
+
+	return metav1.Condition{
+		Type:               stratosv1alpha1.AWSNodeClassConditionTypeValid,
+		Status:             metav1.ConditionTrue,
+		Reason:             stratosv1alpha1.AWSNodeClassReasonSpecValid,
+		Message:            "Spec is valid",
+		LastTransitionTime: metav1.Now(),
+	}
+}
+
+// conditionMatches checks if a condition with the same type/status/reason exists.
+func conditionMatches(conditions []metav1.Condition, target metav1.Condition) bool {
+	for _, c := range conditions {
+		if c.Type == target.Type && c.Status == target.Status && c.Reason == target.Reason {
+			return true
+		}
+	}
+	return false
 }
 
 // countNodesByState counts nodes by their Stratos state.
@@ -605,6 +871,10 @@ func (r *NodePoolReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&corev1.Node{},
 			NodeEventHandler(mgr.GetClient()),
 		).
+		Watches(
+			&stratosv1alpha1.AWSNodeClass{},
+			AWSNodeClassEventHandler(mgr.GetClient()),
+		).
 		Named("nodepool").
 		Complete(r)
 }
@@ -637,4 +907,41 @@ func (m *NodeToNodePoolMapper) Map(ctx context.Context, obj client.Object) []rec
 	return []reconcile.Request{
 		{NamespacedName: client.ObjectKey{Name: poolName}},
 	}
+}
+
+// AWSNodeClassToNodePoolMapper maps AWSNodeClass events to NodePools that reference them.
+type AWSNodeClassToNodePoolMapper struct {
+	client client.Client
+}
+
+// AWSNodeClassEventHandler returns an event handler that maps AWSNodeClass events to referencing NodePools.
+func AWSNodeClassEventHandler(c client.Client) handler.EventHandler {
+	mapper := &AWSNodeClassToNodePoolMapper{client: c}
+	return handler.EnqueueRequestsFromMapFunc(mapper.Map)
+}
+
+// Map returns reconcile requests for NodePools that reference the given AWSNodeClass.
+func (m *AWSNodeClassToNodePoolMapper) Map(ctx context.Context, obj client.Object) []reconcile.Request {
+	nodeClass, ok := obj.(*stratosv1alpha1.AWSNodeClass)
+	if !ok {
+		return nil
+	}
+
+	// List all NodePools and find ones that reference this AWSNodeClass
+	poolList := &stratosv1alpha1.NodePoolList{}
+	if err := m.client.List(ctx, poolList); err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, pool := range poolList.Items {
+		ref := pool.Spec.Template.NodeClassRef
+		if ref.Kind == "AWSNodeClass" && ref.Name == nodeClass.Name {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKey{Name: pool.Name},
+			})
+		}
+	}
+
+	return requests
 }

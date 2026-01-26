@@ -34,12 +34,17 @@ const (
 // ScaleCalculator calculates how many nodes are needed for pending pods
 // based on resource requests and node capacity.
 type ScaleCalculator struct {
-	nodePool *stratosv1alpha1.NodePool
+	nodePool     *stratosv1alpha1.NodePool
+	instanceType string // AWS instance type for capacity lookup
 }
 
 // NewScaleCalculator creates a new scale calculator for the given NodePool.
-func NewScaleCalculator(pool *stratosv1alpha1.NodePool) *ScaleCalculator {
-	return &ScaleCalculator{nodePool: pool}
+// The instanceType is used to look up node capacity from the static mapping.
+func NewScaleCalculator(pool *stratosv1alpha1.NodePool, instanceType string) *ScaleCalculator {
+	return &ScaleCalculator{
+		nodePool:     pool,
+		instanceType: instanceType,
+	}
 }
 
 // CalculateNodesNeeded returns the number of nodes needed for the given pods
@@ -101,9 +106,8 @@ func (c *ScaleCalculator) getNodeCapacity(existingNodes []corev1.Node) aws.Insta
 	}
 
 	// Priority 2: Static mapping for AWS instance type
-	if c.nodePool.Spec.Template.CloudProvider.AWS != nil {
-		instanceType := c.nodePool.Spec.Template.CloudProvider.AWS.InstanceType
-		return aws.GetInstanceCapacity(instanceType)
+	if c.instanceType != "" {
+		return aws.GetInstanceCapacity(c.instanceType)
 	}
 
 	return aws.InstanceCapacity{} // Unknown - will fall back to 1:1

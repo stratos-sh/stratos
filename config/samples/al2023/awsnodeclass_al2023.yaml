@@ -1,0 +1,109 @@
+# AWSNodeClass for Amazon Linux 2023 (AL2023)
+#
+# This AWSNodeClass defines AWS EC2 configuration for AL2023-based nodes.
+# Use with NodePools that require AL2023 nodes.
+#
+# AL2023 uses nodeadm with MIME multipart user data for EKS cluster joining.
+# The userData script waits for kubelet to be healthy, initializes EBS volumes,
+# then self-stops (default Stratos warmup completion mode).
+
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: al2023-standard
+spec:
+  # AWS Region (defaults to controller's region if not specified)
+  region: us-east-1
+
+  # Instance type - ARM64 to match AL2023 ARM64 AMI
+  instanceType: m8g.large
+
+  # AL2023 ARM64 AMI (EKS 1.34)
+  # Find your region's AMI: aws ssm get-parameter --name /aws/service/eks/optimized-ami/1.34/amazon-linux-2023/arm64/standard/recommended/image_id
+  ami: ami-00171c2155dff951e
+
+  # Subnets for instance placement - instances distributed round-robin
+  subnetIds:
+    - subnet-0123456789abcdef0
+
+  # Security groups for instances
+  securityGroupIds:
+    - sg-0123456789abcdef0
+
+  # IAM instance profile for node permissions
+  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/StratosNodeRole
+
+  # Root volume configuration
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 20
+      volumeType: gp3
+      encrypted: true
+
+  # Additional tags for instances
+  tags:
+    Environment: production
+    OS: al2023
+    Architecture: arm64
+
+  # AL2023 user data using nodeadm with MIME multipart format
+  # The script joins the EKS cluster and then self-stops for Stratos warmup
+  userData: |
+    MIME-Version: 1.0
+    Content-Type: multipart/mixed; boundary="BOUNDARY"
+
+    --BOUNDARY
+    Content-Type: application/node.eks.aws
+
+    ---
+    apiVersion: node.eks.aws/v1alpha1
+    kind: NodeConfig
+    spec:
+      cluster:
+        name: main
+        apiServerEndpoint: https://ABCDEF1234567890.gr7.us-east-1.eks.amazonaws.com
+        certificateAuthority: YOUR_CLUSTER_CA_BASE64        cidr: 10.100.0.0/16
+      kubelet:
+        config:
+          # Faster node status updates for quicker warmup detection
+          nodeStatusUpdateFrequency: 2s
+          nodeStatusReportFrequency: 10s
+        flags:
+          # Register with startup taint to prevent scheduling until CNI is ready
+          - --register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule
+
+    --BOUNDARY
+    Content-Type: text/x-shellscript; charset="us-ascii"
+
+    #!/bin/bash
+    # Stratos warmup script: wait for kubelet to be healthy, then stop the instance
+    # Run in background so cloud-init can complete and nodeadm can start
+
+    (
+      set -ex
+      echo "DEBUG: Stratos warmup script started in background"
+
+      # Wait for kubelet to be healthy (nodeadm must complete first)
+      echo "DEBUG: Waiting for kubelet to be healthy..."
+      until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do
+        sleep 5
+      done
+      echo "DEBUG: kubelet is healthy"
+
+      # Give the node time to fully register and stabilize
+      sleep 30
+
+      # Initialize EBS volume by reading all blocks
+      # This forces lazy-loaded snapshot data to be fetched from S3 now,
+      # so the volume is fully initialized before stopping.
+      # When the instance restarts, all blocks are local - no S3 latency.
+      echo "DEBUG: Initializing EBS root volume (reading all blocks)..."
+      ROOT_DEVICE=$(lsblk -no PKNAME $(findmnt -n -o SOURCE /))
+      dd if=/dev/${ROOT_DEVICE} of=/dev/null bs=1M status=progress 2>&1 || true
+      echo "DEBUG: EBS volume initialization complete"
+
+      echo "DEBUG: shutting down for Stratos standby..."
+      poweroff
+    ) &> /var/log/stratos-warmup.log &
+
+    --BOUNDARY--

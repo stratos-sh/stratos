@@ -165,8 +165,17 @@ func (r *NodePoolReconciler) calculateScaleUpNeeded(ctx context.Context, nodePoo
 		return 0, fmt.Errorf("failed to get existing nodes: %w", err)
 	}
 
+	// Get instance type from NodeClass for capacity lookup
+	instanceType := ""
+	nodeClass, err := r.getNodeClass(ctx, nodePool.Spec.Template.NodeClassRef)
+	if err == nil && nodeClass != nil {
+		instanceType = nodeClass.Spec.InstanceType
+	} else {
+		logger.V(1).Info("Could not fetch NodeClass, will use existing node capacity", "error", err)
+	}
+
 	// Calculate nodes needed based on resource requests
-	calculator := NewScaleCalculator(nodePool)
+	calculator := NewScaleCalculator(nodePool, instanceType)
 	nodesNeeded := calculator.CalculateNodesNeeded(pods, existingNodes)
 
 	logger.Info("Calculated nodes needed from resources",
