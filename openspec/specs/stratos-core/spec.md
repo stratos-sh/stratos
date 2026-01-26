@@ -25,10 +25,8 @@ Stratos is a Kubernetes node scaler that eliminates node provisioning delays. Un
 - **Bursty workloads**: Handle sudden traffic without cold-start delays
 
 ---
-
 ## Requirements
-
-### FR-001: Stratos MUST provide a NodePool Custom Resource Definition
+### Requirement: FR-001 NodePool Custom Resource Definition
 
 Stratos MUST provide a NodePool Custom Resource Definition (API version: v1alpha1, graduating to v1beta1/v1 based on stability) for configuring node pools.
 
@@ -40,7 +38,7 @@ Stratos MUST provide a NodePool Custom Resource Definition (API version: v1alpha
 - **When** a user applies a NodePool manifest
 - **Then** Stratos accepts and reconciles the resource
 
-### FR-002: NodePool MUST support configurable `poolSize` (maximum total nodes: standby + running)
+### Requirement: FR-002 Configurable poolSize
 
 NodePool MUST support configurable `poolSize` (maximum total nodes: standby + running).
 
@@ -52,7 +50,7 @@ NodePool MUST support configurable `poolSize` (maximum total nodes: standby + ru
 - **When** the pool has 10 total nodes
 - **Then** Stratos does not provision additional nodes
 
-### FR-003: NodePool MUST support configurable `minStandby` (minimum nodes to keep in stopped/standby state)
+### Requirement: FR-003 Configurable minStandby
 
 NodePool MUST support configurable `minStandby` (minimum nodes to keep in stopped/standby state).
 
@@ -64,7 +62,7 @@ NodePool MUST support configurable `minStandby` (minimum nodes to keep in stoppe
 - **When** reconciliation runs
 - **Then** Stratos provisions 2 new nodes to reach minStandby
 
-### FR-004: Stratos MUST validate that minStandby does not exceed poolSize
+### Requirement: FR-004 minStandby Validation
 
 Stratos MUST validate that minStandby does not exceed poolSize.
 
@@ -76,7 +74,7 @@ Stratos MUST validate that minStandby does not exceed poolSize.
 - **When** the NodePool is applied
 - **Then** it is rejected with a validation error
 
-### FR-005: Stratos MUST support multiple NodePool resources in a cluster
+### Requirement: FR-005 Multiple NodePools
 
 Stratos MUST support multiple NodePool resources in a cluster.
 
@@ -90,7 +88,7 @@ Stratos MUST support multiple NodePool resources in a cluster.
 
 ---
 
-### FR-006: Stratos MUST launch instances through the configured cloud provider
+### Requirement: FR-006 Cloud Provider Instance Launch
 
 Stratos MUST launch instances through the configured cloud provider.
 
@@ -102,31 +100,45 @@ Stratos MUST launch instances through the configured cloud provider.
 - **When** Stratos needs to provision a node
 - **Then** it creates an EC2 instance with specified parameters
 
-### FR-007: Stratos MUST configure instances with userdata that joins the K8s cluster and self-stops
+### Requirement: FR-007 Userdata Configuration for Cluster Join
 
-Stratos MUST configure instances with userdata that joins the K8s cluster and self-stops.
+Stratos MUST configure instances with userdata that joins the K8s cluster. In `SelfStop` mode (default), userdata MUST also include logic to stop the instance. In `ControllerStop` mode, no shutdown logic is required.
 
 **Priority**: P1
 **Status**: Implemented
 
-#### Scenario: Node initialization
-- **Given** a launched instance
+#### Scenario: Node initialization (SelfStop mode)
+- **Given** a launched instance with `completionMode: SelfStop`
 - **When** userdata executes
 - **Then** the node joins the cluster and the instance self-stops
 
-### FR-008: Stratos MUST monitor launched instances waiting for them to self-stop
+#### Scenario: Node initialization (ControllerStop mode)
+- **Given** a launched instance with `completionMode: ControllerStop`
+- **When** userdata executes
+- **Then** the node joins the cluster (no self-stop required)
 
-Stratos MUST monitor launched instances waiting for them to self-stop.
+---
+
+### Requirement: FR-008 Warmup Instance Monitoring
+
+Stratos MUST monitor launched instances in warmup state:
+- In `SelfStop` mode: Wait for instance to self-stop (detect stopped state)
+- In `ControllerStop` mode: Wait for node Ready, then call StopInstance
 
 **Priority**: P1
 **Status**: Implemented
 
-#### Scenario: Detect self-stop
-- **Given** a launched instance in warmup state
+#### Scenario: Detect self-stop (SelfStop mode)
+- **Given** a launched instance in warmup state with `completionMode: SelfStop`
 - **When** the instance stops
 - **Then** Stratos marks the node as standby
 
-### FR-009: Stratos MUST support a configurable timeout for instances to self-stop
+#### Scenario: Stop on ready (ControllerStop mode)
+- **Given** a launched instance in warmup state with `completionMode: ControllerStop`
+- **When** the node becomes Ready
+- **Then** Stratos stops the instance and marks it as standby
+
+### Requirement: FR-009 Configurable Warmup Timeout
 
 Stratos MUST support a configurable timeout for instances to self-stop.
 
@@ -138,7 +150,7 @@ Stratos MUST support a configurable timeout for instances to self-stop.
 - **When** an instance runs longer than 15 minutes during warmup
 - **Then** Stratos applies the timeout action
 
-### FR-010: Stratos MUST support a configurable timeout action: "stop" or "terminate"
+### Requirement: FR-010 Configurable Timeout Action
 
 Stratos MUST support a configurable timeout action: "stop" or "terminate".
 
@@ -155,7 +167,7 @@ Stratos MUST support a configurable timeout action: "stop" or "terminate".
 - **When** an instance exceeds the timeout
 - **Then** Stratos terminates the instance and provisions a replacement
 
-### FR-011: Stratos MUST apply the configured timeout action when instances fail to self-stop
+### Requirement: FR-011 Timeout Action Application
 
 Stratos MUST apply the configured timeout action when instances fail to self-stop.
 
@@ -167,7 +179,7 @@ Stratos MUST apply the configured timeout action when instances fail to self-sto
 - **When** the timeout expires
 - **Then** Stratos applies the configured action (stop or terminate)
 
-### FR-012: Stratos MUST label pre-warmed Nodes with NodePool ownership and standby status
+### Requirement: FR-012 Node Labels for Pool Ownership
 
 Stratos MUST label pre-warmed Nodes with NodePool ownership and standby status.
 
@@ -181,7 +193,7 @@ Stratos MUST label pre-warmed Nodes with NodePool ownership and standby status.
 
 ---
 
-### FR-013: Stratos MUST watch for Kubernetes pod events and react immediately to unschedulable pods
+### Requirement: FR-013 Pod Event Watching
 
 Stratos MUST watch for Kubernetes pod events and react immediately to unschedulable pods.
 
@@ -193,7 +205,7 @@ Stratos MUST watch for Kubernetes pod events and react immediately to unschedula
 - **When** Stratos observes the event
 - **Then** it evaluates the pod for scale-up
 
-### FR-014: Stratos MUST evaluate pending pods against NodePool requirements (node selectors, taints/tolerations)
+### Requirement: FR-014 Pod Matching Against NodePool
 
 Stratos MUST evaluate pending pods against NodePool requirements (node selectors, taints/tolerations).
 
@@ -210,7 +222,7 @@ Stratos MUST evaluate pending pods against NodePool requirements (node selectors
 - **When** Stratos evaluates it
 - **Then** Stratos ignores the pod
 
-### FR-015: Stratos MUST start standby nodes when pending pods can be satisfied
+### Requirement: FR-015 Scale-Up Trigger
 
 Stratos MUST start standby nodes when pending pods can be satisfied.
 
@@ -222,7 +234,7 @@ Stratos MUST start standby nodes when pending pods can be satisfied.
 - **When** Stratos decides to scale up
 - **Then** it starts the standby node
 
-### FR-016: Stratos MUST NOT start more nodes than needed to satisfy pending pods. The calculation MUST:
+### Requirement: FR-016 Minimal Node Start Calculation
 
 Stratos MUST NOT start more nodes than needed to satisfy pending pods. The calculation MUST:
 1. Sum the resource requests (CPU, memory) of all pending pods
@@ -259,7 +271,7 @@ Stratos MUST NOT start more nodes than needed to satisfy pending pods. The calcu
 - **When** Stratos evaluates scale-up need
 - **Then** stale starting annotations are ignored
 
-### FR-017: Stratos MUST NOT exceed poolSize total nodes (standby + running)
+### Requirement: FR-017 Pool Size Enforcement
 
 Stratos MUST NOT exceed poolSize total nodes (standby + running).
 
@@ -271,7 +283,7 @@ Stratos MUST NOT exceed poolSize total nodes (standby + running).
 - **When** more pods become pending
 - **Then** no additional nodes are started
 
-### FR-018: Started nodes MUST become Ready within seconds (not minutes)
+### Requirement: FR-018 Fast Node Startup
 
 Started nodes MUST become Ready within seconds (not minutes).
 
@@ -283,7 +295,7 @@ Started nodes MUST become Ready within seconds (not minutes).
 - **When** it transitions to running
 - **Then** it becomes Ready within 30 seconds
 
-### FR-049: Stratos MUST track nodes that are in the process of starting for scale-up to prevent over-provisioning. This tracking MUST:
+### Requirement: FR-049 Scale-Up Started Tracking
 
 Stratos MUST track nodes that are in the process of starting for scale-up to prevent over-provisioning. This tracking MUST:
 - Use a node annotation (`stratos.sh/scale-up-started`) with a timestamp
@@ -309,7 +321,7 @@ Stratos MUST track nodes that are in the process of starting for scale-up to pre
 - **When** the reconciliation loop runs
 - **Then** the annotation is removed (even if node is not Ready)
 
-### FR-050: Stratos MUST calculate scale-up need based on pod resource requests and node capacity
+### Requirement: FR-050 Resource-Based Scale-Up Calculation
 
 Stratos MUST calculate scale-up need based on pod resource requests and node capacity.
 
@@ -331,7 +343,7 @@ Stratos MUST calculate scale-up need based on pod resource requests and node cap
 - **When** calculating usable capacity
 - **Then** usable capacity is 3.2 vCPU, 12.8Gi (80% of total)
 
-### FR-051: NodePool MUST support configurable default resource requests for pods that don't specify their own requests. This is used in scale-up calculations
+### Requirement: FR-051 Default Pod Resource Requests
 
 NodePool MUST support configurable default resource requests for pods that don't specify their own requests. This is used in scale-up calculations.
 
@@ -364,7 +376,7 @@ spec:
 - **When** calculating scale-up need
 - **Then** the pod is treated as requiring unknown resources (falls back to 1:1 mapping)
 
-### FR-052: Stratos MUST support looking up AWS instance capacity for scale-up calculations using a hybrid approach:
+### Requirement: FR-052 AWS Instance Capacity Lookup
 
 Stratos MUST support looking up AWS instance capacity for scale-up calculations using a hybrid approach:
 1. **Primary**: Read from existing node's `.status.allocatable` (real data)
@@ -391,7 +403,7 @@ Stratos MUST support looking up AWS instance capacity for scale-up calculations 
 
 ---
 
-### FR-019: Stratos MUST detect empty nodes (no pods excluding DaemonSets)
+### Requirement: FR-019 Empty Node Detection
 
 Stratos MUST detect empty nodes (no pods excluding DaemonSets).
 
@@ -403,7 +415,7 @@ Stratos MUST detect empty nodes (no pods excluding DaemonSets).
 - **When** Stratos evaluates the node
 - **Then** it is considered empty
 
-### FR-020: Stratos MUST support configurable emptyNodeTTL (duration before stopping empty nodes)
+### Requirement: FR-020 Configurable emptyNodeTTL
 
 Stratos MUST support configurable emptyNodeTTL (duration before stopping empty nodes).
 
@@ -415,7 +427,7 @@ Stratos MUST support configurable emptyNodeTTL (duration before stopping empty n
 - **When** the node has been empty for 5 minutes
 - **Then** Stratos initiates scale-down
 
-### FR-021: Stratos MUST cordon nodes before draining
+### Requirement: FR-021 Cordon Before Drain
 
 Stratos MUST cordon nodes before draining.
 
@@ -427,7 +439,7 @@ Stratos MUST cordon nodes before draining.
 - **When** Stratos begins the process
 - **Then** the node is cordoned first
 
-### FR-022: Stratos MUST drain nodes respecting PodDisruptionBudgets
+### Requirement: FR-022 PDB-Respecting Drain
 
 Stratos MUST drain nodes respecting PodDisruptionBudgets.
 
@@ -439,7 +451,7 @@ Stratos MUST drain nodes respecting PodDisruptionBudgets.
 - **When** Stratos drains the node
 - **Then** it waits for PDB conditions to allow eviction
 
-### FR-023: Stratos MUST stop (not terminate) nodes on scale-down to preserve pre-warming
+### Requirement: FR-023 Stop on Scale-Down
 
 Stratos MUST stop (not terminate) nodes on scale-down to preserve pre-warming.
 
@@ -451,7 +463,7 @@ Stratos MUST stop (not terminate) nodes on scale-down to preserve pre-warming.
 - **When** scale-down completes
 - **Then** the instance is stopped, not terminated
 
-### FR-024: Stopped nodes MUST return to standby pool and be available for future scale-up
+### Requirement: FR-024 Standby Pool Return
 
 Stopped nodes MUST return to standby pool and be available for future scale-up.
 
@@ -463,7 +475,7 @@ Stopped nodes MUST return to standby pool and be available for future scale-up.
 - **When** it stops successfully
 - **Then** it is marked as standby and can be started again
 
-### FR-025: Stratos MUST support disabling automatic scale-down per NodePool
+### Requirement: FR-025 Disable Scale-Down Option
 
 Stratos MUST support disabling automatic scale-down per NodePool.
 
@@ -477,7 +489,7 @@ Stratos MUST support disabling automatic scale-down per NodePool.
 
 ---
 
-### FR-026: Stratos MUST run a periodic reconciliation loop to maintain pool health (configurable interval, default 30 seconds)
+### Requirement: FR-026 Periodic Reconciliation Loop
 
 Stratos MUST run a periodic reconciliation loop to maintain pool health (configurable interval, default 30 seconds).
 
@@ -489,7 +501,7 @@ Stratos MUST run a periodic reconciliation loop to maintain pool health (configu
 - **When** the sync period elapses
 - **Then** all NodePools are reconciled
 
-### FR-027: Stratos MUST provision new nodes when standby count is below minStandby
+### Requirement: FR-027 Standby Replenishment
 
 Stratos MUST provision new nodes when standby count is below minStandby.
 
@@ -501,7 +513,7 @@ Stratos MUST provision new nodes when standby count is below minStandby.
 - **When** reconciliation runs
 - **Then** 2 new nodes are provisioned
 
-### FR-028: Stratos MUST detect and handle externally terminated instances
+### Requirement: FR-028 External Termination Handling
 
 Stratos MUST detect and handle externally terminated instances.
 
@@ -513,7 +525,7 @@ Stratos MUST detect and handle externally terminated instances.
 - **When** Stratos detects this
 - **Then** it removes the stale Node object
 
-### FR-029: Stratos MUST recover state on controller restart
+### Requirement: FR-029 State Recovery on Restart
 
 Stratos MUST recover state on controller restart.
 
@@ -527,7 +539,7 @@ Stratos MUST recover state on controller restart.
 
 ---
 
-### FR-030: Stratos MUST support AWS (EC2) as a cloud provider
+### Requirement: FR-030 AWS EC2 Support
 
 Stratos MUST support AWS (EC2) as a cloud provider.
 
@@ -539,7 +551,7 @@ Stratos MUST support AWS (EC2) as a cloud provider.
 - **When** nodes are provisioned
 - **Then** EC2 instances are created with specified parameters
 
-### FR-031: Stratos MUST support pluggable cloud provider implementations for future providers
+### Requirement: FR-031 Pluggable Cloud Providers
 
 Stratos MUST support pluggable cloud provider implementations for future providers.
 
@@ -551,7 +563,7 @@ Stratos MUST support pluggable cloud provider implementations for future provide
 - **When** implementing a new provider
 - **Then** only launch, start, stop, get state, and terminate need to be implemented
 
-### FR-032: Cloud provider MUST support: launch, start, stop, get state, and terminate operations
+### Requirement: FR-032 Cloud Provider Operations
 
 Cloud provider MUST support: launch, start, stop, get state, and terminate operations.
 
@@ -562,7 +574,7 @@ Cloud provider MUST support: launch, start, stop, get state, and terminate opera
 - **Given** the CloudProvider interface
 - **Then** all five operations are defined and callable
 
-### FR-033: Stratos MUST tag all managed instances with NodePool name and cluster identifier
+### Requirement: FR-033 Instance Tagging
 
 Stratos MUST tag all managed instances with NodePool name and cluster identifier.
 
@@ -574,7 +586,7 @@ Stratos MUST tag all managed instances with NodePool name and cluster identifier
 - **When** created by Stratos
 - **Then** it has tags: managed-by=stratos, stratos.sh/pool, stratos.sh/cluster
 
-### FR-034: Stratos MUST implement client-side rate limiting for cloud API calls to avoid hitting provider limits
+### Requirement: FR-034 Client-Side Rate Limiting
 
 Stratos MUST implement client-side rate limiting for cloud API calls to avoid hitting provider limits.
 
@@ -586,7 +598,7 @@ Stratos MUST implement client-side rate limiting for cloud API calls to avoid hi
 - **When** the rate limit is reached
 - **Then** requests are queued rather than rejected
 
-### FR-035: Stratos MUST use exponential backoff when retrying failed cloud API calls (including rate limit/throttle errors)
+### Requirement: FR-035 Exponential Backoff on Retry
 
 Stratos MUST use exponential backoff when retrying failed cloud API calls (including rate limit/throttle errors).
 
@@ -600,7 +612,7 @@ Stratos MUST use exponential backoff when retrying failed cloud API calls (inclu
 
 ---
 
-### FR-036: NodePool MUST support configurable maxNodeRuntime (optional, 0 = disabled)
+### Requirement: FR-036 Configurable maxNodeRuntime
 
 NodePool MUST support configurable maxNodeRuntime (optional, 0 = disabled).
 
@@ -612,7 +624,7 @@ NodePool MUST support configurable maxNodeRuntime (optional, 0 = disabled).
 - **When** a node runs longer than 24 hours
 - **Then** it is marked for recycling
 
-### FR-037: Stratos MUST automatically drain and stop nodes that exceed maxNodeRuntime
+### Requirement: FR-037 Automatic Node Recycling
 
 Stratos MUST automatically drain and stop nodes that exceed maxNodeRuntime.
 
@@ -624,7 +636,7 @@ Stratos MUST automatically drain and stop nodes that exceed maxNodeRuntime.
 - **When** Stratos detects this
 - **Then** it drains and stops the node
 
-### FR-038: Stratos MUST emit warning events when nodes approach maxNodeRuntime threshold
+### Requirement: FR-038 Max Runtime Warning Events
 
 Stratos MUST emit warning events when nodes approach maxNodeRuntime threshold.
 
@@ -638,7 +650,7 @@ Stratos MUST emit warning events when nodes approach maxNodeRuntime threshold.
 
 ---
 
-### FR-039: Stratos MUST expose Prometheus metrics for: pool size, standby count, running count, warmup count
+### Requirement: FR-039 Prometheus Metrics for Pool State
 
 Stratos MUST expose Prometheus metrics for: pool size, standby count, running count, warmup count.
 
@@ -650,7 +662,7 @@ Stratos MUST expose Prometheus metrics for: pool size, standby count, running co
 - **When** /metrics is scraped
 - **Then** stratos_nodepool_nodes_total is available with state labels
 
-### FR-040: Stratos MUST expose metrics for scale-up operations: count, latency (time from pending to scheduled)
+### Requirement: FR-040 Scale-Up Metrics
 
 Stratos MUST expose metrics for scale-up operations: count, latency (time from pending to scheduled).
 
@@ -662,7 +674,7 @@ Stratos MUST expose metrics for scale-up operations: count, latency (time from p
 - **When** it completes
 - **Then** stratos_scaleup_duration_seconds is recorded
 
-### FR-041: Stratos MUST expose metrics for scale-down operations: count, drain duration
+### Requirement: FR-041 Scale-Down Metrics
 
 Stratos MUST expose metrics for scale-down operations: count, drain duration.
 
@@ -674,7 +686,7 @@ Stratos MUST expose metrics for scale-down operations: count, drain duration.
 - **When** it completes
 - **Then** stratos_scaledown_total and stratos_drain_duration_seconds are recorded
 
-### FR-042: Stratos MUST emit Kubernetes events for significant operations (node started, node stopped, errors)
+### Requirement: FR-042 Kubernetes Events
 
 Stratos MUST emit Kubernetes events for significant operations (node started, node stopped, errors).
 
@@ -688,7 +700,7 @@ Stratos MUST emit Kubernetes events for significant operations (node started, no
 
 ---
 
-### FR-043: Stratos MUST operate with cluster-scoped least-privilege RBAC permissions
+### Requirement: FR-043 Least-Privilege RBAC
 
 Stratos MUST operate with cluster-scoped least-privilege RBAC permissions.
 
@@ -699,7 +711,7 @@ Stratos MUST operate with cluster-scoped least-privilege RBAC permissions.
 - **Given** the Stratos ClusterRole
 - **Then** it has only the permissions required for operation
 
-### FR-044: Stratos MUST have full access to Node objects (get, list, watch, create, update, patch, delete)
+### Requirement: FR-044 Node Object Access
 
 Stratos MUST have full access to Node objects (get, list, watch, create, update, patch, delete).
 
@@ -710,7 +722,7 @@ Stratos MUST have full access to Node objects (get, list, watch, create, update,
 - **Given** Stratos needs to manage nodes
 - **Then** the ClusterRole grants full Node access
 
-### FR-045: Stratos MUST have watch access to Pod objects cluster-wide (get, list, watch)
+### Requirement: FR-045 Pod Watch Access
 
 Stratos MUST have watch access to Pod objects cluster-wide (get, list, watch).
 
@@ -721,7 +733,7 @@ Stratos MUST have watch access to Pod objects cluster-wide (get, list, watch).
 - **Given** Stratos needs to detect pending pods
 - **Then** the ClusterRole grants Pod read access
 
-### FR-046: Stratos MUST have full access to NodePool CRD objects (get, list, watch, create, update, patch, delete)
+### Requirement: FR-046 NodePool CRD Access
 
 Stratos MUST have full access to NodePool CRD objects (get, list, watch, create, update, patch, delete).
 
@@ -732,7 +744,7 @@ Stratos MUST have full access to NodePool CRD objects (get, list, watch, create,
 - **Given** Stratos manages NodePool resources
 - **Then** the ClusterRole grants full NodePool access
 
-### FR-047: Stratos MUST have create access to Event objects for operational visibility
+### Requirement: FR-047 Event Creation Access
 
 Stratos MUST have create access to Event objects for operational visibility.
 
@@ -743,7 +755,7 @@ Stratos MUST have create access to Event objects for operational visibility.
 - **Given** Stratos needs to emit events
 - **Then** the ClusterRole grants Event create access
 
-### FR-048: Stratos MUST NOT require cluster-admin or access to secrets outside its own namespace
+### Requirement: FR-048 No Cluster-Admin Required
 
 Stratos MUST NOT require cluster-admin or access to secrets outside its own namespace.
 
@@ -753,6 +765,99 @@ Stratos MUST NOT require cluster-admin or access to secrets outside its own name
 #### Scenario: Limited scope
 - **Given** the Stratos ClusterRole
 - **Then** it does not grant cluster-admin or broad secret access
+
+---
+
+### Requirement: FR-053 Configurable Warmup Completion Mode
+
+NodePool MUST support configurable `preWarm.completionMode` to control how warmup completes:
+- `SelfStop` (default): Instance self-stops via userdata script (current behavior)
+- `ControllerStop`: Stratos stops instance when node is Ready
+
+**Priority**: P1
+**Status**: Implemented
+
+```yaml
+spec:
+  preWarm:
+    completionMode: ControllerStop  # or SelfStop (default)
+```
+
+#### Scenario: Default to SelfStop for backward compatibility
+- **Given** a NodePool without `preWarm.completionMode` specified
+- **When** an instance completes warmup
+- **Then** Stratos waits for the instance to self-stop (existing behavior)
+
+#### Scenario: ControllerStop mode configured
+- **Given** a NodePool with `preWarm.completionMode: ControllerStop`
+- **When** an instance is launched for warmup
+- **Then** Stratos monitors the node and stops it when ready
+
+---
+
+### Requirement: FR-054 Controller Stop on Node Ready
+
+In ControllerStop mode, Stratos MUST call `StopInstance` when:
+1. The Kubernetes node exists (instance joined cluster)
+2. The node has Ready condition = True
+3. Network readiness conditions are met (if `startupTaintRemoval: WhenNetworkReady`)
+
+**Priority**: P1
+**Status**: Implemented
+
+#### Scenario: Stop on node Ready
+- **Given** a NodePool with `completionMode: ControllerStop`
+- **And** an instance in warmup state
+- **When** the node becomes Ready
+- **Then** Stratos calls StopInstance and transitions to standby
+
+#### Scenario: Wait for network ready when configured
+- **Given** a NodePool with `completionMode: ControllerStop` and `startupTaintRemoval: WhenNetworkReady`
+- **And** a node that is Ready but NetworkingReady is False
+- **When** Stratos evaluates the node
+- **Then** it waits until NetworkingReady becomes True before stopping
+
+#### Scenario: Node not yet Ready
+- **Given** a NodePool with `completionMode: ControllerStop`
+- **And** an instance in warmup state
+- **When** the node exists but Ready condition is not True
+- **Then** Stratos continues monitoring (does not stop)
+
+---
+
+### Requirement: FR-055 Timeout Handling in ControllerStop Mode
+
+In ControllerStop mode, if the node does not become Ready within `preWarm.timeout`, Stratos MUST apply the configured `timeoutAction` (stop or terminate).
+
+**Priority**: P1
+**Status**: Implemented
+
+#### Scenario: Timeout in ControllerStop mode
+- **Given** a NodePool with `completionMode: ControllerStop` and `timeout: 10m`
+- **And** an instance that has been warming up for more than 10 minutes
+- **When** the node is still not Ready
+- **Then** Stratos applies the timeout action (stop or terminate)
+
+---
+
+### Requirement: FR-056 ControllerStop Without Userdata Shutdown Scripts
+
+In ControllerStop mode, instances MUST be able to complete warmup without any shutdown commands in userdata. The userdata only needs to configure the node to join the cluster.
+
+**Priority**: P1
+**Status**: Implemented
+
+#### Scenario: Bottlerocket with config-only userdata
+- **Given** a NodePool with `completionMode: ControllerStop`
+- **And** Bottlerocket AMI with TOML-only userdata (no bootstrap containers)
+- **When** the instance boots and joins the cluster
+- **Then** Stratos detects the Ready node and stops it
+
+#### Scenario: AL2023 without shutdown script
+- **Given** a NodePool with `completionMode: ControllerStop`
+- **And** AL2023 AMI with nodeadm config but no poweroff script
+- **When** the instance boots and joins the cluster
+- **Then** Stratos detects the Ready node and stops it
 
 ---
 

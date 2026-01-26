@@ -7,6 +7,7 @@
 ### 1. Add CompletionMode to PreWarmConfig API
 **Files**: `api/v1alpha1/config_types.go`
 **Effort**: Small
+**Status**: - [x] Complete
 
 - Add `CompletionMode` field to `PreWarmConfig` struct
 - Define `WarmupCompletionMode` type with `SelfStop` and `ControllerStop` values
@@ -24,6 +25,7 @@
 ### 2. Update MonitorWarmup to support ControllerStop mode
 **Files**: `internal/controller/state.go`, `internal/controller/manager.go`, `internal/controller/scale_up.go`
 **Effort**: Medium
+**Status**: - [x] Complete
 
 Currently `MonitorWarmup()` only polls EC2 instance state waiting for `Stopped`. It does NOT check the K8s node Ready condition.
 
@@ -48,6 +50,7 @@ Currently `MonitorWarmup()` only polls EC2 instance state waiting for `Stopped`.
 ### 3. Update MonitorCloudWarmup for ControllerStop mode
 **Files**: `internal/controller/manager.go`
 **Effort**: Small
+**Status**: - [x] Complete (no changes needed - existing implementation already correct)
 
 Currently `MonitorCloudWarmup()` handles instances that exist in EC2 but may not have a K8s node yet. When the instance is `Running` and a node exists, it labels the node as warmup.
 
@@ -70,6 +73,7 @@ Currently `MonitorCloudWarmup()` handles instances that exist in EC2 but may not
 ### 4. Add metrics for warmup completion mode
 **Files**: `internal/metrics/metrics.go`, `internal/controller/manager.go`
 **Effort**: Small
+**Status**: - [x] Complete
 
 Add observability to distinguish warmup completion modes.
 
@@ -87,6 +91,7 @@ Add observability to distinguish warmup completion modes.
 ### 5. Add integration test for ControllerStop mode
 **Files**: `tests/integration/controller_stop_test.go`
 **Effort**: Medium
+**Status**: - [x] Complete
 
 - Test: Instance launched with ControllerStop mode
 - Test: Node joins cluster and becomes Ready
@@ -103,6 +108,7 @@ Add observability to distinguish warmup completion modes.
 ### 6. Create Bottlerocket sample NodePool
 **Files**: `config/samples/test_pool_bottlerocket.yaml`
 **Effort**: Small
+**Status**: - [x] Complete
 
 - Create sample with Bottlerocket AMI
 - Use `completionMode: ControllerStop`
@@ -117,6 +123,7 @@ Add observability to distinguish warmup completion modes.
 ### 7. Update AL2023 sample with optional ControllerStop mode
 **Files**: `config/samples/test_pool_al2023.yaml`
 **Effort**: Small
+**Status**: - [x] Complete
 
 - Add commented example showing ControllerStop mode
 - Keep existing SelfStop mode as default
@@ -128,8 +135,9 @@ Add observability to distinguish warmup completion modes.
 ---
 
 ### 8. Update documentation
-**Files**: `README.md`, `CLAUDE.md`
+**Files**: `docs/reference/api/nodepool.md`
 **Effort**: Small
+**Status**: - [x] Complete
 
 - Document `preWarm.completionMode` option
 - Explain when to use ControllerStop vs SelfStop

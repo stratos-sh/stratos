@@ -7,12 +7,12 @@
 
 ### Requirement: FR-053 Configurable Warmup Completion Mode
 
-**Priority**: P1
-**Status**: Draft
-
 NodePool MUST support configurable `preWarm.completionMode` to control how warmup completes:
 - `SelfStop` (default): Instance self-stops via userdata script (current behavior)
 - `ControllerStop`: Stratos stops instance when node is Ready
+
+**Priority**: P1
+**Status**: Implemented
 
 ```yaml
 spec:
@@ -34,13 +34,13 @@ spec:
 
 ### Requirement: FR-054 Controller Stop on Node Ready
 
-**Priority**: P1
-**Status**: Draft
-
 In ControllerStop mode, Stratos MUST call `StopInstance` when:
 1. The Kubernetes node exists (instance joined cluster)
 2. The node has Ready condition = True
 3. Network readiness conditions are met (if `startupTaintRemoval: WhenNetworkReady`)
+
+**Priority**: P1
+**Status**: Implemented
 
 #### Scenario: Stop on node Ready
 - **Given** a NodePool with `completionMode: ControllerStop`
@@ -64,10 +64,10 @@ In ControllerStop mode, Stratos MUST call `StopInstance` when:
 
 ### Requirement: FR-055 Timeout Handling in ControllerStop Mode
 
-**Priority**: P1
-**Status**: Draft
-
 In ControllerStop mode, if the node does not become Ready within `preWarm.timeout`, Stratos MUST apply the configured `timeoutAction` (stop or terminate).
+
+**Priority**: P1
+**Status**: Implemented
 
 #### Scenario: Timeout in ControllerStop mode
 - **Given** a NodePool with `completionMode: ControllerStop` and `timeout: 10m`
@@ -79,10 +79,10 @@ In ControllerStop mode, if the node does not become Ready within `preWarm.timeou
 
 ### Requirement: FR-056 ControllerStop Without Userdata Shutdown Scripts
 
-**Priority**: P1
-**Status**: Draft
-
 In ControllerStop mode, instances MUST be able to complete warmup without any shutdown commands in userdata. The userdata only needs to configure the node to join the cluster.
+
+**Priority**: P1
+**Status**: Implemented
 
 #### Scenario: Bottlerocket with config-only userdata
 - **Given** a NodePool with `completionMode: ControllerStop`
@@ -102,11 +102,10 @@ In ControllerStop mode, instances MUST be able to complete warmup without any sh
 
 ### Requirement: FR-007 Userdata Configuration for Cluster Join
 
-**Priority**: P1
-**Status**: Draft
-**Modification**: Changed from "joins cluster and self-stops" to "joins cluster" with mode-dependent shutdown behavior
-
 Stratos MUST configure instances with userdata that joins the K8s cluster. In `SelfStop` mode (default), userdata MUST also include logic to stop the instance. In `ControllerStop` mode, no shutdown logic is required.
+
+**Priority**: P1
+**Status**: Implemented
 
 #### Scenario: Node initialization (SelfStop mode)
 - **Given** a launched instance with `completionMode: SelfStop`
@@ -122,13 +121,12 @@ Stratos MUST configure instances with userdata that joins the K8s cluster. In `S
 
 ### Requirement: FR-008 Warmup Instance Monitoring
 
-**Priority**: P1
-**Status**: Draft
-**Modification**: Changed from "wait for self-stop" to mode-dependent monitoring behavior
-
 Stratos MUST monitor launched instances in warmup state:
 - In `SelfStop` mode: Wait for instance to self-stop (detect stopped state)
 - In `ControllerStop` mode: Wait for node Ready, then call StopInstance
+
+**Priority**: P1
+**Status**: Implemented
 
 #### Scenario: Detect self-stop (SelfStop mode)
 - **Given** a launched instance in warmup state with `completionMode: SelfStop`
