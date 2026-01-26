@@ -57,6 +57,17 @@ sleep 30
 poweroff
 ```
 
+:::tip Using Bottlerocket?
+Bottlerocket uses TOML configuration and doesn't support shell scripts. Use **ControllerStop** completion mode instead:
+
+```yaml
+preWarm:
+  completionMode: ControllerStop
+```
+
+In this mode, Stratos stops the instance when the node becomes Ready, eliminating the need for a `poweroff` script. See [Bottlerocket Setup](../guides/bottlerocket.md) for details.
+:::
+
 ## Step 2: Create the NodePool
 
 Create a file named `nodepool-workers.yaml`:

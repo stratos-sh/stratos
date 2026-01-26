@@ -113,8 +113,16 @@ The `template` field defines the configuration for nodes in this pool.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `timeout` | duration | No | `10m` | Maximum time to wait for an instance to self-stop during warmup. |
+| `timeout` | duration | No | `10m` | Maximum time to wait for warmup to complete. In SelfStop mode, how long to wait for instance to self-stop. In ControllerStop mode, how long to wait for node to become Ready. |
 | `timeoutAction` | string | No | `stop` | Action when warmup times out: `stop` (force stop) or `terminate` (terminate instance). |
+| `completionMode` | string | No | `SelfStop` | How warmup completes: `SelfStop` or `ControllerStop`. |
+
+#### Warmup Completion Modes
+
+| Mode | Description |
+|------|-------------|
+| `SelfStop` | Instance self-stops via userdata script after joining the cluster (default, existing behavior). |
+| `ControllerStop` | Stratos stops the instance when the node becomes Ready. Use for OS images that cannot run shutdown scripts (e.g., Bottlerocket). |
 
 ### ScaleUp Configuration
 
@@ -304,6 +312,64 @@ spec:
           until curl -sf http://localhost:10248/healthz; do sleep 5; done
           sleep 30
           poweroff
+```
+
+### Bottlerocket with ControllerStop Mode
+
+Bottlerocket uses TOML configuration and doesn't support shell scripts in user data. Use `ControllerStop` mode so Stratos manages the warmup-to-standby transition.
+
+```yaml title="bottlerocket-nodepool.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: bottlerocket-workers
+spec:
+  poolSize: 10
+  minStandby: 3
+  preWarm:
+    # ControllerStop: Stratos stops instance when node is Ready
+    completionMode: ControllerStop
+    timeout: 10m
+    timeoutAction: stop
+  template:
+    labels:
+      stratos.sh/pool: bottlerocket-workers
+    startupTaints:
+      - key: node.eks.amazonaws.com/not-ready
+        value: "true"
+        effect: NoSchedule
+    startupTaintRemoval: WhenNetworkReady
+    cloudProvider:
+      provider: aws
+      aws:
+        instanceType: m5.large
+        ami: ami-bottlerocket-xxxx  # Bottlerocket EKS-optimized AMI
+        subnetIds:
+          - subnet-12345678
+        securityGroupIds:
+          - sg-12345678
+        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
+        blockDeviceMappings:
+          - deviceName: /dev/xvda
+            volumeSize: 20
+            volumeType: gp3
+            encrypted: true
+          - deviceName: /dev/xvdb  # Bottlerocket data volume
+            volumeSize: 20
+            volumeType: gp3
+            encrypted: true
+        # Bottlerocket TOML user data - no shutdown script needed
+        userData: |
+          [settings.kubernetes]
+          cluster-name = "my-cluster"
+          api-server = "https://my-cluster.region.eks.amazonaws.com"
+          cluster-certificate = "base64-encoded-ca-cert"
+
+          [settings.kubernetes.node-taints]
+          "node.eks.amazonaws.com/not-ready" = "true:NoSchedule"
+
+          [settings.kubernetes.node-labels]
+          "stratos.sh/pool" = "bottlerocket-workers"
 ```
 
 ## Kubectl Commands
