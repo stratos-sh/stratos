@@ -119,6 +119,7 @@ var (
 	)
 
 	// WarmupDuration tracks the duration of warmup operations.
+	// The mode label indicates how warmup completed: "self_stop", "controller_stop", or "timeout"
 	WarmupDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: namespace,
@@ -127,7 +128,7 @@ var (
 			Help:      "Time from launch to standby",
 			Buckets:   []float64{30, 60, 120, 180, 300, 600, 900},
 		},
-		[]string{"pool"},
+		[]string{"pool", "mode"},
 	)
 
 	// DrainDuration tracks the duration of drain operations.
@@ -272,8 +273,9 @@ func RecordScaleUpDuration(pool string, durationSeconds float64) {
 }
 
 // RecordWarmupDuration records the duration of a warmup operation.
-func RecordWarmupDuration(pool string, durationSeconds float64) {
-	WarmupDuration.WithLabelValues(pool).Observe(durationSeconds)
+// mode should be one of: "self_stop", "controller_stop", or "timeout"
+func RecordWarmupDuration(pool, mode string, durationSeconds float64) {
+	WarmupDuration.WithLabelValues(pool, mode).Observe(durationSeconds)
 }
 
 // RecordDrainDuration records the duration of a drain operation.
