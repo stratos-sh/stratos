@@ -15,7 +15,9 @@ Stratos manages nodes through a well-defined state machine. Understanding these 
                     | warmup  |
                     +----+----+
                          |
-           self-stop or  |  timeout (terminate)
+           self-stop,    |  timeout (terminate)
+           controller-   |       |
+           stop, or      |       |
            timeout (stop)|       |
                          v       v
                     +---------+  X (terminated)
@@ -53,15 +55,63 @@ Stratos manages nodes through a well-defined state machine. Understanding these 
 
 A node enters the warmup state when a new instance is launched to replenish the pool. During warmup:
 
-1. The instance boots and runs the user data script
-2. The script joins the Kubernetes cluster
+1. The instance boots and runs user data (script or TOML configuration)
+2. Joins the Kubernetes cluster
 3. Registers with startup taints
 4. Waits for kubelet to be healthy
-5. Calls `poweroff` to self-stop
+5. Transitions to standby (method depends on completion mode)
 
 **Transitions:**
-- `warmup -> standby`: Instance self-stopped or timeout with stop action
+- `warmup -> standby`: Instance stopped (via self-stop or controller-stop) or timeout with stop action
 - `warmup -> terminating`: Timeout with terminate action
+
+#### Warmup Completion Modes
+
+Stratos supports two modes for completing warmup:
+
+| Mode | Configuration | How It Works |
+|------|--------------|--------------|
+| **SelfStop** (default) | `preWarm.completionMode: SelfStop` | User data script calls `poweroff` when ready |
+| **ControllerStop** | `preWarm.completionMode: ControllerStop` | Stratos stops the instance when node is Ready |
+
+**SelfStop Mode** (Traditional)
+
+The instance self-stops via a user data script:
+
+```bash
+#!/bin/bash
+/etc/eks/bootstrap.sh my-cluster \
+  --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
+until curl -sf http://localhost:10248/healthz; do sleep 5; done
+sleep 30
+poweroff
+```
+
+Use SelfStop mode with:
+- Amazon Linux 2/2023
+- Ubuntu
+- Any OS that supports shell scripts in user data
+
+**ControllerStop Mode**
+
+Stratos monitors the node and stops it when ready:
+
+```yaml
+preWarm:
+  completionMode: ControllerStop
+  timeout: 10m
+```
+
+Stratos stops the instance when:
+1. The Kubernetes node has `Ready=True`
+2. Network is ready (if `startupTaintRemoval: WhenNetworkReady`)
+
+Use ControllerStop mode with:
+- Bottlerocket (TOML-only configuration)
+- Any OS where shutdown scripts are impractical
+- Environments where you prefer controller-managed warmup
+
+See [Bottlerocket Setup](../guides/bottlerocket.md) for a complete example.
 
 :::tip Image Pre-Pulling
 During the warmup phase, Stratos automatically pre-pulls images for all DaemonSets that will run on the node. This eliminates image pull time at scale-up, contributing to Stratos's ~20-25 second scale-up time (compared to Karpenter's ~40-50 seconds).
@@ -178,7 +228,14 @@ Use this mode for:
 
 Configured via `preWarm.timeout` (default: 10 minutes).
 
-If an instance doesn't self-stop within the timeout:
+The timeout behavior depends on the completion mode:
+
+| Mode | Timeout Condition |
+|------|------------------|
+| SelfStop | Instance doesn't self-stop within the timeout |
+| ControllerStop | Node doesn't become Ready within the timeout |
+
+When timeout occurs:
 
 | Action | Behavior |
 |--------|----------|

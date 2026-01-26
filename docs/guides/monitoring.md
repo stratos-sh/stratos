@@ -26,9 +26,19 @@ Stratos exposes Prometheus metrics at `:8080/metrics`. This guide covers metrics
 | `stratos_nodepool_scaleup_total` | Counter | `pool` | Total scale-up operations |
 | `stratos_nodepool_scaledown_total` | Counter | `pool` | Total scale-down operations |
 | `stratos_nodepool_scaleup_duration_seconds` | Histogram | `pool` | Scale-up latency |
-| `stratos_nodepool_warmup_duration_seconds` | Histogram | `pool` | Warmup latency |
+| `stratos_nodepool_warmup_duration_seconds` | Histogram | `pool`, `mode` | Warmup latency by completion mode |
 | `stratos_nodepool_drain_duration_seconds` | Histogram | `pool` | Drain latency |
 | `stratos_nodepool_warmup_failures_total` | Counter | `pool`, `reason` | Warmup failures |
+
+#### Warmup Duration Mode Labels
+
+The `mode` label on `stratos_nodepool_warmup_duration_seconds` indicates how warmup completed:
+
+| Mode | Description |
+|------|-------------|
+| `self_stop` | Instance self-stopped via user data script (SelfStop mode) |
+| `controller_stop` | Stratos stopped the instance when Ready (ControllerStop mode) |
+| `timeout` | Warmup timed out and instance was force-stopped |
 
 ### Startup Taint Metrics
 
@@ -317,7 +327,15 @@ Event types:
    histogram_quantile(0.95, rate(stratos_nodepool_warmup_duration_seconds_bucket[5m]))
    ```
 
-2. Check failure rate:
+2. Check warmup duration by completion mode:
+   ```promql
+   # Compare SelfStop vs ControllerStop warmup times
+   histogram_quantile(0.95,
+     sum(rate(stratos_nodepool_warmup_duration_seconds_bucket[5m])) by (le, pool, mode)
+   )
+   ```
+
+3. Check failure rate:
    ```promql
    rate(stratos_nodepool_warmup_failures_total[1h])
    ```
