@@ -52,7 +52,7 @@ const config = {
         title: 'Stratos',
         logo: {
           alt: 'Stratos Logo',
-          src: 'img/logo.svg',
+          src: 'img/logo.png',
         },
         items: [
           {
