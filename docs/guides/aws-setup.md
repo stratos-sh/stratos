@@ -319,29 +319,74 @@ mapRoles:
 Use EKS-optimized AMIs for best compatibility:
 
 ```bash
-# Get the latest EKS-optimized AMI
+# Get the latest EKS-optimized AMI (Amazon Linux 2)
 aws ssm get-parameter \
-  --name /aws/service/eks/optimized-ami/1.28/amazon-linux-2/recommended/image_id \
+  --name /aws/service/eks/optimized-ami/1.34/amazon-linux-2/recommended/image_id \
   --query "Parameter.Value" \
   --output text
-```
 
-For AL2023:
-
-```bash
+# For AL2023 (x86_64)
 aws ssm get-parameter \
-  --name /aws/service/eks/optimized-ami/1.28/amazon-linux-2023/x86_64/standard/recommended/image_id \
+  --name /aws/service/eks/optimized-ami/1.34/amazon-linux-2023/x86_64/standard/recommended/image_id \
+  --query "Parameter.Value" \
+  --output text
+
+# For AL2023 (ARM64/Graviton)
+aws ssm get-parameter \
+  --name /aws/service/eks/optimized-ami/1.34/amazon-linux-2023/arm64/standard/recommended/image_id \
+  --query "Parameter.Value" \
+  --output text
+
+# For Bottlerocket (x86_64)
+aws ssm get-parameter \
+  --name /aws/service/bottlerocket/aws-k8s-1.34/x86_64/latest/image_id \
   --query "Parameter.Value" \
   --output text
 ```
 
 ## Verifying Setup
 
-### Test Instance Launch
+### Step 1: Create an AWSNodeClass
 
-Create a minimal NodePool to verify the setup:
+First, create an AWSNodeClass with your AWS configuration:
 
-```yaml title="test-nodepool.yaml"
+```yaml title="awsnodeclass-test.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: test-nodes
+spec:
+  region: us-east-1
+  instanceType: t3.small
+  ami: ami-0123456789abcdef0  # Your EKS-optimized AMI
+  subnetIds:
+    - subnet-12345678
+  securityGroupIds:
+    - sg-12345678
+  iamInstanceProfile: arn:aws:iam::YOUR_ACCOUNT:instance-profile/stratos-node
+  userData: |
+    #!/bin/bash
+    /etc/eks/bootstrap.sh your-cluster \
+      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
+    until curl -sf http://localhost:10248/healthz; do sleep 5; done
+    sleep 30
+    poweroff
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 20
+      volumeType: gp3
+      encrypted: true
+```
+
+```bash
+kubectl apply -f awsnodeclass-test.yaml
+```
+
+### Step 2: Create a Test NodePool
+
+Create a minimal NodePool referencing the AWSNodeClass:
+
+```yaml title="nodepool-test.yaml"
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
 metadata:
@@ -350,40 +395,34 @@ spec:
   poolSize: 1
   minStandby: 1
   template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: test-nodes
     labels:
       stratos.sh/pool: test
     startupTaints:
       - key: node.eks.amazonaws.com/not-ready
         value: "true"
         effect: NoSchedule
-    cloudProvider:
-      provider: aws
-      aws:
-        region: us-east-1
-        instanceType: t3.small
-        ami: ami-0123456789abcdef0
-        subnetIds:
-          - subnet-12345678
-        securityGroupIds:
-          - sg-12345678
-        iamInstanceProfile: arn:aws:iam::YOUR_ACCOUNT:instance-profile/stratos-node
-        userData: |
-          #!/bin/bash
-          /etc/eks/bootstrap.sh your-cluster \
-            --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-          until curl -sf http://localhost:10248/healthz; do sleep 5; done
-          sleep 30
-          poweroff
 ```
 
 ```bash
-kubectl apply -f test-nodepool.yaml
+kubectl apply -f nodepool-test.yaml
 ```
+
+### Step 3: Verify Node Creation
 
 Watch for the node to appear:
 
 ```bash
 kubectl get nodes -l stratos.sh/pool=test -w
+```
+
+Check NodePool status:
+
+```bash
+kubectl get nodepools
+kubectl describe nodepool test
 ```
 
 ### Troubleshooting
@@ -394,13 +433,28 @@ Check controller logs:
 kubectl -n stratos-system logs deployment/stratos-controller
 ```
 
+Check if AWSNodeClass is found:
+
+```bash
+kubectl get awsnodeclasses
+kubectl describe awsnodeclass test-nodes
+```
+
 Check instance console output:
 
 ```bash
 aws ec2 get-console-output --instance-id i-0123456789abcdef0
 ```
 
+Common issues:
+- **NodeClassNotFound**: The AWSNodeClass doesn't exist or has a different name
+- **IAM permissions**: Controller or node missing required permissions
+- **Network**: Subnets can't reach the EKS API server
+- **AMI**: Wrong architecture (x86_64 vs arm64) for the instance type
+
 ## Next Steps
 
 - [First NodePool](../getting-started/first-nodepool.md) - Create your first NodePool
+- [AWSNodeClass Reference](../reference/api/awsnodeclass.md) - Complete API reference
+- [Bottlerocket Setup](./bottlerocket.md) - Using Bottlerocket with Stratos
 - [Monitoring](./monitoring.md) - Set up monitoring and alerts

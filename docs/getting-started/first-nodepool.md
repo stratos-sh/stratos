@@ -18,6 +18,26 @@ Before creating a NodePool, ensure you have:
 - Subnet and security group IDs
 - IAM instance profile for worker nodes
 
+## Understanding the NodeClass Pattern
+
+Stratos separates AWS-specific configuration from pool management:
+
+- **AWSNodeClass**: Defines EC2 instance configuration (instance type, AMI, networking, IAM, user data)
+- **NodePool**: Defines pool sizing, scaling behavior, and node template (labels, taints)
+
+You create an AWSNodeClass first, then create a NodePool that references it.
+
+```
++------------------+       references        +------------------+
+|    NodePool      | ----------------------> |  AWSNodeClass    |
++------------------+                         +------------------+
+| - poolSize: 10   |                         | - instanceType   |
+| - minStandby: 3  |                         | - ami            |
+| - labels, taints |                         | - subnetIds      |
++------------------+                         | - userData       |
+                                             +------------------+
+```
+
 ## Step 1: Prepare the User Data Script
 
 The user data script runs during the warmup phase. It must:
@@ -68,7 +88,60 @@ preWarm:
 In this mode, Stratos stops the instance when the node becomes Ready, eliminating the need for a `poweroff` script. See [Bottlerocket Setup](../guides/bottlerocket.md) for details.
 :::
 
-## Step 2: Create the NodePool
+## Step 2: Create the AWSNodeClass
+
+Create a file named `awsnodeclass-workers.yaml`:
+
+```yaml title="awsnodeclass-workers.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: workers
+spec:
+  region: us-east-1
+  instanceType: m5.large
+  ami: ami-0123456789abcdef0  # Your EKS-optimized AMI
+  subnetIds:
+    - subnet-12345678
+    - subnet-87654321
+  securityGroupIds:
+    - sg-12345678
+  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
+
+  # User data script that joins cluster and self-stops
+  userData: |
+    #!/bin/bash
+    set -e
+    /etc/eks/bootstrap.sh my-cluster \
+      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
+    until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do sleep 5; done
+    sleep 30
+    poweroff
+
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 50
+      volumeType: gp3
+      encrypted: true
+
+  tags:
+    Environment: production
+    ManagedBy: stratos
+```
+
+Apply the AWSNodeClass:
+
+```bash
+kubectl apply -f awsnodeclass-workers.yaml
+```
+
+Verify it was created:
+
+```bash
+kubectl get awsnodeclasses
+```
+
+## Step 3: Create the NodePool
 
 Create a file named `nodepool-workers.yaml`:
 
@@ -88,6 +161,11 @@ spec:
   reconciliationInterval: 30s
 
   template:
+    # Reference to AWSNodeClass for EC2 configuration
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: workers
+
     # Labels applied to managed nodes
     labels:
       stratos.sh/pool: workers
@@ -102,35 +180,6 @@ spec:
 
     # How startup taints are removed
     startupTaintRemoval: WhenNetworkReady
-
-    cloudProvider:
-      provider: aws
-      aws:
-        region: us-east-1
-        instanceType: m5.large
-        ami: ami-0123456789abcdef0  # Your EKS-optimized AMI
-        subnetIds:
-          - subnet-12345678
-          - subnet-87654321
-        securityGroupIds:
-          - sg-12345678
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
-        userData: |
-          #!/bin/bash
-          set -e
-          /etc/eks/bootstrap.sh my-cluster \
-            --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-          until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do sleep 5; done
-          sleep 30
-          poweroff
-        blockDeviceMappings:
-          - deviceName: /dev/xvda
-            volumeSize: 50
-            volumeType: gp3
-            encrypted: true
-        tags:
-          Environment: production
-          ManagedBy: stratos
 
   # Pre-warm configuration
   preWarm:
@@ -150,7 +199,11 @@ Apply the NodePool:
 kubectl apply -f nodepool-workers.yaml
 ```
 
-## Step 3: Verify the NodePool
+:::warning Order Matters
+The AWSNodeClass must exist before creating the NodePool. If the NodePool references a non-existent AWSNodeClass, it will be marked as Degraded with reason `NodeClassNotFound`.
+:::
+
+## Step 4: Verify the NodePool
 
 Check the NodePool status:
 
@@ -177,6 +230,12 @@ View detailed status:
 kubectl describe nodepool workers
 ```
 
+Check the AWSNodeClass status:
+
+```bash
+kubectl describe awsnodeclass workers
+```
+
 :::note
 Initial warmup takes several minutes. Nodes will transition through `warmup` to `standby` state.
 :::
@@ -188,7 +247,7 @@ NAME      POOLSIZE   MINSTANDBY   STANDBY   RUNNING   READY   AGE
 workers   10         3            3         0         True    5m
 ```
 
-## Step 4: Test Scale-Up
+## Step 5: Test Scale-Up
 
 Create a deployment that requests resources:
 
@@ -242,7 +301,7 @@ kubectl get nodes -l stratos.sh/pool=workers -w
 kubectl describe nodepool workers
 ```
 
-## Step 5: Test Scale-Down
+## Step 6: Test Scale-Down
 
 Delete the test workload:
 
@@ -258,6 +317,18 @@ After `emptyNodeTTL` (5 minutes by default), Stratos will:
 4. Return them to standby state
 
 ## Troubleshooting
+
+### NodePool Shows Degraded with NodeClassNotFound
+
+The AWSNodeClass doesn't exist or has a different name:
+
+```bash
+# Check if AWSNodeClass exists
+kubectl get awsnodeclasses
+
+# Check the NodePool's nodeClassRef
+kubectl get nodepool workers -o jsonpath='{.spec.template.nodeClassRef}'
+```
 
 ### Nodes Stuck in Warmup
 
@@ -286,8 +357,21 @@ Check controller logs:
 kubectl -n stratos-system logs deployment/stratos-controller
 ```
 
+### AWSNodeClass Status Shows Issues
+
+Check the AWSNodeClass conditions:
+
+```bash
+kubectl describe awsnodeclass workers
+```
+
+Look for:
+- `Valid` condition: Is the spec valid?
+- `InUse` condition: Is it referenced by NodePools?
+
 ## Next Steps
 
 - [Node Lifecycle](../concepts/node-lifecycle.md) - Understand node states
+- [AWSNodeClass Reference](../reference/api/awsnodeclass.md) - Complete AWSNodeClass API
 - [Scaling Policies](../guides/scaling-policies.md) - Configure scaling behavior
 - [Monitoring](../guides/monitoring.md) - Set up monitoring and alerts

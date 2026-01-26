@@ -39,7 +39,7 @@ warmup --> standby --> running --> terminating
 
 - **Sub-minute scale-up** - Start pre-warmed nodes in seconds instead of minutes
 - **Cost efficient** - Stopped instances only incur storage costs, not compute
-- **Kubernetes native** - Declarative NodePool CRD, integrates with existing clusters
+- **Kubernetes native** - Declarative NodePool and NodeClass CRDs, integrates with existing clusters
 - **CNI-aware** - Properly handles startup taints for VPC CNI, Cilium, Calico
 - **Automatic maintenance** - Pool replenishment, node recycling, state synchronization
 - **Observable** - Prometheus metrics for all operations
@@ -64,7 +64,31 @@ warmup --> standby --> running --> terminating
    kubectl apply -k config/default
    ```
 
-3. **Create a NodePool:**
+3. **Create an AWSNodeClass** (cloud-specific configuration):
+   ```yaml
+   apiVersion: stratos.sh/v1alpha1
+   kind: AWSNodeClass
+   metadata:
+     name: workers
+   spec:
+     region: us-east-1
+     instanceType: m5.large
+     ami: ami-0123456789abcdef0
+     subnetIds:
+       - subnet-12345678
+     securityGroupIds:
+       - sg-12345678
+     iamInstanceProfile: arn:aws:iam::123456789:instance-profile/node-role
+     userData: |
+       #!/bin/bash
+       /etc/eks/bootstrap.sh my-cluster \
+         --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
+       until curl -sf http://localhost:10248/healthz; do sleep 5; done
+       sleep 30
+       poweroff
+   ```
+
+4. **Create a NodePool** (references the AWSNodeClass):
    ```yaml
    apiVersion: stratos.sh/v1alpha1
    kind: NodePool
@@ -80,29 +104,14 @@ warmup --> standby --> running --> terminating
          - key: node.eks.amazonaws.com/not-ready
            value: "true"
            effect: NoSchedule
-       cloudProvider:
-         provider: aws
-         aws:
-           region: us-east-1
-           instanceType: m5.large
-           ami: ami-0123456789abcdef0
-           subnetIds:
-             - subnet-12345678
-           securityGroupIds:
-             - sg-12345678
-           iamInstanceProfile: arn:aws:iam::123456789:instance-profile/node-role
-           userData: |
-             #!/bin/bash
-             /etc/eks/bootstrap.sh my-cluster \
-               --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-             until curl -sf http://localhost:10248/healthz; do sleep 5; done
-             sleep 30
-             poweroff
+       nodeClassRef:
+         kind: AWSNodeClass
+         name: workers
    ```
 
-4. **Verify the pool:**
+5. **Verify the pool:**
    ```bash
-   kubectl get nodepools
+   kubectl get awsnodeclasses,nodepools
    ```
 
 ## Architecture Overview
@@ -112,16 +121,19 @@ warmup --> standby --> running --> terminating
 |   NodePool CRD   | --> | Stratos Controller| --> |   Cloud Provider |
 |  (Desired State) |     |   (Reconciler)    |     |   (AWS EC2)      |
 +------------------+     +-------------------+     +------------------+
-                                |
-                                v
-                         +-------------+
-                         |  K8s Nodes  |
-                         | (Managed)   |
-                         +-------------+
+        |                        |
+        v                        v
++------------------+       +-------------+
+| AWSNodeClass CRD |       |  K8s Nodes  |
+| (Cloud Config)   |       | (Managed)   |
++------------------+       +-------------+
 ```
+
+NodePools reference a cloud-specific NodeClass (e.g., AWSNodeClass) that contains instance configuration. This separation allows multiple NodePools to share the same cloud configuration.
 
 The controller watches for:
 - **NodePool changes** - Create/update/delete pools
+- **NodeClass changes** - Cloud configuration updates (e.g., AWSNodeClass)
 - **Pending pods** - Trigger scale-up when pods can't be scheduled
 - **Node state changes** - Track node lifecycle and health
 
