@@ -55,7 +55,7 @@ status:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `poolSize` | int32 | Yes | - | Maximum total nodes in the pool (standby + running, excluding warmup). Range: 1-1000. |
-| `minStandby` | int32 | Yes | - | Minimum number of nodes to maintain in standby (stopped) state. Must be <= poolSize. |
+| `minStandby` | int32 | Yes | - | Minimum number of nodes to maintain in standby (stopped) state. Must be ≤ poolSize. |
 | `reconciliationInterval` | duration | No | `30s` | How often to run the maintenance reconciliation loop. |
 | `maxNodeRuntime` | duration | No | disabled | Maximum time a node can run before being recycled. Set to 0 or omit to disable. |
 
