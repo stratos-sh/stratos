@@ -16,11 +16,11 @@ spec:
   region: us-east-1
 
   # Instance type - ARM64 to match AL2023 ARM64 AMI
-  instanceType: m8g.large
+  instanceType: m7g.large
 
   # AL2023 ARM64 AMI (EKS 1.34)
   # Find your region's AMI: aws ssm get-parameter --name /aws/service/eks/optimized-ami/1.34/amazon-linux-2023/arm64/standard/recommended/image_id
-  ami: ami-00171c2155dff951e
+  ami: ami-0123456789abcdef0
 
   # Subnets for instance placement - instances distributed round-robin
   subnetIds:
@@ -60,9 +60,10 @@ spec:
     kind: NodeConfig
     spec:
       cluster:
-        name: main
+        name: my-cluster
         apiServerEndpoint: https://ABCDEF1234567890.gr7.us-east-1.eks.amazonaws.com
-        certificateAuthority: YOUR_CLUSTER_CA_BASE64        cidr: 10.100.0.0/16
+        certificateAuthority: YOUR_CLUSTER_CA_BASE64
+        cidr: 10.100.0.0/16
       kubelet:
         config:
           # Faster node status updates for quicker warmup detection
