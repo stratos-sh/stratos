@@ -25,12 +25,13 @@ spec:
     taints: <[]Taint>
     startupTaints: <[]Taint>
     startupTaintRemoval: <string>
-    cloudProvider:
-      provider: <string>
-      aws: <AWSConfig>
+    nodeClassRef:
+      kind: <string>
+      name: <string>
   preWarm:
     timeout: <duration>
     timeoutAction: <string>
+    completionMode: <string>
   scaleUp:
     defaultPodResources: <ResourceRequirements>
   scaleDown:
@@ -54,7 +55,7 @@ status:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `poolSize` | int32 | Yes | - | Maximum total nodes in the pool (standby + running, excluding warmup). Range: 1-1000. |
-| `minStandby` | int32 | Yes | - | Minimum number of nodes to maintain in standby (stopped) state. Must be ≤ poolSize. |
+| `minStandby` | int32 | Yes | - | Minimum number of nodes to maintain in standby (stopped) state. Must be <= poolSize. |
 | `reconciliationInterval` | duration | No | `30s` | How often to run the maintenance reconciliation loop. |
 | `maxNodeRuntime` | duration | No | disabled | Maximum time a node can run before being recycled. Set to 0 or omit to disable. |
 
@@ -64,11 +65,31 @@ The `template` field defines the configuration for nodes in this pool.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
+| `nodeClassRef` | NodeClassRef | Yes | - | Reference to the cloud-specific NodeClass (e.g., AWSNodeClass) containing instance configuration. |
 | `labels` | map[string]string | No | - | Labels to apply to managed nodes. The `stratos.sh/pool` label is automatically added. |
 | `taints` | []Taint | No | - | Permanent taints for workload isolation. These persist throughout the node lifecycle. |
 | `startupTaints` | []Taint | No | - | Taints applied during startup, removed when CNI is ready. Must match `--register-with-taints` in userData. |
 | `startupTaintRemoval` | string | No | `WhenNetworkReady` | How startup taints are removed: `WhenNetworkReady` or `External`. |
-| `cloudProvider` | CloudProviderConfig | Yes | - | Cloud provider configuration. |
+
+#### NodeClassRef
+
+The `nodeClassRef` field references a cloud-specific NodeClass resource that defines instance configuration.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `kind` | string | Yes | NodeClass kind. Currently only `AWSNodeClass` is supported. |
+| `name` | string | Yes | Name of the NodeClass resource to reference. |
+
+```yaml
+template:
+  nodeClassRef:
+    kind: AWSNodeClass
+    name: standard-nodes
+```
+
+:::note
+The referenced NodeClass must exist before creating the NodePool. If the NodeClass is not found, the NodePool will be marked as degraded with reason `NodeClassNotFound`.
+:::
 
 #### Startup Taint Removal Modes
 
@@ -76,38 +97,6 @@ The `template` field defines the configuration for nodes in this pool.
 |------|-------------|
 | `WhenNetworkReady` | Stratos monitors network conditions and removes taints when the CNI is ready. Supports EKS VPC CNI, Cilium, and Calico. |
 | `External` | Stratos waits for an external controller (like the CNI plugin) to remove the taints. |
-
-### CloudProvider Configuration
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `provider` | string | Yes | Cloud provider type: `aws`, `gcp`, or `azure`. Currently only `aws` is supported. |
-| `aws` | AWSConfig | Yes (when provider=aws) | AWS-specific configuration. |
-
-#### AWS Configuration
-
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `region` | string | No | Controller region | AWS region for launching instances. |
-| `instanceType` | string | Yes | - | EC2 instance type (e.g., `m5.large`, `c5.xlarge`). |
-| `ami` | string | Yes | - | Amazon Machine Image ID. Use EKS-optimized AMIs for EKS clusters. |
-| `subnetIds` | []string | Yes | - | List of subnet IDs. Instances are launched round-robin across subnets. |
-| `securityGroupIds` | []string | Yes | - | List of security group IDs. |
-| `iamInstanceProfile` | string | Yes | - | IAM instance profile ARN or name. |
-| `userData` | string | No | - | User data script (not base64 encoded). Should join cluster and poweroff when ready. |
-| `blockDeviceMappings` | []BlockDeviceMapping | No | - | EBS volume configuration. |
-| `tags` | map[string]string | No | - | Additional tags to apply to instances. Stratos management tags are added automatically. |
-
-#### Block Device Mapping
-
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `deviceName` | string | Yes | - | Device name (e.g., `/dev/xvda`). |
-| `volumeSize` | int32 | Yes | - | Volume size in GiB. Minimum: 1. |
-| `volumeType` | string | Yes | - | EBS volume type: `gp3`, `gp2`, `io1`, `io2`. |
-| `encrypted` | bool | No | `false` | Enable EBS encryption. |
-| `iops` | int32 | No | - | IOPS for io1/io2 volumes, or provisioned IOPS for gp3. |
-| `throughput` | int32 | No | - | Throughput in MB/s for gp3 volumes. |
 
 ### PreWarm Configuration
 
@@ -157,7 +146,7 @@ The NodePool status is updated by the controller:
 | Condition | Description |
 |-----------|-------------|
 | `Ready` | Pool has at least minStandby nodes in standby state |
-| `Degraded` | Pool cannot meet minStandby (validation errors, cloud issues) |
+| `Degraded` | Pool cannot meet minStandby (validation errors, cloud issues, NodeClass not found) |
 | `Reconciling` | Pool is being reconciled |
 | `ScaleUpInProgress` | Scale-up operation in progress |
 | `ScaleDownInProgress` | Scale-down operation in progress |
@@ -166,7 +155,33 @@ The NodePool status is updated by the controller:
 
 ### Minimal Configuration
 
-```yaml title="minimal-nodepool.yaml"
+First, create an AWSNodeClass:
+
+```yaml title="awsnodeclass.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: standard-nodes
+spec:
+  instanceType: m5.large
+  ami: ami-0123456789abcdef0
+  subnetIds:
+    - subnet-12345678
+  securityGroupIds:
+    - sg-12345678
+  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
+  userData: |
+    #!/bin/bash
+    /etc/eks/bootstrap.sh my-cluster \
+      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
+    until curl -sf http://localhost:10248/healthz; do sleep 5; done
+    sleep 30
+    poweroff
+```
+
+Then create the NodePool referencing it:
+
+```yaml title="nodepool-minimal.yaml"
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
 metadata:
@@ -175,34 +190,58 @@ spec:
   poolSize: 5
   minStandby: 2
   template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: standard-nodes
     labels:
       stratos.sh/pool: workers
     startupTaints:
       - key: node.eks.amazonaws.com/not-ready
         value: "true"
         effect: NoSchedule
-    cloudProvider:
-      provider: aws
-      aws:
-        instanceType: m5.large
-        ami: ami-0123456789abcdef0
-        subnetIds:
-          - subnet-12345678
-        securityGroupIds:
-          - sg-12345678
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-        userData: |
-          #!/bin/bash
-          /etc/eks/bootstrap.sh my-cluster \
-            --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-          until curl -sf http://localhost:10248/healthz; do sleep 5; done
-          sleep 30
-          poweroff
 ```
 
 ### Full Configuration
 
-```yaml title="full-nodepool.yaml"
+```yaml title="awsnodeclass-full.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: production-nodes
+spec:
+  region: us-east-1
+  instanceType: m5.large
+  ami: ami-0123456789abcdef0
+  subnetIds:
+    - subnet-12345678
+    - subnet-87654321
+  securityGroupIds:
+    - sg-12345678
+  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
+  userData: |
+    #!/bin/bash
+    set -e
+    /etc/eks/bootstrap.sh my-cluster \
+      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
+    until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do
+      sleep 5
+    done
+    sleep 30
+    poweroff
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 100
+      volumeType: gp3
+      encrypted: true
+      iops: 3000
+      throughput: 125
+  tags:
+    Environment: production
+    Team: platform
+    CostCenter: engineering
+```
+
+```yaml title="nodepool-full.yaml"
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
 metadata:
@@ -214,6 +253,9 @@ spec:
   maxNodeRuntime: 24h
 
   template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: production-nodes
     labels:
       stratos.sh/pool: workers
       node-role.kubernetes.io/worker: ""
@@ -227,39 +269,6 @@ spec:
         value: "true"
         effect: NoSchedule
     startupTaintRemoval: WhenNetworkReady
-    cloudProvider:
-      provider: aws
-      aws:
-        region: us-east-1
-        instanceType: m5.large
-        ami: ami-0123456789abcdef0
-        subnetIds:
-          - subnet-12345678
-          - subnet-87654321
-        securityGroupIds:
-          - sg-12345678
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-        userData: |
-          #!/bin/bash
-          set -e
-          /etc/eks/bootstrap.sh my-cluster \
-            --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-          until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do
-            sleep 5
-          done
-          sleep 30
-          poweroff
-        blockDeviceMappings:
-          - deviceName: /dev/xvda
-            volumeSize: 100
-            volumeType: gp3
-            encrypted: true
-            iops: 3000
-            throughput: 125
-        tags:
-          Environment: production
-          Team: platform
-          CostCenter: engineering
 
   preWarm:
     timeout: 15m
@@ -279,7 +288,7 @@ spec:
 
 ### Cilium CNI Configuration
 
-```yaml title="cilium-nodepool.yaml"
+```yaml title="nodepool-cilium.yaml"
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
 metadata:
@@ -288,37 +297,59 @@ spec:
   poolSize: 10
   minStandby: 3
   template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: standard-nodes
     labels:
       stratos.sh/pool: cilium-workers
     startupTaints:
       - key: node.cilium.io/agent-not-ready
         value: "true"
         effect: NoSchedule
-    startupTaintRemoval: External
-    cloudProvider:
-      provider: aws
-      aws:
-        instanceType: m5.large
-        ami: ami-0123456789abcdef0
-        subnetIds:
-          - subnet-12345678
-        securityGroupIds:
-          - sg-12345678
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-        userData: |
-          #!/bin/bash
-          /etc/eks/bootstrap.sh my-cluster \
-            --kubelet-extra-args '--register-with-taints=node.cilium.io/agent-not-ready=true:NoSchedule'
-          until curl -sf http://localhost:10248/healthz; do sleep 5; done
-          sleep 30
-          poweroff
+    startupTaintRemoval: External  # Cilium removes the taint
 ```
 
 ### Bottlerocket with ControllerStop Mode
 
 Bottlerocket uses TOML configuration and doesn't support shell scripts in user data. Use `ControllerStop` mode so Stratos manages the warmup-to-standby transition.
 
-```yaml title="bottlerocket-nodepool.yaml"
+```yaml title="awsnodeclass-bottlerocket.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: bottlerocket-nodes
+spec:
+  instanceType: m5.large
+  ami: ami-bottlerocket-xxxx  # Bottlerocket EKS-optimized AMI
+  subnetIds:
+    - subnet-12345678
+  securityGroupIds:
+    - sg-12345678
+  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 8
+      volumeType: gp3
+      encrypted: true
+    - deviceName: /dev/xvdb  # Bottlerocket data volume
+      volumeSize: 20
+      volumeType: gp3
+      encrypted: true
+  # Bottlerocket TOML user data - no shutdown script needed
+  userData: |
+    [settings.kubernetes]
+    cluster-name = "my-cluster"
+    api-server = "https://my-cluster.region.eks.amazonaws.com"
+    cluster-certificate = "base64-encoded-ca-cert"
+
+    [settings.kubernetes.node-taints]
+    "node.eks.amazonaws.com/not-ready" = "true:NoSchedule"
+
+    [settings.kubernetes.node-labels]
+    "stratos.sh/pool" = "bottlerocket-workers"
+```
+
+```yaml title="nodepool-bottlerocket.yaml"
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
 metadata:
@@ -332,6 +363,9 @@ spec:
     timeout: 10m
     timeoutAction: stop
   template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: bottlerocket-nodes
     labels:
       stratos.sh/pool: bottlerocket-workers
     startupTaints:
@@ -339,37 +373,63 @@ spec:
         value: "true"
         effect: NoSchedule
     startupTaintRemoval: WhenNetworkReady
-    cloudProvider:
-      provider: aws
-      aws:
-        instanceType: m5.large
-        ami: ami-bottlerocket-xxxx  # Bottlerocket EKS-optimized AMI
-        subnetIds:
-          - subnet-12345678
-        securityGroupIds:
-          - sg-12345678
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-        blockDeviceMappings:
-          - deviceName: /dev/xvda
-            volumeSize: 20
-            volumeType: gp3
-            encrypted: true
-          - deviceName: /dev/xvdb  # Bottlerocket data volume
-            volumeSize: 20
-            volumeType: gp3
-            encrypted: true
-        # Bottlerocket TOML user data - no shutdown script needed
-        userData: |
-          [settings.kubernetes]
-          cluster-name = "my-cluster"
-          api-server = "https://my-cluster.region.eks.amazonaws.com"
-          cluster-certificate = "base64-encoded-ca-cert"
+```
 
-          [settings.kubernetes.node-taints]
-          "node.eks.amazonaws.com/not-ready" = "true:NoSchedule"
+### Multiple NodePools Sharing an AWSNodeClass
 
-          [settings.kubernetes.node-labels]
-          "stratos.sh/pool" = "bottlerocket-workers"
+One AWSNodeClass can be shared by multiple NodePools with different scaling configurations:
+
+```yaml title="shared-awsnodeclass.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: shared-ec2-config
+spec:
+  instanceType: m5.large
+  ami: ami-0123456789abcdef0
+  subnetIds:
+    - subnet-12345678
+    - subnet-87654321
+  securityGroupIds:
+    - sg-12345678
+  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
+  userData: |
+    #!/bin/bash
+    /etc/eks/bootstrap.sh my-cluster \
+      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
+    until curl -sf http://localhost:10248/healthz; do sleep 5; done
+    sleep 30
+    poweroff
+---
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: workers-low
+spec:
+  poolSize: 5
+  minStandby: 1
+  template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: shared-ec2-config
+    labels:
+      stratos.sh/pool: workers-low
+      tier: low-priority
+---
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: workers-high
+spec:
+  poolSize: 20
+  minStandby: 5
+  template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: shared-ec2-config
+    labels:
+      stratos.sh/pool: workers-high
+      tier: high-priority
 ```
 
 ## Kubectl Commands
@@ -389,9 +449,13 @@ kubectl get nodepool workers -o yaml
 
 # Watch NodePool status
 kubectl get nodepools -w
+
+# See which AWSNodeClass each NodePool references
+kubectl get nodepools -o custom-columns='NAME:.metadata.name,NODECLASS:.spec.template.nodeClassRef.name'
 ```
 
 ## Next Steps
 
+- [AWSNodeClass Reference](./awsnodeclass.md) - AWS instance configuration
 - [CLI Reference](../cli.md) - Controller flags reference
 - [Labels and Annotations](../labels-annotations.md) - Labels and tags reference

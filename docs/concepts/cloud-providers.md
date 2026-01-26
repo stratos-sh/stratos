@@ -1,22 +1,57 @@
 ---
 sidebar_position: 3
 title: Cloud Providers
-description: Understand the Stratos cloud provider abstraction
+description: Understand the Stratos cloud provider abstraction and NodeClass pattern
 ---
 
 # Cloud Providers
 
-Stratos uses a cloud provider abstraction to support multiple cloud platforms. This document explains the abstraction layer and supported providers.
+Stratos uses a cloud provider abstraction to support multiple cloud platforms. This document explains the architecture, the NodeClass pattern for cloud-specific configuration, and supported providers.
+
+## Architecture Overview
+
+Stratos separates concerns between pool management and cloud-specific configuration:
+
+```
++------------------+       references        +------------------+
+|    NodePool      | ----------------------> |  AWSNodeClass    |
++------------------+                         +------------------+
+| - poolSize       |                         | - instanceType   |
+| - minStandby     |                         | - ami            |
+| - labels, taints |                         | - subnetIds      |
+| - preWarm config |                         | - securityGroups |
+| - scaleDown      |                         | - userData       |
++------------------+                         +------------------+
+         |
+         | uses
+         v
++------------------+
+| CloudProvider    |
+|    Interface     |
++------------------+
+| - StartInstance  |
+| - StopInstance   |
+| - Terminate...   |
+| - GetInstance    |
+| - ListInstances  |
++------------------+
+```
+
+### Why Separate NodeClass?
+
+1. **Reusability**: Multiple NodePools can share the same EC2 configuration
+2. **Separation of concerns**: Pool sizing vs. instance configuration
+3. **Multi-cloud support**: Each cloud gets its own NodeClass type (AWSNodeClass, GCPNodeClass, etc.)
+4. **Independent evolution**: Cloud-specific schemas can evolve without affecting NodePool
+
+This pattern follows [Karpenter's NodeClass design](https://karpenter.sh/docs/concepts/nodeclasses/).
 
 ## Provider Interface
 
-All cloud operations go through the `CloudProvider` interface:
+The CloudProvider interface defines instance lifecycle operations that work with instance IDs:
 
 ```go
 type CloudProvider interface {
-    // LaunchInstance creates a new instance from the launch configuration.
-    LaunchInstance(ctx context.Context, cfg *LaunchConfig) (*Instance, error)
-
     // StartInstance starts a stopped instance.
     StartInstance(ctx context.Context, instanceID string) error
 
@@ -40,6 +75,74 @@ type CloudProvider interface {
 }
 ```
 
+:::note
+`LaunchInstance` is **not** part of the generic interface because launch requires cloud-specific configuration (e.g., AWSNodeClass). Each provider implements its own `LaunchInstance` method that takes its specific NodeClass type directly.
+:::
+
+## NodeClass Resources
+
+NodeClass resources define cloud-specific instance configuration. Currently, Stratos supports:
+
+| NodeClass | Cloud | Description |
+|-----------|-------|-------------|
+| `AWSNodeClass` | AWS | EC2 instance configuration (instance type, AMI, networking, IAM) |
+| `GCPNodeClass` | GCP | Planned - Compute Engine configuration |
+| `AzureNodeClass` | Azure | Planned - Virtual Machine configuration |
+
+### AWSNodeClass
+
+AWSNodeClass defines AWS EC2 configuration:
+
+```yaml
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: production-nodes
+spec:
+  region: us-east-1
+  instanceType: m5.large
+  ami: ami-0123456789abcdef0
+  subnetIds:
+    - subnet-12345678
+    - subnet-87654321
+  securityGroupIds:
+    - sg-12345678
+  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
+  userData: |
+    #!/bin/bash
+    /etc/eks/bootstrap.sh my-cluster
+    # ... warmup script
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 50
+      volumeType: gp3
+      encrypted: true
+  tags:
+    Environment: production
+```
+
+See [AWSNodeClass API Reference](../reference/api/awsnodeclass.md) for complete documentation.
+
+### NodePool Reference
+
+NodePools reference NodeClass resources via `spec.template.nodeClassRef`:
+
+```yaml
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: workers
+spec:
+  poolSize: 10
+  minStandby: 3
+  template:
+    nodeClassRef:
+      kind: AWSNodeClass      # NodeClass type
+      name: production-nodes  # NodeClass name
+    labels:
+      stratos.sh/pool: workers
+```
+
 ## Supported Providers
 
 ### AWS (Production)
@@ -47,36 +150,45 @@ type CloudProvider interface {
 The AWS provider (`--cloud-provider=aws`) manages EC2 instances.
 
 **Features:**
-- Full EC2 lifecycle management
-- Built-in rate limiting
-- Instance type to capacity mapping
+- Full EC2 lifecycle management (launch, start, stop, terminate)
+- Built-in rate limiting for API throttling protection
+- Instance type to capacity mapping for scale-up calculations
 - Subnet round-robin for AZ distribution
+- AWSNodeClass for configuration
 
-**Configuration:**
+**NodeClass:** `AWSNodeClass`
+
+**Configuration Example:**
 
 ```yaml
-cloudProvider:
-  provider: aws
-  aws:
-    region: us-east-1
-    instanceType: m5.large
-    ami: ami-0123456789abcdef0
-    subnetIds:
-      - subnet-12345678
-      - subnet-87654321
-    securityGroupIds:
-      - sg-12345678
-    iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-    userData: |
-      #!/bin/bash
-      # Your initialization script
-    blockDeviceMappings:
-      - deviceName: /dev/xvda
-        volumeSize: 50
-        volumeType: gp3
-        encrypted: true
-    tags:
-      Environment: production
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: standard-nodes
+spec:
+  region: us-east-1
+  instanceType: m5.large
+  ami: ami-0123456789abcdef0
+  subnetIds:
+    - subnet-12345678
+    - subnet-87654321
+  securityGroupIds:
+    - sg-12345678
+  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
+  userData: |
+    #!/bin/bash
+    /etc/eks/bootstrap.sh my-cluster \
+      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
+    until curl -sf http://localhost:10248/healthz; do sleep 5; done
+    sleep 30
+    poweroff
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 50
+      volumeType: gp3
+      encrypted: true
+  tags:
+    Environment: production
 ```
 
 ### Fake (Testing)
@@ -144,38 +256,6 @@ The AWS provider includes built-in rate limiting to avoid EC2 API throttling:
 Rate limits are applied per controller instance. If you see `RateLimitError` in logs, consider reducing the reconciliation frequency.
 :::
 
-## Launch Configuration
-
-The `LaunchConfig` struct defines instance parameters:
-
-```go
-type LaunchConfig struct {
-    // InstanceType is the EC2 instance type
-    InstanceType string
-
-    // AMI is the Amazon Machine Image ID
-    AMI string
-
-    // SubnetID is the target subnet
-    SubnetID string
-
-    // SecurityGroupIDs are the security groups to attach
-    SecurityGroupIDs []string
-
-    // IAMInstanceProfile is the IAM instance profile
-    IAMInstanceProfile string
-
-    // UserData is the user data script (base64 encoded)
-    UserData string
-
-    // BlockDeviceMappings defines EBS volumes
-    BlockDeviceMappings []BlockDeviceMapping
-
-    // Tags are additional tags to apply
-    Tags map[string]string
-}
-```
-
 ## Error Handling
 
 The provider interface defines common error types:
@@ -194,10 +274,16 @@ The controller handles these errors appropriately:
 
 ## Future Providers
 
-The cloud provider interface is designed to support additional providers. Planned support includes:
+The cloud provider architecture is designed to support additional providers:
 
-- **GCP** - Google Compute Engine instances
-- **Azure** - Azure Virtual Machines
+- **GCP** - Google Compute Engine instances (GCPNodeClass)
+- **Azure** - Azure Virtual Machines (AzureNodeClass)
+
+Adding a new provider requires:
+1. Implement the CloudProvider interface
+2. Create a new NodeClass CRD (e.g., GCPNodeClass)
+3. Implement the provider-specific LaunchInstance method
+4. Register the provider in the factory
 
 :::note
 GCP and Azure support is planned but not yet implemented. Contributions are welcome.
@@ -205,5 +291,6 @@ GCP and Azure support is planned but not yet implemented. Contributions are welc
 
 ## Next Steps
 
+- [AWSNodeClass Reference](../reference/api/awsnodeclass.md) - Complete AWSNodeClass API
 - [AWS Setup](../guides/aws-setup.md) - Configure AWS prerequisites
-- [NodePool API](../reference/api/nodepool.md) - Complete API reference
+- [NodePool API](../reference/api/nodepool.md) - Complete NodePool API reference

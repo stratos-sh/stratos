@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 2
 title: Bottlerocket Setup
 description: Configure Stratos with Bottlerocket OS using ControllerStop mode
 ---
@@ -33,9 +33,64 @@ This eliminates the need for shutdown scripts entirely.
 
 ## Configuration
 
-### NodePool Spec
+### Step 1: Create the AWSNodeClass
 
-```yaml title="bottlerocket-nodepool.yaml"
+Create an AWSNodeClass with Bottlerocket configuration:
+
+```yaml title="awsnodeclass-bottlerocket.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: bottlerocket-nodes
+spec:
+  region: us-east-1
+  instanceType: m5.large
+
+  # Bottlerocket EKS-optimized AMI
+  # aws ssm get-parameter --name /aws/service/bottlerocket/aws-k8s-1.34/x86_64/latest/image_id
+  ami: ami-0123456789abcdef0
+
+  subnetIds:
+    - subnet-12345678
+  securityGroupIds:
+    - sg-12345678
+  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
+
+  # Bottlerocket has two volumes: root (small) and data
+  blockDeviceMappings:
+    - deviceName: /dev/xvda  # Root volume (OS)
+      volumeSize: 8
+      volumeType: gp3
+      encrypted: true
+    - deviceName: /dev/xvdb  # Data volume (containers, images)
+      volumeSize: 20
+      volumeType: gp3
+      encrypted: true
+
+  tags:
+    Environment: production
+    OS: bottlerocket
+
+  # Bottlerocket TOML configuration
+  # No shutdown script - use ControllerStop mode in NodePool
+  userData: |
+    [settings.kubernetes]
+    cluster-name = "my-cluster"
+    api-server = "https://ABCDEF1234567890.gr7.us-east-1.eks.amazonaws.com"
+    cluster-certificate = "LS0tLS1CRUdJTi..."
+
+    [settings.kubernetes.node-taints]
+    "node.eks.amazonaws.com/not-ready" = "true:NoSchedule"
+
+    [settings.kubernetes.node-labels]
+    "stratos.sh/pool" = "bottlerocket-workers"
+```
+
+### Step 2: Create the NodePool
+
+Create a NodePool with ControllerStop mode:
+
+```yaml title="nodepool-bottlerocket.yaml"
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
 metadata:
@@ -51,6 +106,9 @@ spec:
     timeoutAction: stop
 
   template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: bottlerocket-nodes
     labels:
       stratos.sh/pool: bottlerocket-workers
     startupTaints:
@@ -59,38 +117,21 @@ spec:
         effect: NoSchedule
     # Wait for CNI to be ready before considering warmup complete
     startupTaintRemoval: WhenNetworkReady
-
-    cloudProvider:
-      provider: aws
-      aws:
-        instanceType: m5.large
-        ami: ami-0123456789abcdef0  # Bottlerocket EKS-optimized AMI
-        subnetIds:
-          - subnet-12345678
-        securityGroupIds:
-          - sg-12345678
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-        blockDeviceMappings:
-          - deviceName: /dev/xvda
-            volumeSize: 2
-            volumeType: gp3
-            encrypted: true
-          - deviceName: /dev/xvdb  # Bottlerocket data volume
-            volumeSize: 20
-            volumeType: gp3
-            encrypted: true
-        userData: |
-          [settings.kubernetes]
-          cluster-name = "my-cluster"
-          api-server = "https://ABCDEF1234567890.gr7.us-east-1.eks.amazonaws.com"
-          cluster-certificate = "LS0tLS1CRUdJTi..."
-
-          [settings.kubernetes.node-taints]
-          "node.eks.amazonaws.com/not-ready" = "true:NoSchedule"
-
-          [settings.kubernetes.node-labels]
-          "stratos.sh/pool" = "bottlerocket-workers"
 ```
+
+### Apply the Resources
+
+```bash
+# Create the AWSNodeClass first
+kubectl apply -f awsnodeclass-bottlerocket.yaml
+
+# Then create the NodePool
+kubectl apply -f nodepool-bottlerocket.yaml
+```
+
+:::warning Order Matters
+The AWSNodeClass must exist before creating the NodePool. If the NodePool references a non-existent AWSNodeClass, it will be marked as Degraded with reason `NodeClassNotFound`.
+:::
 
 ### User Data (TOML Format)
 
@@ -175,7 +216,7 @@ Bottlerocket has two volumes:
 
 | Volume | Device | Purpose | Recommended Size |
 |--------|--------|---------|-----------------|
-| Root | `/dev/xvda` | OS (read-only) | 2-4 GiB |
+| Root | `/dev/xvda` | OS (read-only) | 2-8 GiB |
 | Data | `/dev/xvdb` | Container images, logs | 20+ GiB |
 
 The root volume is minimal (read-only OS), while the data volume stores container images and runtime data.
@@ -183,7 +224,7 @@ The root volume is minimal (read-only OS), while the data volume stores containe
 ```yaml
 blockDeviceMappings:
   - deviceName: /dev/xvda
-    volumeSize: 2      # Minimal root volume
+    volumeSize: 8      # Minimal root volume
     volumeType: gp3
     encrypted: true
   - deviceName: /dev/xvdb
@@ -203,16 +244,16 @@ Query for the latest Bottlerocket EKS-optimized AMI:
 ```bash
 # x86_64 architecture
 aws ssm get-parameter \
-  --name /aws/service/bottlerocket/aws-k8s-1.29/x86_64/latest/image_id \
+  --name /aws/service/bottlerocket/aws-k8s-1.34/x86_64/latest/image_id \
   --query "Parameter.Value" --output text
 
 # ARM64 (Graviton) architecture
 aws ssm get-parameter \
-  --name /aws/service/bottlerocket/aws-k8s-1.29/arm64/latest/image_id \
+  --name /aws/service/bottlerocket/aws-k8s-1.34/arm64/latest/image_id \
   --query "Parameter.Value" --output text
 ```
 
-Replace `1.29` with your EKS cluster version.
+Replace `1.34` with your EKS cluster version.
 
 ## Metrics
 
@@ -258,6 +299,26 @@ If nodes remain in warmup state:
    ```bash
    kubectl logs -n stratos-system deployment/stratos-controller | grep "ControllerStop"
    ```
+
+4. **Check if AWSNodeClass exists**:
+   ```bash
+   kubectl get awsnodeclasses
+   kubectl describe awsnodeclass bottlerocket-nodes
+   ```
+
+### NodeClassNotFound Error
+
+If the NodePool shows `NodeClassNotFound`:
+
+```bash
+# Verify the AWSNodeClass exists
+kubectl get awsnodeclasses
+
+# Check the NodePool's nodeClassRef
+kubectl get nodepool bottlerocket-workers -o jsonpath='{.spec.template.nodeClassRef}'
+```
+
+Ensure the `name` in `nodeClassRef` exactly matches the AWSNodeClass name.
 
 ### User Data Not Applied
 
@@ -308,6 +369,7 @@ If warmup times out before the node is ready:
 
 ## Next Steps
 
+- [AWSNodeClass Reference](../reference/api/awsnodeclass.md) - Complete AWSNodeClass API
 - [Node Lifecycle](../concepts/node-lifecycle.md) - Understand warmup completion modes
 - [Monitoring](./monitoring.md) - Monitor warmup metrics
-- [API Reference](../reference/api/nodepool.md) - Full NodePool specification
+- [NodePool API Reference](../reference/api/nodepool.md) - Full NodePool specification

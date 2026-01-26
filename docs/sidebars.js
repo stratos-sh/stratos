@@ -61,6 +61,7 @@ const sidebars = {
           },
           items: [
             'reference/api/nodepool',
+            'reference/api/awsnodeclass',
           ],
         },
         'reference/cli',
