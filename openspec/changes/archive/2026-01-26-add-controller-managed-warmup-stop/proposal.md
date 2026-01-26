@@ -3,7 +3,7 @@
 **Change ID**: add-controller-managed-warmup-stop
 **Author**: Claude
 **Created**: 2026-01-24
-**Status**: Draft
+**Status**: Approved
 
 ## Summary
 
