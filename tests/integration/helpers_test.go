@@ -35,8 +35,37 @@ import (
 	"github.com/stratos-sh/stratos/internal/controller"
 )
 
+// testAWSNodeClass returns a minimal AWSNodeClass for testing
+func testAWSNodeClass(name string) *stratosv1alpha1.AWSNodeClass {
+	return &stratosv1alpha1.AWSNodeClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: stratosv1alpha1.AWSNodeClassSpec{
+			Region:             "us-east-1",
+			InstanceType:       "m5.large",
+			AMI:                "ami-12345678",
+			SubnetIDs:          []string{"subnet-12345678"},
+			SecurityGroupIDs:   []string{"sg-12345678"},
+			IAMInstanceProfile: "test-profile",
+		},
+	}
+}
+
+// createTestAWSNodeClass creates an AWSNodeClass for testing.
+func createTestAWSNodeClass(name string) *stratosv1alpha1.AWSNodeClass {
+	nc := testAWSNodeClass(name)
+	err := k8sClient.Create(ctx, nc)
+	Expect(err).NotTo(HaveOccurred())
+	return nc
+}
+
 // createTestNodePool creates a NodePool for testing with default values.
 func createTestNodePool(name string, poolSize, minStandby int32) *stratosv1alpha1.NodePool {
+	// Create an AWSNodeClass for this pool
+	nodeClassName := name + "-nodeclass"
+	createTestAWSNodeClass(nodeClassName)
+
 	np := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -45,16 +74,9 @@ func createTestNodePool(name string, poolSize, minStandby int32) *stratosv1alpha
 			PoolSize:   poolSize,
 			MinStandby: minStandby,
 			Template: stratosv1alpha1.NodeTemplate{
-				CloudProvider: stratosv1alpha1.CloudProviderConfig{
-					Provider: "aws",
-					AWS: &stratosv1alpha1.AWSConfig{
-						Region:           "us-east-1",
-						InstanceType:     "m5.large",
-						AMI:              "ami-12345678",
-						SubnetIDs:        []string{"subnet-12345678"},
-						SecurityGroupIDs: []string{"sg-12345678"},
-						IAMInstanceProfile: "test-profile",
-					},
+				NodeClassRef: stratosv1alpha1.NodeClassRef{
+					Kind: "AWSNodeClass",
+					Name: nodeClassName,
 				},
 			},
 		},
@@ -70,6 +92,10 @@ func createTestNodePool(name string, poolSize, minStandby int32) *stratosv1alpha
 
 // createTestNodePoolWithScaleDown creates a NodePool with scale-down configuration.
 func createTestNodePoolWithScaleDown(name string, poolSize, minStandby int32, emptyNodeTTL time.Duration) *stratosv1alpha1.NodePool {
+	// Create an AWSNodeClass for this pool
+	nodeClassName := name + "-nodeclass"
+	createTestAWSNodeClass(nodeClassName)
+
 	np := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -78,16 +104,9 @@ func createTestNodePoolWithScaleDown(name string, poolSize, minStandby int32, em
 			PoolSize:   poolSize,
 			MinStandby: minStandby,
 			Template: stratosv1alpha1.NodeTemplate{
-				CloudProvider: stratosv1alpha1.CloudProviderConfig{
-					Provider: "aws",
-					AWS: &stratosv1alpha1.AWSConfig{
-						Region:           "us-east-1",
-						InstanceType:     "m5.large",
-						AMI:              "ami-12345678",
-						SubnetIDs:        []string{"subnet-12345678"},
-						SecurityGroupIDs: []string{"sg-12345678"},
-						IAMInstanceProfile: "test-profile",
-					},
+				NodeClassRef: stratosv1alpha1.NodeClassRef{
+					Kind: "AWSNodeClass",
+					Name: nodeClassName,
 				},
 			},
 			ScaleDown: &stratosv1alpha1.ScaleDownConfig{
@@ -326,14 +345,8 @@ func setFakeInstanceState(instanceID string, state cloudprovider.InstanceState) 
 
 // launchFakeInstance launches a fake instance and returns its ID.
 func launchFakeInstance(poolName string) string {
-	cfg := &cloudprovider.LaunchConfig{
-		PoolName:     poolName,
-		ClusterName:  testClusterName,
-		InstanceType: "m5.large",
-		ImageID:      "ami-12345678",
-		SubnetID:     "subnet-12345678",
-	}
-	instance, err := fakeProvider.LaunchInstance(ctx, cfg)
+	nodeClass := testAWSNodeClass(poolName + "-test-class")
+	instance, err := fakeProvider.LaunchInstance(ctx, nodeClass, poolName, testClusterName)
 	Expect(err).NotTo(HaveOccurred())
 	return instance.ID
 }

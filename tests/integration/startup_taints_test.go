@@ -237,6 +237,10 @@ var _ = Describe("Startup Taints", func() {
 
 // createTestNodePoolWithStartupTaints creates a NodePool with startup taints configuration.
 func createTestNodePoolWithStartupTaints(name string, poolSize, minStandby int32, startupTaints []corev1.Taint, removalMode stratosv1alpha1.StartupTaintRemovalMode) *stratosv1alpha1.NodePool {
+	// Create an AWSNodeClass for this pool
+	nodeClassName := name + "-nodeclass"
+	createTestAWSNodeClass(nodeClassName)
+
 	np := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -247,16 +251,9 @@ func createTestNodePoolWithStartupTaints(name string, poolSize, minStandby int32
 			Template: stratosv1alpha1.NodeTemplate{
 				StartupTaints:       startupTaints,
 				StartupTaintRemoval: removalMode,
-				CloudProvider: stratosv1alpha1.CloudProviderConfig{
-					Provider: "aws",
-					AWS: &stratosv1alpha1.AWSConfig{
-						Region:             "us-east-1",
-						InstanceType:       "m5.large",
-						AMI:                "ami-12345678",
-						SubnetIDs:          []string{"subnet-12345678"},
-						SecurityGroupIDs:   []string{"sg-12345678"},
-						IAMInstanceProfile: "test-profile",
-					},
+				NodeClassRef: stratosv1alpha1.NodeClassRef{
+					Kind: "AWSNodeClass",
+					Name: nodeClassName,
 				},
 			},
 		},

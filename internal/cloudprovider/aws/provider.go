@@ -22,6 +22,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -29,15 +30,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
+	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
 	"github.com/stratos-sh/stratos/internal/metrics"
 )
 
 // AWSProvider implements the CloudProvider interface for AWS EC2.
 type AWSProvider struct {
-	client      *ec2.Client
-	rateLimiter *RateLimiter
-	region      string
+	client       *ec2.Client
+	rateLimiter  *RateLimiter
+	region       string
+	subnetIndex  uint64 // atomic counter for round-robin subnet selection
 }
 
 // NewAWSProvider creates a new AWS provider with the specified region.
@@ -56,8 +59,10 @@ func NewAWSProvider(ctx context.Context, region string) (*AWSProvider, error) {
 	}, nil
 }
 
-// LaunchInstance creates a new EC2 instance.
-func (p *AWSProvider) LaunchInstance(ctx context.Context, cfg *cloudprovider.LaunchConfig) (*cloudprovider.Instance, error) {
+// LaunchInstance creates a new EC2 instance using the AWSNodeClass configuration.
+// This method takes the cloud-specific NodeClass directly, handling subnet selection
+// internally using round-robin distribution across the configured subnets.
+func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) (*cloudprovider.Instance, error) {
 	startTime := time.Now()
 	status := "success"
 	defer func() {
@@ -69,21 +74,25 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, cfg *cloudprovider.Lau
 		return nil, err
 	}
 
+	// Select subnet using round-robin
+	subnetIdx := atomic.AddUint64(&p.subnetIndex, 1) - 1
+	subnetID := nodeClass.Spec.SubnetIDs[subnetIdx%uint64(len(nodeClass.Spec.SubnetIDs))]
+
 	// Build tags
 	tags := []types.Tag{
 		{Key: aws.String("managed-by"), Value: aws.String("stratos")},
-		{Key: aws.String("stratos.sh/pool"), Value: aws.String(cfg.PoolName)},
-		{Key: aws.String("stratos.sh/cluster"), Value: aws.String(cfg.ClusterName)},
+		{Key: aws.String("stratos.sh/pool"), Value: aws.String(poolName)},
+		{Key: aws.String("stratos.sh/cluster"), Value: aws.String(clusterName)},
 		{Key: aws.String("stratos.sh/state"), Value: aws.String("warmup")},
-		{Key: aws.String("Name"), Value: aws.String(fmt.Sprintf("stratos-%s", cfg.PoolName))},
+		{Key: aws.String("Name"), Value: aws.String(fmt.Sprintf("stratos-%s", poolName))},
 	}
-	for k, v := range cfg.Tags {
+	for k, v := range nodeClass.Spec.Tags {
 		tags = append(tags, types.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
 	// Build block device mappings
 	var blockDevices []types.BlockDeviceMapping
-	for _, bd := range cfg.BlockDevices {
+	for _, bd := range nodeClass.Spec.BlockDeviceMappings {
 		blockDevices = append(blockDevices, types.BlockDeviceMapping{
 			DeviceName: aws.String(bd.DeviceName),
 			Ebs: &types.EbsBlockDevice{
@@ -96,12 +105,12 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, cfg *cloudprovider.Lau
 	}
 
 	input := &ec2.RunInstancesInput{
-		ImageId:          aws.String(cfg.ImageID),
-		InstanceType:     types.InstanceType(cfg.InstanceType),
+		ImageId:          aws.String(nodeClass.Spec.AMI),
+		InstanceType:     types.InstanceType(nodeClass.Spec.InstanceType),
 		MinCount:         aws.Int32(1),
 		MaxCount:         aws.Int32(1),
-		SubnetId:         aws.String(cfg.SubnetID),
-		SecurityGroupIds: cfg.SecurityGroupIDs,
+		SubnetId:         aws.String(subnetID),
+		SecurityGroupIds: nodeClass.Spec.SecurityGroupIDs,
 		TagSpecifications: []types.TagSpecification{
 			{
 				ResourceType: types.ResourceTypeInstance,
@@ -110,15 +119,15 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, cfg *cloudprovider.Lau
 		},
 	}
 
-	if cfg.IAMInstanceProfile != "" {
+	if nodeClass.Spec.IAMInstanceProfile != "" {
 		input.IamInstanceProfile = &types.IamInstanceProfileSpecification{
-			Arn: aws.String(cfg.IAMInstanceProfile),
+			Arn: aws.String(nodeClass.Spec.IAMInstanceProfile),
 		}
 	}
 
-	if cfg.UserData != "" {
+	if nodeClass.Spec.UserData != "" {
 		// AWS requires user data to be base64 encoded
-		encoded := base64.StdEncoding.EncodeToString([]byte(cfg.UserData))
+		encoded := base64.StdEncoding.EncodeToString([]byte(nodeClass.Spec.UserData))
 		input.UserData = aws.String(encoded)
 	}
 

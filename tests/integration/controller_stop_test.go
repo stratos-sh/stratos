@@ -299,7 +299,9 @@ var _ = Describe("ControllerStop Mode", func() {
 			// Trigger reconciliation
 			triggerReconcile(poolName)
 
-			// Wait for the controller to adopt the node (add state=warmup, instance-id)
+			// Wait for the controller to adopt the node (add state label and instance-id)
+			// In ControllerStop mode with a ready node, adoption may go directly to standby
+			// in a single reconciliation, so we accept either warmup or standby here
 			Eventually(func() string {
 				n := &corev1.Node{}
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n)
@@ -307,7 +309,10 @@ var _ = Describe("ControllerStop Mode", func() {
 					return ""
 				}
 				return n.Labels[controller.LabelState]
-			}, timeout, interval).Should(Equal(string(controller.NodeStateWarmup)))
+			}, timeout, interval).Should(SatisfyAny(
+				Equal(string(controller.NodeStateWarmup)),
+				Equal(string(controller.NodeStateStandby)),
+			))
 
 			// Verify instance-id was set
 			updatedNode := &corev1.Node{}
@@ -449,6 +454,10 @@ var _ = Describe("ControllerStop Mode", func() {
 
 // createTestNodePoolWithControllerStop creates a NodePool with ControllerStop completion mode.
 func createTestNodePoolWithControllerStop(name string, poolSize, minStandby int32) *stratosv1alpha1.NodePool {
+	// Create an AWSNodeClass for this pool
+	nodeClassName := name + "-nodeclass"
+	createTestAWSNodeClass(nodeClassName)
+
 	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	np := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{
@@ -458,16 +467,9 @@ func createTestNodePoolWithControllerStop(name string, poolSize, minStandby int3
 			PoolSize:   poolSize,
 			MinStandby: minStandby,
 			Template: stratosv1alpha1.NodeTemplate{
-				CloudProvider: stratosv1alpha1.CloudProviderConfig{
-					Provider: "aws",
-					AWS: &stratosv1alpha1.AWSConfig{
-						Region:             "us-east-1",
-						InstanceType:       "m5.large",
-						AMI:                "ami-12345678",
-						SubnetIDs:          []string{"subnet-12345678"},
-						SecurityGroupIDs:   []string{"sg-12345678"},
-						IAMInstanceProfile: "test-profile",
-					},
+				NodeClassRef: stratosv1alpha1.NodeClassRef{
+					Kind: "AWSNodeClass",
+					Name: nodeClassName,
 				},
 			},
 			PreWarm: &stratosv1alpha1.PreWarmConfig{
@@ -485,6 +487,10 @@ func createTestNodePoolWithControllerStop(name string, poolSize, minStandby int3
 // createTestNodePoolWithControllerStopAndNetworkReady creates a NodePool with ControllerStop mode
 // and WhenNetworkReady startup taint removal mode.
 func createTestNodePoolWithControllerStopAndNetworkReady(name string, poolSize, minStandby int32) *stratosv1alpha1.NodePool {
+	// Create an AWSNodeClass for this pool
+	nodeClassName := name + "-nodeclass"
+	createTestAWSNodeClass(nodeClassName)
+
 	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	np := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{
@@ -494,16 +500,9 @@ func createTestNodePoolWithControllerStopAndNetworkReady(name string, poolSize, 
 			PoolSize:   poolSize,
 			MinStandby: minStandby,
 			Template: stratosv1alpha1.NodeTemplate{
-				CloudProvider: stratosv1alpha1.CloudProviderConfig{
-					Provider: "aws",
-					AWS: &stratosv1alpha1.AWSConfig{
-						Region:             "us-east-1",
-						InstanceType:       "m5.large",
-						AMI:                "ami-12345678",
-						SubnetIDs:          []string{"subnet-12345678"},
-						SecurityGroupIDs:   []string{"sg-12345678"},
-						IAMInstanceProfile: "test-profile",
-					},
+				NodeClassRef: stratosv1alpha1.NodeClassRef{
+					Kind: "AWSNodeClass",
+					Name: nodeClassName,
 				},
 				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
 			},
@@ -522,6 +521,10 @@ func createTestNodePoolWithControllerStopAndNetworkReady(name string, poolSize, 
 // createTestNodePoolWithControllerStopAndTimeout creates a NodePool with ControllerStop mode
 // and a custom timeout.
 func createTestNodePoolWithControllerStopAndTimeout(name string, poolSize, minStandby int32, timeout time.Duration) *stratosv1alpha1.NodePool {
+	// Create an AWSNodeClass for this pool
+	nodeClassName := name + "-nodeclass"
+	createTestAWSNodeClass(nodeClassName)
+
 	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	np := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{
@@ -531,16 +534,9 @@ func createTestNodePoolWithControllerStopAndTimeout(name string, poolSize, minSt
 			PoolSize:   poolSize,
 			MinStandby: minStandby,
 			Template: stratosv1alpha1.NodeTemplate{
-				CloudProvider: stratosv1alpha1.CloudProviderConfig{
-					Provider: "aws",
-					AWS: &stratosv1alpha1.AWSConfig{
-						Region:             "us-east-1",
-						InstanceType:       "m5.large",
-						AMI:                "ami-12345678",
-						SubnetIDs:          []string{"subnet-12345678"},
-						SecurityGroupIDs:   []string{"sg-12345678"},
-						IAMInstanceProfile: "test-profile",
-					},
+				NodeClassRef: stratosv1alpha1.NodeClassRef{
+					Kind: "AWSNodeClass",
+					Name: nodeClassName,
 				},
 			},
 			PreWarm: &stratosv1alpha1.PreWarmConfig{
@@ -557,12 +553,76 @@ func createTestNodePoolWithControllerStopAndTimeout(name string, poolSize, minSt
 }
 
 // simulateNodeJoinWithReady creates a Node with the specified Ready condition status.
+// When ready=true, also sets NodeNetworkUnavailable=False for WhenNetworkReady mode.
 func simulateNodeJoinWithReady(poolName, instanceID string, state controller.NodeState, ready bool) *corev1.Node {
 	nodeName := fmt.Sprintf("node-%s", instanceID)
 	readyStatus := corev1.ConditionFalse
 	if ready {
 		readyStatus = corev1.ConditionTrue
 	}
+
+	conditions := []corev1.NodeCondition{
+		{
+			Type:   corev1.NodeReady,
+			Status: readyStatus,
+		},
+	}
+	// Add network readiness condition when node is ready
+	if ready {
+		conditions = append(conditions, corev1.NodeCondition{
+			Type:   corev1.NodeNetworkUnavailable,
+			Status: corev1.ConditionFalse,
+		})
+	}
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: nodeName,
+			Labels: map[string]string{
+				controller.LabelPool:       poolName,
+				controller.LabelState:      string(state),
+				controller.LabelInstanceID: instanceID,
+				controller.LabelStateSince: fmt.Sprintf("%d", time.Now().Unix()),
+			},
+			Annotations: make(map[string]string),
+		},
+		Spec: corev1.NodeSpec{
+			ProviderID:    fmt.Sprintf("aws:///us-east-1a/%s", instanceID),
+			Unschedulable: state != controller.NodeStateRunning,
+		},
+		Status: corev1.NodeStatus{
+			Conditions: conditions,
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+				corev1.ResourcePods:   resource.MustParse("110"),
+			},
+			Capacity: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+				corev1.ResourcePods:   resource.MustParse("110"),
+			},
+		},
+	}
+
+	if state == controller.NodeStateStandby || state == controller.NodeStateWarmup {
+		node.Spec.Taints = []corev1.Taint{
+			{
+				Key:    controller.TaintKeyStandby,
+				Effect: corev1.TaintEffectNoExecute,
+			},
+		}
+	}
+
+	err := k8sClient.Create(ctx, node)
+	Expect(err).NotTo(HaveOccurred())
+	return node
+}
+
+// simulateNodeJoinWithReadyNoNetwork creates a Node that is Ready but without any network readiness
+// conditions (no NetworkingReady and no NodeNetworkUnavailable=False). Used to test network waiting behavior.
+func simulateNodeJoinWithReadyNoNetwork(poolName, instanceID string, state controller.NodeState) *corev1.Node {
+	nodeName := fmt.Sprintf("node-%s", instanceID)
 
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
@@ -583,8 +643,9 @@ func simulateNodeJoinWithReady(poolName, instanceID string, state controller.Nod
 			Conditions: []corev1.NodeCondition{
 				{
 					Type:   corev1.NodeReady,
-					Status: readyStatus,
+					Status: corev1.ConditionTrue,
 				},
+				// Intentionally no NetworkingReady or NodeNetworkUnavailable=False
 			},
 			Allocatable: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("4"),
@@ -613,13 +674,9 @@ func simulateNodeJoinWithReady(poolName, instanceID string, state controller.Nod
 	return node
 }
 
-// simulateNodeJoinWithReadyNoNetwork creates a Node that is Ready but without NetworkingReady condition.
-func simulateNodeJoinWithReadyNoNetwork(poolName, instanceID string, state controller.NodeState) *corev1.Node {
-	return simulateNodeJoinWithReady(poolName, instanceID, state, true)
-}
-
 // simulateNodeJoinWithReadyAndOldTimestamp creates a Node with an old state-since timestamp
 // to simulate timeout scenarios.
+// When ready=true, also sets NodeNetworkUnavailable=False for WhenNetworkReady mode.
 func simulateNodeJoinWithReadyAndOldTimestamp(poolName, instanceID string, state controller.NodeState, ready bool) *corev1.Node {
 	nodeName := fmt.Sprintf("node-%s", instanceID)
 	readyStatus := corev1.ConditionFalse
@@ -629,6 +686,20 @@ func simulateNodeJoinWithReadyAndOldTimestamp(poolName, instanceID string, state
 
 	// Set timestamp to 5 minutes ago to trigger timeout
 	oldTimestamp := time.Now().Add(-5 * time.Minute).Unix()
+
+	conditions := []corev1.NodeCondition{
+		{
+			Type:   corev1.NodeReady,
+			Status: readyStatus,
+		},
+	}
+	// Add network readiness condition when node is ready
+	if ready {
+		conditions = append(conditions, corev1.NodeCondition{
+			Type:   corev1.NodeNetworkUnavailable,
+			Status: corev1.ConditionFalse,
+		})
+	}
 
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
@@ -646,12 +717,7 @@ func simulateNodeJoinWithReadyAndOldTimestamp(poolName, instanceID string, state
 			Unschedulable: state != controller.NodeStateRunning,
 		},
 		Status: corev1.NodeStatus{
-			Conditions: []corev1.NodeCondition{
-				{
-					Type:   corev1.NodeReady,
-					Status: readyStatus,
-				},
-			},
+			Conditions: conditions,
 			Allocatable: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("4"),
 				corev1.ResourceMemory: resource.MustParse("8Gi"),
@@ -689,6 +755,20 @@ func simulateNodeJoinWithPoolLabelOnly(poolName, instanceID string, ready bool) 
 		readyStatus = corev1.ConditionTrue
 	}
 
+	conditions := []corev1.NodeCondition{
+		{
+			Type:   corev1.NodeReady,
+			Status: readyStatus,
+		},
+	}
+	// Add network readiness condition when node is ready
+	if ready {
+		conditions = append(conditions, corev1.NodeCondition{
+			Type:   corev1.NodeNetworkUnavailable,
+			Status: corev1.ConditionFalse,
+		})
+	}
+
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nodeName,
@@ -703,12 +783,7 @@ func simulateNodeJoinWithPoolLabelOnly(poolName, instanceID string, ready bool) 
 			Unschedulable: false,
 		},
 		Status: corev1.NodeStatus{
-			Conditions: []corev1.NodeCondition{
-				{
-					Type:   corev1.NodeReady,
-					Status: readyStatus,
-				},
-			},
+			Conditions: conditions,
 			Allocatable: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("4"),
 				corev1.ResourceMemory: resource.MustParse("8Gi"),

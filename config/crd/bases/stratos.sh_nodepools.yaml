@@ -211,109 +211,28 @@ spec:
               template:
                 description: Template defines the node template for this pool
                 properties:
-                  cloudProvider:
-                    description: CloudProvider specifies the cloud provider configuration
-                    properties:
-                      aws:
-                        description: AWS-specific configuration
-                        properties:
-                          ami:
-                            description: AMI is the Amazon Machine Image ID
-                            type: string
-                          blockDeviceMappings:
-                            description: BlockDeviceMappings defines the EBS volumes
-                            items:
-                              description: BlockDeviceMapping defines an EBS volume
-                              properties:
-                                deviceName:
-                                  description: DeviceName is the device name (e.g.,
-                                    "/dev/xvda")
-                                  type: string
-                                encrypted:
-                                  description: Encrypted indicates whether the volume
-                                    should be encrypted
-                                  type: boolean
-                                iops:
-                                  description: IOPS is the number of I/O operations
-                                    per second (for io1/io2 volumes)
-                                  format: int32
-                                  type: integer
-                                throughput:
-                                  description: Throughput is the throughput in MB/s
-                                    (for gp3 volumes)
-                                  format: int32
-                                  type: integer
-                                volumeSize:
-                                  description: VolumeSize is the volume size in GiB
-                                  format: int32
-                                  minimum: 1
-                                  type: integer
-                                volumeType:
-                                  description: VolumeType is the EBS volume type (e.g.,
-                                    "gp3", "io1")
-                                  type: string
-                              required:
-                              - deviceName
-                              - volumeSize
-                              - volumeType
-                              type: object
-                            type: array
-                          iamInstanceProfile:
-                            description: IAMInstanceProfile is the IAM instance profile
-                              ARN or name
-                            type: string
-                          instanceType:
-                            description: InstanceType is the EC2 instance type (e.g.,
-                              "m5.large")
-                            type: string
-                          region:
-                            description: Region is the AWS region (e.g., "us-east-1")
-                            type: string
-                          securityGroupIds:
-                            description: SecurityGroupIDs is the list of security
-                              groups
-                            items:
-                              type: string
-                            minItems: 1
-                            type: array
-                          subnetIds:
-                            description: SubnetIDs is the list of subnets to launch
-                              instances in
-                            items:
-                              type: string
-                            minItems: 1
-                            type: array
-                          tags:
-                            additionalProperties:
-                              type: string
-                            description: Tags to apply to instances
-                            type: object
-                          userData:
-                            description: |-
-                              UserData is the base64-encoded user data script.
-                              This script should join the cluster and self-stop when ready.
-                            type: string
-                        required:
-                        - ami
-                        - iamInstanceProfile
-                        - instanceType
-                        - securityGroupIds
-                        - subnetIds
-                        type: object
-                      provider:
-                        description: Provider is the cloud provider type
-                        enum:
-                        - aws
-                        - gcp
-                        - azure
-                        type: string
-                    required:
-                    - provider
-                    type: object
                   labels:
                     additionalProperties:
                       type: string
                     description: Labels to apply to nodes
+                    type: object
+                  nodeClassRef:
+                    description: |-
+                      NodeClassRef references the cloud-specific NodeClass that defines
+                      instance configuration (e.g., AWSNodeClass for AWS).
+                    properties:
+                      kind:
+                        description: Kind is the NodeClass kind (e.g., "AWSNodeClass",
+                          "GCPNodeClass")
+                        enum:
+                        - AWSNodeClass
+                        type: string
+                      name:
+                        description: Name is the name of the NodeClass resource
+                        type: string
+                    required:
+                    - kind
+                    - name
                     type: object
                   startupTaintRemoval:
                     default: WhenNetworkReady
@@ -393,7 +312,7 @@ spec:
                       type: object
                     type: array
                 required:
-                - cloudProvider
+                - nodeClassRef
                 type: object
             required:
             - minStandby

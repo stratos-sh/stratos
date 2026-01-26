@@ -21,22 +21,25 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
 )
 
 // FakeProvider is a fake cloud provider implementation for testing.
 type FakeProvider struct {
-	mu        sync.RWMutex
-	instances map[string]*cloudprovider.Instance
-	counter   int
+	mu          sync.RWMutex
+	instances   map[string]*cloudprovider.Instance
+	counter     int
+	subnetIndex uint64 // atomic counter for round-robin subnet selection
 
 	// wg tracks pending goroutines for state transitions
 	wg sync.WaitGroup
 
 	// Hooks for testing
-	LaunchHook    func(ctx context.Context, cfg *cloudprovider.LaunchConfig) error
+	LaunchHook    func(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) error
 	StartHook     func(ctx context.Context, instanceID string) error
 	StopHook      func(ctx context.Context, instanceID string, force bool) error
 	TerminateHook func(ctx context.Context, instanceID string) error
@@ -49,10 +52,10 @@ func NewFakeProvider() *FakeProvider {
 	}
 }
 
-// LaunchInstance creates a new fake instance.
-func (f *FakeProvider) LaunchInstance(ctx context.Context, cfg *cloudprovider.LaunchConfig) (*cloudprovider.Instance, error) {
+// LaunchInstance creates a new fake instance using AWSNodeClass configuration.
+func (f *FakeProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) (*cloudprovider.Instance, error) {
 	if f.LaunchHook != nil {
-		if err := f.LaunchHook(ctx, cfg); err != nil {
+		if err := f.LaunchHook(ctx, nodeClass, poolName, clusterName); err != nil {
 			return nil, err
 		}
 	}
@@ -63,26 +66,30 @@ func (f *FakeProvider) LaunchInstance(ctx context.Context, cfg *cloudprovider.La
 	f.counter++
 	instanceID := fmt.Sprintf("i-fake-%06d", f.counter)
 
+	// Select subnet using round-robin
+	subnetIdx := atomic.AddUint64(&f.subnetIndex, 1) - 1
+	subnetID := nodeClass.Spec.SubnetIDs[subnetIdx%uint64(len(nodeClass.Spec.SubnetIDs))]
+
 	instance := &cloudprovider.Instance{
 		ID:               instanceID,
 		State:            cloudprovider.InstanceStatePending,
 		PrivateIP:        fmt.Sprintf("10.0.0.%d", f.counter%256),
 		LaunchTime:       time.Now(),
-		InstanceType:     cfg.InstanceType,
-		SubnetID:         cfg.SubnetID,
+		InstanceType:     nodeClass.Spec.InstanceType,
+		SubnetID:         subnetID,
 		AvailabilityZone: "fake-az-1",
 		Tags:             make(map[string]string),
 	}
 
-	// Copy tags from config
-	for k, v := range cfg.Tags {
+	// Copy tags from nodeClass
+	for k, v := range nodeClass.Spec.Tags {
 		instance.Tags[k] = v
 	}
 
 	// Add standard Stratos tags
 	instance.Tags["managed-by"] = "stratos"
-	instance.Tags["stratos.sh/pool"] = cfg.PoolName
-	instance.Tags["stratos.sh/cluster"] = cfg.ClusterName
+	instance.Tags["stratos.sh/pool"] = poolName
+	instance.Tags["stratos.sh/cluster"] = clusterName
 	instance.Tags["stratos.sh/state"] = "warmup"
 
 	f.instances[instanceID] = instance

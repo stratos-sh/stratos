@@ -31,6 +31,7 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 	tests := []struct {
 		name          string
 		nodePool      *stratosv1alpha1.NodePool
+		instanceType  string
 		pods          []corev1.Pod
 		existingNodes []corev1.Node
 		want          int
@@ -40,15 +41,14 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 			nodePool: &stratosv1alpha1.NodePool{
 				Spec: stratosv1alpha1.NodePoolSpec{
 					Template: stratosv1alpha1.NodeTemplate{
-						CloudProvider: stratosv1alpha1.CloudProviderConfig{
-							Provider: "aws",
-							AWS: &stratosv1alpha1.AWSConfig{
-								InstanceType: "m5.xlarge", // 4 vCPU, 16 GiB
-							},
+						NodeClassRef: stratosv1alpha1.NodeClassRef{
+							Kind: "AWSNodeClass",
+							Name: "test-class",
 						},
 					},
 				},
 			},
+			instanceType:  "m5.xlarge", // 4 vCPU, 16 GiB
 			pods:          makePods(10, "500m", "2Gi"),
 			existingNodes: nil,
 			// Total: 5000m CPU, 20Gi memory
@@ -62,15 +62,14 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 			nodePool: &stratosv1alpha1.NodePool{
 				Spec: stratosv1alpha1.NodePoolSpec{
 					Template: stratosv1alpha1.NodeTemplate{
-						CloudProvider: stratosv1alpha1.CloudProviderConfig{
-							Provider: "aws",
-							AWS: &stratosv1alpha1.AWSConfig{
-								InstanceType: "m5.xlarge",
-							},
+						NodeClassRef: stratosv1alpha1.NodeClassRef{
+							Kind: "AWSNodeClass",
+							Name: "test-class",
 						},
 					},
 				},
 			},
+			instanceType:  "m5.xlarge",
 			pods:          makePods(1, "100m", "128Mi"),
 			existingNodes: nil,
 			want:          1,
@@ -88,15 +87,14 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 						},
 					},
 					Template: stratosv1alpha1.NodeTemplate{
-						CloudProvider: stratosv1alpha1.CloudProviderConfig{
-							Provider: "aws",
-							AWS: &stratosv1alpha1.AWSConfig{
-								InstanceType: "m5.xlarge", // 4 vCPU, 16 GiB
-							},
+						NodeClassRef: stratosv1alpha1.NodeClassRef{
+							Kind: "AWSNodeClass",
+							Name: "test-class",
 						},
 					},
 				},
 			},
+			instanceType:  "m5.xlarge", // 4 vCPU, 16 GiB
 			pods:          makePodsWithoutRequests(10),
 			existingNodes: nil,
 			// Total: 5000m CPU (10 * 500m default), 10Gi memory (10 * 1Gi default)
@@ -110,15 +108,14 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 			nodePool: &stratosv1alpha1.NodePool{
 				Spec: stratosv1alpha1.NodePoolSpec{
 					Template: stratosv1alpha1.NodeTemplate{
-						CloudProvider: stratosv1alpha1.CloudProviderConfig{
-							Provider: "aws",
-							AWS: &stratosv1alpha1.AWSConfig{
-								InstanceType: "unknown.instance",
-							},
+						NodeClassRef: stratosv1alpha1.NodeClassRef{
+							Kind: "AWSNodeClass",
+							Name: "test-class",
 						},
 					},
 				},
 			},
+			instanceType:  "unknown.instance",
 			pods:          makePods(5, "500m", "1Gi"),
 			existingNodes: nil,
 			want:          5, // 1:1 fallback
@@ -136,15 +133,14 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 						},
 					},
 					Template: stratosv1alpha1.NodeTemplate{
-						CloudProvider: stratosv1alpha1.CloudProviderConfig{
-							Provider: "aws",
-							AWS: &stratosv1alpha1.AWSConfig{
-								InstanceType: "m5.xlarge", // 4 vCPU, 16 GiB
-							},
+						NodeClassRef: stratosv1alpha1.NodeClassRef{
+							Kind: "AWSNodeClass",
+							Name: "test-class",
 						},
 					},
 				},
 			},
+			instanceType: "m5.xlarge", // 4 vCPU, 16 GiB
 			pods: append(
 				makePods(5, "500m", "1Gi"),    // 5 pods with explicit requests
 				makePodsWithoutRequests(5)..., // 5 pods without requests (use defaults)
@@ -163,15 +159,14 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 			nodePool: &stratosv1alpha1.NodePool{
 				Spec: stratosv1alpha1.NodePoolSpec{
 					Template: stratosv1alpha1.NodeTemplate{
-						CloudProvider: stratosv1alpha1.CloudProviderConfig{
-							Provider: "aws",
-							AWS: &stratosv1alpha1.AWSConfig{
-								InstanceType: "m5.xlarge",
-							},
+						NodeClassRef: stratosv1alpha1.NodeClassRef{
+							Kind: "AWSNodeClass",
+							Name: "test-class",
 						},
 					},
 				},
 			},
+			instanceType:  "m5.xlarge",
 			pods:          nil,
 			existingNodes: nil,
 			want:          0,
@@ -181,15 +176,14 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 			nodePool: &stratosv1alpha1.NodePool{
 				Spec: stratosv1alpha1.NodePoolSpec{
 					Template: stratosv1alpha1.NodeTemplate{
-						CloudProvider: stratosv1alpha1.CloudProviderConfig{
-							Provider: "aws",
-							AWS: &stratosv1alpha1.AWSConfig{
-								InstanceType: "c5.xlarge", // 4 vCPU, 8 GiB (compute optimized)
-							},
+						NodeClassRef: stratosv1alpha1.NodeClassRef{
+							Kind: "AWSNodeClass",
+							Name: "test-class",
 						},
 					},
 				},
 			},
+			instanceType:  "c5.xlarge", // 4 vCPU, 8 GiB (compute optimized)
 			pods:          makePods(5, "100m", "4Gi"),
 			existingNodes: nil,
 			// Total: 500m CPU, 20Gi memory
@@ -203,16 +197,15 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 			nodePool: &stratosv1alpha1.NodePool{
 				Spec: stratosv1alpha1.NodePoolSpec{
 					Template: stratosv1alpha1.NodeTemplate{
-						CloudProvider: stratosv1alpha1.CloudProviderConfig{
-							Provider: "aws",
-							AWS: &stratosv1alpha1.AWSConfig{
-								InstanceType: "m5.xlarge",
-							},
+						NodeClassRef: stratosv1alpha1.NodeClassRef{
+							Kind: "AWSNodeClass",
+							Name: "test-class",
 						},
 					},
 				},
 			},
-			pods: makePods(10, "500m", "2Gi"),
+			instanceType: "m5.xlarge",
+			pods:         makePods(10, "500m", "2Gi"),
 			existingNodes: []corev1.Node{
 				{
 					Status: corev1.NodeStatus{
@@ -234,15 +227,14 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 			nodePool: &stratosv1alpha1.NodePool{
 				Spec: stratosv1alpha1.NodePoolSpec{
 					Template: stratosv1alpha1.NodeTemplate{
-						CloudProvider: stratosv1alpha1.CloudProviderConfig{
-							Provider: "aws",
-							AWS: &stratosv1alpha1.AWSConfig{
-								InstanceType: "m5.xlarge",
-							},
+						NodeClassRef: stratosv1alpha1.NodeClassRef{
+							Kind: "AWSNodeClass",
+							Name: "test-class",
 						},
 					},
 				},
 			},
+			instanceType:  "m5.xlarge",
 			pods:          makePodsWithoutRequests(5),
 			existingNodes: nil,
 			want:          5, // No requests, no defaults -> 1:1 fallback
@@ -251,7 +243,7 @@ func TestScaleCalculator_CalculateNodesNeeded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			calc := NewScaleCalculator(tt.nodePool)
+			calc := NewScaleCalculator(tt.nodePool, tt.instanceType)
 			got := calc.CalculateNodesNeeded(tt.pods, tt.existingNodes)
 			if got != tt.want {
 				t.Errorf("CalculateNodesNeeded() = %d, want %d", got, tt.want)
@@ -349,17 +341,15 @@ func TestGetInstanceCapacity(t *testing.T) {
 			nodePool := &stratosv1alpha1.NodePool{
 				Spec: stratosv1alpha1.NodePoolSpec{
 					Template: stratosv1alpha1.NodeTemplate{
-						CloudProvider: stratosv1alpha1.CloudProviderConfig{
-							Provider: "aws",
-							AWS: &stratosv1alpha1.AWSConfig{
-								InstanceType: tt.instanceType,
-							},
+						NodeClassRef: stratosv1alpha1.NodeClassRef{
+							Kind: "AWSNodeClass",
+							Name: "test-class",
 						},
 					},
 				},
 			}
 
-			calc := NewScaleCalculator(nodePool)
+			calc := NewScaleCalculator(nodePool, tt.instanceType)
 			cap := calc.getNodeCapacity(nil)
 
 			if tt.wantZero {

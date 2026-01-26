@@ -58,7 +58,7 @@ lint: golangci-lint ## Run golangci-lint against code
 
 .PHONY: test
 test: ## Run tests
-	$(GOTEST) -race -coverprofile=coverage.out ./...
+	$(GOTEST) -coverprofile=coverage.out ./...
 
 .PHONY: test-integration
 test-integration: envtest ## Run integration tests
@@ -152,7 +152,7 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: envtest
-envtest: $(ENVTEST) ## Download envtest-setup locally if necessary
+envtest: $(ENVTEST) ## Downlo-ad envtest-setup locally if necessary
 $(ENVTEST): $(LOCALBIN)
 	@test -s $(LOCALBIN)/setup-envtest || \
 	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest

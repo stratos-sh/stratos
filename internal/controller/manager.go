@@ -33,6 +33,12 @@ import (
 	"github.com/stratos-sh/stratos/internal/metrics"
 )
 
+// NodeLauncher defines the interface for launching instances with cloud-specific NodeClass.
+// This interface is implemented by cloud-specific providers (AWSProvider, FakeProvider).
+type NodeLauncher interface {
+	LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) (*cloudprovider.Instance, error)
+}
+
 // NodeManager handles the lifecycle of Stratos-managed nodes.
 type NodeManager struct {
 	client        client.Client
@@ -51,50 +57,20 @@ func NewNodeManager(c client.Client, recorder record.EventRecorder, provider clo
 	}
 }
 
-// LaunchNode launches a new node for the given pool and waits for it to join the cluster.
-func (m *NodeManager) LaunchNode(ctx context.Context, pool *stratosv1alpha1.NodePool, subnetIndex int) (*corev1.Node, error) {
+// LaunchNode launches a new node for the given pool using the provided NodeClass.
+// The launcher must be a cloud-specific provider that implements NodeLauncher (e.g., AWSProvider, FakeProvider).
+// Subnet selection is handled internally by the cloud provider using round-robin distribution.
+func (m *NodeManager) LaunchNode(ctx context.Context, pool *stratosv1alpha1.NodePool, nodeClass *stratosv1alpha1.AWSNodeClass, launcher NodeLauncher) (*corev1.Node, error) {
 	logger := log.FromContext(ctx)
 
-	// Determine which subnet to use (round-robin)
-	aws := pool.Spec.Template.CloudProvider.AWS
-	if aws == nil {
-		return nil, fmt.Errorf("AWS configuration is required")
-	}
-	subnetID := aws.SubnetIDs[subnetIndex%len(aws.SubnetIDs)]
-
-	// Build launch config
-	cfg := &cloudprovider.LaunchConfig{
-		PoolName:           pool.Name,
-		ClusterName:        m.clusterName,
-		InstanceType:       aws.InstanceType,
-		ImageID:            aws.AMI,
-		SubnetID:           subnetID,
-		SecurityGroupIDs:   aws.SecurityGroupIDs,
-		IAMInstanceProfile: aws.IAMInstanceProfile,
-		UserData:           aws.UserData,
-		Tags:               aws.Tags,
-	}
-
-	// Convert block device mappings
-	for _, bd := range aws.BlockDeviceMappings {
-		cfg.BlockDevices = append(cfg.BlockDevices, cloudprovider.BlockDevice{
-			DeviceName: bd.DeviceName,
-			VolumeSize: bd.VolumeSize,
-			VolumeType: bd.VolumeType,
-			Encrypted:  bd.Encrypted,
-			IOPS:       bd.IOPS,
-			Throughput: bd.Throughput,
-		})
-	}
-
-	// Launch the instance
-	logger.Info("Launching instance", "pool", pool.Name, "subnet", subnetID)
-	instance, err := m.cloudProvider.LaunchInstance(ctx, cfg)
+	// Launch the instance using the cloud-specific provider
+	logger.Info("Launching instance", "pool", pool.Name, "nodeClass", nodeClass.Name, "instanceType", nodeClass.Spec.InstanceType)
+	instance, err := launcher.LaunchInstance(ctx, nodeClass, pool.Name, m.clusterName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch instance: %w", err)
 	}
 
-	logger.Info("Instance launched", "instanceID", instance.ID, "state", instance.State)
+	logger.Info("Instance launched", "instanceID", instance.ID, "state", instance.State, "subnet", instance.SubnetID)
 
 	// Record event
 	if m.recorder != nil {
