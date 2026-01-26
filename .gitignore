@@ -1,5 +1,7 @@
 # Binaries
 bin/
+stratos
+/stratos
 *.exe
 *.exe~
 *.dll
@@ -52,3 +54,21 @@ tmp/
 # Docusaurus build artifacts
 .docusaurus
 node_modules/
+
+.local/
+
+# Secrets and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.secret
+secrets/
+.aws/
+aws-credentials
+credentials.json
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
