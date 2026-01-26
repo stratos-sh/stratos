@@ -39,6 +39,7 @@ const sidebars = {
       },
       items: [
         'guides/aws-setup',
+        'guides/bottlerocket',
         'guides/scaling-policies',
         'guides/monitoring',
       ],
