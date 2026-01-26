@@ -49,4 +49,6 @@ kubeconfig
 *.tmp
 tmp/
 
+# Docusaurus build artifacts
 .docusaurus
+node_modules/
