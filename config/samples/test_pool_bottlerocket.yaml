@@ -1,0 +1,86 @@
+# Bottlerocket NodePool Example
+#
+# This sample demonstrates using ControllerStop completion mode with Bottlerocket.
+# Bottlerocket uses TOML configuration and doesn't support arbitrary shell scripts
+# in user data. ControllerStop mode allows Stratos to manage the warmup-to-standby
+# transition by stopping instances when nodes become Ready, eliminating the need
+# for shutdown scripts in user data.
+#
+# Benefits of ControllerStop mode:
+# - No bootstrap containers needed for shutdown logic
+# - Pure TOML configuration (no shell scripts)
+# - Stratos manages the entire warmup lifecycle
+# - Consistent behavior across different operating systems
+
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: test-pool-bottlerocket
+spec:
+  minStandby: 2
+  poolSize: 2
+  preWarm:
+    # ControllerStop: Stratos stops the instance when the node becomes Ready
+    # This removes the need for shutdown scripts in user data
+    completionMode: ControllerStop
+    timeout: 10m0s
+    timeoutAction: stop
+  reconciliationInterval: 30s
+  scaleDown:
+    drainTimeout: 2m0s
+    emptyNodeTTL: 2m0s
+    enabled: true
+  template:
+    cloudProvider:
+      aws:
+        # Bottlerocket x86_64 AMI (EKS 1.34)
+        # Replace with your region's Bottlerocket AMI ID
+        ami: ami-02471ee0da5a34d1e  # TODO: Replace with actual Bottlerocket AMI
+        blockDeviceMappings:
+        - deviceName: /dev/xvda
+          encrypted: true
+          volumeSize: 8
+          volumeType: gp3
+        - deviceName: /dev/xvdb  # Bottlerocket data volume
+          encrypted: true
+          volumeSize: 8
+          volumeType: gp3
+        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/StratosNodeRole
+        instanceType: m5.large
+        region: us-east-1
+        securityGroupIds:
+        - sg-0123456789abcdef0
+        subnetIds:
+        - subnet-0123456789abcdef0
+        tags:
+          Environment: test
+          OS: bottlerocket
+        # Bottlerocket TOML configuration
+        # No shutdown script needed - ControllerStop mode handles warmup completion
+        userData: |
+          [settings.kubernetes]
+          cluster-name = "main"
+          api-server = "https://ABCDEF1234567890.gr7.us-east-1.eks.amazonaws.com"
+          cluster-certificate = "YOUR_CLUSTER_CA_BASE64"
+
+          # Register with startup taint to prevent scheduling until CNI is ready
+          [settings.kubernetes.node-taints]
+          "node.eks.amazonaws.com/not-ready" = "true:NoSchedule"
+
+          # Faster kubelet status updates for quicker warmup detection
+          [settings.kubernetes.node-labels]
+          "stratos.sh/pool" = "test-pool-bottlerocket"
+
+          # Optional: EBS volume initialization settings
+          # Bottlerocket doesn't require manual dd for EBS initialization
+          # as it uses a minimal read-only root filesystem
+      provider: aws
+    labels:
+      stratos.sh/pool: test-pool-bottlerocket
+    # WhenNetworkReady: Wait for CNI to be ready before removing startup taints
+    # This is also used by ControllerStop mode to determine when warmup is complete
+    startupTaintRemoval: WhenNetworkReady
+    startupTaints:
+    - effect: NoSchedule
+      key: node.eks.amazonaws.com/not-ready
+      value: "true"
