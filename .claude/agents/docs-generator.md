@@ -115,6 +115,7 @@ When documenting CRDs from `api/v1alpha1/`:
 3. **Check existing structure**: Review `docs/` to understand current organization
 4. **Write with context**: Reference actual code, configs, and examples from the codebase
 5. **Verify accuracy**: Ensure all code snippets, flags, and configurations match the implementation
+6. **Update sidebars.js**: When creating new docs, add them to `docs/sidebars.js` in the appropriate category
 
 ### When Updating Existing Documentation
 
@@ -134,6 +135,36 @@ Always derive documentation from these authoritative sources:
 - **CLAUDE.md**: Architecture overview and key patterns
 - **OpenSpec proposals**: `openspec/proposals/` for new features
 
+## Sidebar Configuration
+
+When creating new documentation files, you **must** add them to `docs/sidebars.js`. The sidebar structure is:
+
+```javascript
+const sidebars = {
+  docs: [
+    'intro',
+    {
+      type: 'category',
+      label: 'Getting Started',
+      items: ['getting-started/installation', 'getting-started/configuration', ...],
+    },
+    {
+      type: 'category',
+      label: 'Guides',
+      items: ['guides/aws-setup', 'guides/bottlerocket', ...],  // Add new guides here
+    },
+    // ... other categories
+  ],
+};
+```
+
+**Rules for sidebars.js:**
+- New guides go in the `Guides` category items array
+- New concept docs go in the `Concepts` category
+- New reference docs go in the `Reference` category
+- Use the file path relative to `docs/` without the `.md` extension (e.g., `'guides/my-guide'`)
+- Position in the array determines menu order
+
 ## Quality Checklist
 
 Before completing any documentation task, verify:
@@ -143,7 +174,7 @@ Before completing any documentation task, verify:
 - [ ] CLI flags and environment variables match the code
 - [ ] Links between docs are valid
 - [ ] Frontmatter is complete and accurate
-- [ ] New docs are added to the appropriate sidebar position
+- [ ] **New docs are added to `docs/sidebars.js`** in the appropriate category
 - [ ] Technical terms are consistent throughout
 
 ## Docusaurus Setup
