@@ -71,4 +71,5 @@ credentials.json
 # Terraform
 *.tfstate
 *.tfstate.*
-.terraform/
+.terraform/__pycache__/
+*.pyc
