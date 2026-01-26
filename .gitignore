@@ -48,3 +48,5 @@ kubeconfig
 # Temporary files
 *.tmp
 tmp/
+
+.docusaurus
