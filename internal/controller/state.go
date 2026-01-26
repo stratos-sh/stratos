@@ -89,7 +89,7 @@ const (
 	// or a warning is emitted (External mode).
 	StartupTaintRemovalTimeout = 2 * time.Minute
 
-// NetworkingReadyCondition is the EKS-specific condition type set by eks-node-monitoring-agent
+	// NetworkingReadyCondition is the EKS-specific condition type set by eks-node-monitoring-agent
 	// when the VPC CNI IPAMD is connected and networking is functional.
 	NetworkingReadyCondition corev1.NodeConditionType = "NetworkingReady"
 )
@@ -185,4 +185,14 @@ func (s NodeState) CanAcceptWorkload() bool {
 // IsAvailableForScaleUp returns true if the node can be started for scale-up.
 func (s NodeState) IsAvailableForScaleUp() bool {
 	return s == NodeStateStandby
+}
+
+// IsNodeReady checks if a node has Ready condition = True.
+func IsNodeReady(node *corev1.Node) bool {
+	for _, cond := range node.Status.Conditions {
+		if cond.Type == corev1.NodeReady {
+			return cond.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }

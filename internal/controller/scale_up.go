@@ -70,22 +70,12 @@ func (r *NodePoolReconciler) countStartingNodes(ctx context.Context, poolName st
 		}
 
 		// Check if within TTL and node is not yet Ready
-		if now.Sub(startedAt) < ScaleUpStartedTTL && !isNodeReady(node) {
+		if now.Sub(startedAt) < ScaleUpStartedTTL && !IsNodeReady(node) {
 			count++
 		}
 	}
 
 	return count, nil
-}
-
-// isNodeReady checks if a node has Ready condition = True.
-func isNodeReady(node *corev1.Node) bool {
-	for _, cond := range node.Status.Conditions {
-		if cond.Type == corev1.NodeReady {
-			return cond.Status == corev1.ConditionTrue
-		}
-	}
-	return false
 }
 
 // clearStaleScaleUpAnnotations removes scale-up-started annotations from nodes that are:
@@ -120,7 +110,7 @@ func (r *NodePoolReconciler) clearStaleScaleUpAnnotations(ctx context.Context, p
 		}
 
 		// Remove annotation if: node is Ready OR past TTL
-		shouldClear := isNodeReady(node) || now.Sub(startedAt) >= ScaleUpStartedTTL
+		shouldClear := IsNodeReady(node) || now.Sub(startedAt) >= ScaleUpStartedTTL
 		if shouldClear {
 			if err := r.removeScaleUpAnnotation(ctx, node); err != nil {
 				logger.Error(err, "Failed to remove scale-up annotation", "node", node.Name)

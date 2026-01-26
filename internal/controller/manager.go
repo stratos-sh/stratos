@@ -230,7 +230,7 @@ func (m *NodeManager) MonitorWarmup(ctx context.Context, pool *stratosv1alpha1.N
 		startTime := parseUnixTimestamp(node.Labels[LabelStateSince])
 		if !startTime.IsZero() {
 			duration := time.Since(startTime).Seconds()
-			metrics.RecordWarmupDuration(pool.Name, duration)
+			metrics.RecordWarmupDuration(pool.Name, "self_stop", duration)
 		}
 
 		// Prepare node for standby (cordon + taint + re-add startup taints)
@@ -257,23 +257,33 @@ func (m *NodeManager) MonitorWarmup(ctx context.Context, pool *stratosv1alpha1.N
 
 		// Set warmup completed annotation
 		patch := client.MergeFrom(node.DeepCopy())
+		if node.Annotations == nil {
+			node.Annotations = make(map[string]string)
+		}
 		node.Annotations[AnnotationWarmupCompleted] = time.Now().Format(time.RFC3339)
 		if err := m.client.Patch(ctx, node, patch); err != nil {
 			logger.Error(err, "Failed to set warmup completed annotation")
 		}
 
 	case cloudprovider.InstanceStateRunning:
-		// Still running - check for timeout
+		// Instance still running - behavior depends on completion mode
 		startTime := parseUnixTimestamp(node.Labels[LabelStateSince])
 		if startTime.IsZero() {
 			startTime = time.Now()
 		}
 
+		// Check timeout first (applies to both modes)
 		timeout := pool.Spec.PreWarm.GetTimeout().Duration
 		if time.Since(startTime) > timeout {
 			logger.Info("Warmup timeout exceeded", "node", node.Name, "timeout", timeout)
 			return m.handleWarmupTimeout(ctx, pool, node, instanceID)
 		}
+
+		// In ControllerStop mode, check if node is ready and stop it
+		if pool.Spec.PreWarm.GetCompletionMode() == stratosv1alpha1.WarmupCompletionModeControllerStop {
+			return m.handleControllerStopWarmup(ctx, pool, node, instanceID, startTime)
+		}
+		// In SelfStop mode, just wait for instance to self-stop (no action needed)
 
 	case cloudprovider.InstanceStateTerminated:
 		// Instance was terminated - clean up node
@@ -323,6 +333,82 @@ func (m *NodeManager) handleWarmupTimeout(ctx context.Context, pool *stratosv1al
 			m.recorder.Eventf(pool, corev1.EventTypeWarning, "WarmupTimeout",
 				"Node %s warmup timed out, terminated", node.Name)
 		}
+	}
+
+	return nil
+}
+
+// handleControllerStopWarmup handles warmup in ControllerStop mode.
+// It checks if the node is ready and stops it when conditions are met.
+func (m *NodeManager) handleControllerStopWarmup(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node, instanceID string, startTime time.Time) error {
+	logger := log.FromContext(ctx)
+
+	// Check if node is Ready
+	if !IsNodeReady(node) {
+		logger.V(1).Info("Node not ready, waiting for warmup to complete",
+			"node", node.Name, "mode", "ControllerStop")
+		return nil
+	}
+
+	// Check network readiness if WhenNetworkReady is configured
+	if pool.Spec.Template.StartupTaintRemoval == stratosv1alpha1.StartupTaintRemovalWhenNetworkReady {
+		checker := NewNetworkReadinessChecker(m.client)
+		if !checker.IsReady(node) {
+			logger.V(1).Info("Node ready but network not ready, waiting",
+				"node", node.Name, "mode", "ControllerStop")
+			return nil
+		}
+		// For EKS, also verify aws-node pod is Ready
+		if checker.HasNetworkingReadyCondition(node) && !checker.IsAwsNodePodReady(ctx, node.Name) {
+			logger.V(1).Info("Node ready but aws-node pod not ready, waiting",
+				"node", node.Name, "mode", "ControllerStop")
+			return nil
+		}
+	}
+
+	// Node is ready (and network ready if required) - stop the instance
+	logger.Info("Node ready, stopping instance in ControllerStop mode",
+		"node", node.Name, "instanceID", instanceID)
+
+	// Stop the instance
+	if err := m.cloudProvider.StopInstance(ctx, instanceID, false); err != nil {
+		return fmt.Errorf("failed to stop instance in ControllerStop mode: %w", err)
+	}
+
+	// Record warmup duration with mode label
+	duration := time.Since(startTime).Seconds()
+	metrics.RecordWarmupDuration(pool.Name, "controller_stop", duration)
+
+	// Prepare node for standby (cordon + taint + re-add startup taints)
+	if err := m.prepareNodeForStandby(ctx, pool, node); err != nil {
+		return err
+	}
+
+	if err := m.TransitionState(ctx, node, NodeStateStandby); err != nil {
+		return err
+	}
+
+	// Update cloud provider tags
+	if err := m.cloudProvider.UpdateInstanceTags(ctx, instanceID, map[string]string{
+		TagState: string(NodeStateStandby),
+	}); err != nil {
+		logger.Error(err, "Failed to update instance tags", "instanceID", instanceID)
+	}
+
+	// Record event
+	if m.recorder != nil {
+		m.recorder.Eventf(pool, corev1.EventTypeNormal, "WarmupCompleted",
+			"Node %s completed warmup (ControllerStop mode) and is now standby", node.Name)
+	}
+
+	// Set warmup completed annotation
+	patch := client.MergeFrom(node.DeepCopy())
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
+	}
+	node.Annotations[AnnotationWarmupCompleted] = time.Now().Format(time.RFC3339)
+	if err := m.client.Patch(ctx, node, patch); err != nil {
+		logger.Error(err, "Failed to set warmup completed annotation")
 	}
 
 	return nil
@@ -594,8 +680,8 @@ func (m *NodeManager) MonitorCloudWarmup(ctx context.Context, pool *stratosv1alp
 		return nil
 
 	case cloudprovider.InstanceStateRunning, cloudprovider.InstanceStatePending:
-		// If K8s node exists but isn't labeled, label it as warmup and cordon it
-		if node != nil && node.Labels[LabelPool] == "" {
+		// If K8s node exists but isn't tracked by warmup workflow, label it
+		if node != nil && node.Labels[LabelState] == "" {
 			logger.Info("Labeling unlabeled K8s node as warmup", "instanceID", instanceID, "node", node.Name)
 			if err := m.LabelNode(ctx, node, pool.Name, instanceID, NodeStateWarmup); err != nil {
 				return fmt.Errorf("failed to label warmup node: %w", err)
