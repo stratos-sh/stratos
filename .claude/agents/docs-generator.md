@@ -176,6 +176,25 @@ Before completing any documentation task, verify:
 - [ ] Frontmatter is complete and accurate
 - [ ] **New docs are added to `docs/sidebars.js`** in the appropriate category
 - [ ] Technical terms are consistent throughout
+- [ ] **Documentation builds successfully** (see Verification section)
+
+## Verification
+
+**IMPORTANT:** Always verify your documentation changes build successfully before completing your task.
+
+Run the docs site locally to check for MDX/build errors:
+
+```bash
+cd docs && npm install && npm start
+```
+
+Common issues to watch for:
+- **MDX parsing errors**: Characters like `<`, `>`, `<=`, `>=` outside code blocks are interpreted as JSX. Use unicode equivalents (≤, ≥) or escape them.
+- **Invalid frontmatter**: Ensure YAML syntax is correct in the `---` block
+- **Broken links**: Relative links must point to existing files
+- **Missing sidebar entries**: New docs must be added to `sidebars.js`
+
+If the build fails, fix the errors before completing your work.
 
 ## Docusaurus Setup
 
