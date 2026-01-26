@@ -141,6 +141,16 @@ The controller watches for:
 - [Configuration](docs/configuration.md) - NodePool CRD and controller options
 - [Operations](docs/operations.md) - Monitoring, troubleshooting, best practices
 
+### Running Docs Locally
+
+```bash
+cd docs
+npm install
+npm start
+```
+
+The documentation site will be available at `http://localhost:3000`.
+
 ## Development
 
 ### Build
