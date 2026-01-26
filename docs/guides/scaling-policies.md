@@ -100,15 +100,17 @@ spec:
 5. After drain completes (or timeout), instance is stopped
 6. Node transitions to standby state
 
-### Preventing Aggressive Scale-Down
+### Tuning Scale-Down Timing
 
-If you experience too-aggressive scale-down:
+The `emptyNodeTTL` controls how quickly empty nodes return to standby. Since Stratos only scales down nodes with no scheduled pods, this is purely a cost/churn trade-off:
+
+- **Shorter TTL** (e.g., `2m`): Faster return to standby, saves compute cost, but more start/stop cycles if demand fluctuates
+- **Longer TTL** (e.g., `15m`): Nodes stay running longer after becoming empty, reduces churn for bursty workloads
 
 ```yaml
 spec:
   scaleDown:
-    emptyNodeTTL: 15m    # Longer wait before scale-down
-    drainTimeout: 10m    # Longer drain timeout
+    emptyNodeTTL: 10m    # Wait 10 minutes before returning empty node to standby
 ```
 
 ### Disabling Scale-Down
