@@ -169,16 +169,6 @@ Nodes are considered "starting" if:
 - The annotation timestamp is within the TTL (60 seconds)
 - The node is not yet Ready
 
-## High Availability
-
-The controller supports leader election for high availability:
-
-```bash
---leader-elect=true
-```
-
-When enabled, only one controller instance is active at a time. The leader election uses a Kubernetes Lease object in the controller namespace.
-
 ## Security Model
 
 ### Controller Permissions

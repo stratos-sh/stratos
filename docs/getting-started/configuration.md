@@ -19,7 +19,6 @@ The Stratos controller accepts the following command-line flags:
 | `--sync-period` | - | `30s` | Minimum interval for reconciliation. |
 | `--metrics-bind-address` | - | `:8080` | Address for the metrics endpoint. |
 | `--health-probe-bind-address` | - | `:8081` | Address for health probe endpoints. |
-| `--leader-elect` | - | `false` | Enable leader election for HA deployments. |
 | `--graceful-shutdown-timeout` | - | `30s` | Timeout for graceful shutdown. |
 
 ### Zap Logger Flags
@@ -86,35 +85,6 @@ spec:
               cpu: 500m
               memory: 512Mi
 ```
-
-### High Availability Deployment
-
-For production, enable leader election with multiple replicas:
-
-```yaml title="deployment-ha.yaml"
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: stratos-controller
-  namespace: stratos-system
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: stratos-controller
-  template:
-    spec:
-      containers:
-        - name: controller
-          args:
-            - --cluster-name=my-cluster
-            - --leader-elect=true
-            - --cloud-provider=aws
-```
-
-:::tip
-With leader election enabled, only one controller instance is active at a time. The leader election uses a Kubernetes Lease object in the controller namespace.
-:::
 
 ### Production Logging
 

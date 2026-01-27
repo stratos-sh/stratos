@@ -26,12 +26,6 @@ This document provides a complete reference for Stratos controller command-line 
 | `--metrics-bind-address` | string | `:8080` | The address the metric endpoint binds to. |
 | `--health-probe-bind-address` | string | `:8081` | The address the probe endpoint binds to. |
 
-### High Availability Flags
-
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--leader-elect` | bool | `false` | Enable leader election for controller manager. Enabling this ensures there is only one active controller manager. |
-
 ### Zap Logger Flags
 
 | Flag | Type | Default | Description |
