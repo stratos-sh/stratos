@@ -1,0 +1,81 @@
+{{/*
+AWS IAM Policy for Stratos controller.
+This ConfigMap contains the IAM policy JSON document that must be attached
+to the IAM role used by the Stratos controller (via IRSA or Pod Identity).
+Apply this policy to your controller's IAM role to grant the necessary AWS permissions.
+*/}}
+{{- if eq .Values.cloudProvider "aws" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "stratos.fullname" . }}-iam-policy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "stratos.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+data:
+  policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "EC2InstanceLifecycle",
+          "Effect": "Allow",
+          "Action": [
+            "ec2:RunInstances",
+            "ec2:StartInstances",
+            "ec2:StopInstances",
+            "ec2:TerminateInstances",
+            "ec2:CreateTags"
+          ],
+          "Resource": "*"
+        },
+        {
+          "Sid": "EC2DescribeInstances",
+          "Effect": "Allow",
+          "Action": [
+            "ec2:DescribeInstances",
+            "ec2:DescribeInstanceStatus"
+          ],
+          "Resource": "*"
+        },
+        {
+          "Sid": "EC2ResourceDiscovery",
+          "Effect": "Allow",
+          "Action": [
+            "ec2:DescribeImages",
+            "ec2:DescribeSubnets",
+            "ec2:DescribeSecurityGroups"
+          ],
+          "Resource": "*"
+        },
+        {
+          "Sid": "IAMInstanceProfileManagement",
+          "Effect": "Allow",
+          "Action": [
+            "iam:CreateInstanceProfile",
+            "iam:DeleteInstanceProfile",
+            "iam:GetInstanceProfile",
+            "iam:AddRoleToInstanceProfile",
+            "iam:RemoveRoleFromInstanceProfile"
+          ],
+          "Resource": "arn:aws:iam::*:instance-profile/stratos-*"
+        },
+        {
+          "Sid": "IAMPassRole",
+          "Effect": "Allow",
+          "Action": [
+            "iam:PassRole"
+          ],
+          "Resource": "*",
+          "Condition": {
+            "StringEquals": {
+              "iam:PassedToService": "ec2.amazonaws.com"
+            }
+          }
+        }
+      ]
+    }
+{{- end }}

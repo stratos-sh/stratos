@@ -64,6 +64,10 @@ test: ## Run tests
 test-integration: envtest ## Run integration tests
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) ./tests/integration/... -v -tags=integration
 
+.PHONY: test-localstack
+test-localstack: ## Run LocalStack integration tests (requires Docker)
+	$(GOTEST) ./internal/cloudprovider/aws/... -v -tags=integration -timeout 5m
+
 .PHONY: coverage
 coverage: test ## Generate coverage report
 	$(GOCMD) tool cover -html=coverage.out -o coverage.html
