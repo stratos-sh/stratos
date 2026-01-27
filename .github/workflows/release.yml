@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: stratos-sh/stratos
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/stratos-sh/stratos
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Package Helm chart
+        id: chart
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version:.*/version: ${VERSION}/" deploy/charts/stratos/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${GITHUB_REF_NAME}\"/" deploy/charts/stratos/Chart.yaml
+          helm package deploy/charts/stratos --destination /tmp
+          echo "package=/tmp/stratos-${VERSION}.tgz" >> "$GITHUB_OUTPUT"
+
+      - name: Push Helm chart to GHCR
+        run: |
+          helm push ${{ steps.chart.outputs.package }} oci://${{ env.REGISTRY }}/stratos-sh/charts
