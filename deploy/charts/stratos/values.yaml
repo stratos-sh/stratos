@@ -1,0 +1,57 @@
+# Stratos controller configuration
+
+# -- Required: Kubernetes cluster name passed to the controller
+clusterName: ""
+
+# -- Cloud provider to use (aws or fake)
+cloudProvider: aws
+
+image:
+  # -- Container image repository
+  repository: ghcr.io/stratos-sh/stratos
+  # -- Image tag (defaults to Chart appVersion)
+  tag: ""
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+
+# -- Number of controller replicas
+replicaCount: 1
+
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Service account name (generated if not set)
+  name: ""
+  # -- Annotations to add (e.g. eks.amazonaws.com/role-arn for IRSA)
+  annotations: {}
+
+# -- Controller resource requests and limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# -- Enable leader election for HA
+leaderElect: true
+
+# -- Reconciliation sync period
+syncPeriod: "30s"
+
+# -- Metrics bind address
+metricsBindAddress: ":8080"
+
+# -- Health probe bind address
+healthProbeBindAddress: ":8081"
+
+# -- Additional environment variables for the controller
+extraEnv: []
+
+# -- Additional args for the controller
+extraArgs: []
+
+namespace:
+  # -- Create the namespace
+  create: true

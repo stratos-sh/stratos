@@ -1,0 +1,18 @@
+apiVersion: v2
+name: stratos
+description: Kubernetes operator that eliminates cloud instance cold-start delays by maintaining pools of pre-warmed, stopped instances
+type: application
+version: 0.0.1
+appVersion: "v0.0.1"
+keywords:
+  - kubernetes
+  - operator
+  - cloud
+  - warm-pool
+  - autoscaling
+home: https://github.com/stratos-sh/stratos
+sources:
+  - https://github.com/stratos-sh/stratos
+maintainers:
+  - name: stratos-sh
+    url: https://github.com/stratos-sh

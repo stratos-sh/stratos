@@ -1,6 +1,5 @@
 # Binaries
 bin/
-stratos
 /stratos
 *.exe
 *.exe~

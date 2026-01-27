@@ -1,0 +1,19 @@
+Stratos controller has been installed.
+
+Cluster name: {{ include "stratos.clusterName" . }}
+Namespace:    {{ .Release.Namespace }}
+
+To check the controller status:
+
+  kubectl get deployment -n {{ .Release.Namespace }} {{ include "stratos.fullname" . }}
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "stratos.name" . }}
+
+To verify CRDs are installed:
+
+  kubectl get crd nodepools.stratos.sh
+  kubectl get crd awsnodeclasses.stratos.sh
+
+IMPORTANT: Helm does not upgrade CRDs automatically.
+When upgrading Stratos, apply CRDs manually before running helm upgrade:
+
+  kubectl apply -f deploy/charts/stratos/crds/

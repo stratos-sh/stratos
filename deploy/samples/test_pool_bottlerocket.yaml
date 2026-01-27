@@ -1,0 +1,47 @@
+# NodePool using Bottlerocket AWSNodeClass
+#
+# This NodePool references an AWSNodeClass for AWS-specific configuration.
+# The referenced AWSNodeClass must exist before creating this NodePool.
+#
+# Apply the AWSNodeClass first:
+#   kubectl apply -f awsnodeclass_bottlerocket.yaml
+# Then apply this NodePool:
+#   kubectl apply -f test_pool_bottlerocket.yaml
+#
+# Bottlerocket Notes:
+# - Uses TOML configuration, no shell script support
+# - Uses ControllerStop mode: Stratos stops the instance when node is Ready
+# - No warmup script needed in user data
+
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: test-pool-bottlerocket
+spec:
+  minStandby: 2
+  poolSize: 2
+  preWarm:
+    # ControllerStop: Stratos stops the instance when the node becomes Ready
+    # Use this for Bottlerocket which doesn't support shutdown scripts
+    completionMode: ControllerStop
+    timeout: 10m0s
+    timeoutAction: stop
+  reconciliationInterval: 30s
+  scaleDown:
+    drainTimeout: 2m0s
+    emptyNodeTTL: 2m0s
+    enabled: true
+  template:
+    # Reference to AWSNodeClass containing AWS-specific configuration
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: bottlerocket-standard
+    labels:
+      stratos.sh/pool: test-pool-bottlerocket
+    # WhenNetworkReady: Wait for CNI to be ready before removing startup taints
+    # This is also used by ControllerStop mode to determine when warmup is complete
+    startupTaintRemoval: WhenNetworkReady
+    startupTaints:
+      - effect: NoSchedule
+        key: node.eks.amazonaws.com/not-ready
+        value: "true"
