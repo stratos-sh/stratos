@@ -8,9 +8,9 @@ const config = {
   favicon: 'img/favicon.ico',
 
   // Set the production url of your site here
-  url: 'https://stratos.sh',
+  url: 'https://stratos-sh.github.io',
   // Set the /<baseUrl>/ pathname under which your site is served
-  baseUrl: '/',
+  baseUrl: '/stratos/',
 
   // GitHub pages deployment config
   organizationName: 'stratos-sh',
