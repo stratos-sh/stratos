@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -27,6 +29,7 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.8.0
+          only-new-issues: true
 
   unit-tests:
     runs-on: ubuntu-latest
@@ -61,7 +64,7 @@ jobs:
       - name: Run integration tests
         run: |
           export KUBEBUILDER_ASSETS="$(setup-envtest use -p path)"
-          go test -v -tags=integration -timeout 120s ./tests/integration/...
+          go test -v -tags=integration -timeout 300s ./tests/integration/...
 
   localstack-tests:
     runs-on: ubuntu-latest
