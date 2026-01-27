@@ -74,9 +74,33 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 		return nil, err
 	}
 
-	// Select subnet using round-robin
+	// Read resolved values from status (populated by AWSNodeClass reconciler)
+	if nodeClass.Status.ResolvedAMI == "" {
+		status = "error"
+		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedAMI is empty", nodeClass.Name)
+	}
+	if len(nodeClass.Status.ResolvedSubnets) == 0 {
+		status = "error"
+		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedSubnets is empty", nodeClass.Name)
+	}
+	if len(nodeClass.Status.ResolvedSecurityGroups) == 0 {
+		status = "error"
+		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedSecurityGroups is empty", nodeClass.Name)
+	}
+	if nodeClass.Status.ResolvedInstanceProfile == "" {
+		status = "error"
+		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedInstanceProfile is empty", nodeClass.Name)
+	}
+
+	// Select subnet using round-robin from resolved subnets
 	subnetIdx := atomic.AddUint64(&p.subnetIndex, 1) - 1
-	subnetID := nodeClass.Spec.SubnetIDs[subnetIdx%uint64(len(nodeClass.Spec.SubnetIDs))]
+	subnetID := nodeClass.Status.ResolvedSubnets[subnetIdx%uint64(len(nodeClass.Status.ResolvedSubnets))].ID
+
+	// Collect security group IDs from resolved status
+	var securityGroupIDs []string
+	for _, sg := range nodeClass.Status.ResolvedSecurityGroups {
+		securityGroupIDs = append(securityGroupIDs, sg.ID)
+	}
 
 	// Build tags
 	tags := []types.Tag{
@@ -105,12 +129,12 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 	}
 
 	input := &ec2.RunInstancesInput{
-		ImageId:          aws.String(nodeClass.Spec.AMI),
+		ImageId:          aws.String(nodeClass.Status.ResolvedAMI),
 		InstanceType:     types.InstanceType(nodeClass.Spec.InstanceType),
 		MinCount:         aws.Int32(1),
 		MaxCount:         aws.Int32(1),
 		SubnetId:         aws.String(subnetID),
-		SecurityGroupIds: nodeClass.Spec.SecurityGroupIDs,
+		SecurityGroupIds: securityGroupIDs,
 		TagSpecifications: []types.TagSpecification{
 			{
 				ResourceType: types.ResourceTypeInstance,
@@ -119,10 +143,24 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 		},
 	}
 
-	if nodeClass.Spec.IAMInstanceProfile != "" {
-		input.IamInstanceProfile = &types.IamInstanceProfileSpecification{
-			Arn: aws.String(nodeClass.Spec.IAMInstanceProfile),
+	// Instance profile from resolved status
+	input.IamInstanceProfile = &types.IamInstanceProfileSpecification{
+		Arn: aws.String(nodeClass.Status.ResolvedInstanceProfile),
+	}
+
+	// Metadata options passthrough from spec
+	if nodeClass.Spec.MetadataOptions != nil {
+		mo := &types.InstanceMetadataOptionsRequest{}
+		if nodeClass.Spec.MetadataOptions.HTTPTokens != "" {
+			mo.HttpTokens = types.HttpTokensState(nodeClass.Spec.MetadataOptions.HTTPTokens)
 		}
+		if nodeClass.Spec.MetadataOptions.HTTPPutResponseHopLimit != nil {
+			mo.HttpPutResponseHopLimit = nodeClass.Spec.MetadataOptions.HTTPPutResponseHopLimit
+		}
+		if nodeClass.Spec.MetadataOptions.HTTPEndpoint != "" {
+			mo.HttpEndpoint = types.InstanceMetadataEndpointState(nodeClass.Spec.MetadataOptions.HTTPEndpoint)
+		}
+		input.MetadataOptions = mo
 	}
 
 	if nodeClass.Spec.UserData != "" {

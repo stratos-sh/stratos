@@ -17,9 +17,14 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"time"
+
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
+	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -31,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
+	"github.com/stratos-sh/stratos/internal/cloudprovider/aws"
 	"github.com/stratos-sh/stratos/internal/controller"
 	// Import metrics package to register metrics
 	_ "github.com/stratos-sh/stratos/internal/metrics"
@@ -116,6 +122,27 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodePool")
 		os.Exit(1)
+	}
+
+	// Register AWSNodeClass reconciler (only for AWS provider)
+	if cloudProvider == "aws" {
+		awsCfg, err := awsconfig.LoadDefaultConfig(context.Background())
+		if err != nil {
+			setupLog.Error(err, "unable to load AWS config for AWSNodeClass reconciler")
+			os.Exit(1)
+		}
+		ec2Client := ec2svc.NewFromConfig(awsCfg)
+		iamClient := iamsvc.NewFromConfig(awsCfg)
+		resolver := aws.NewAWSResolver(ec2Client, iamClient, aws.NewRateLimiter())
+
+		if err = (&aws.AWSNodeClassReconciler{
+			Client:      mgr.GetClient(),
+			Resolver:    resolver,
+			ClusterName: clusterName,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "AWSNodeClass")
+			os.Exit(1)
+		}
 	}
 
 	// Add health check endpoints
