@@ -52,6 +52,7 @@ tmp/
 
 # Docusaurus build artifacts
 .docusaurus
+docs/build/
 node_modules/
 
 .local/
