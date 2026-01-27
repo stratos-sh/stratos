@@ -1,8 +1,5 @@
-# Build stage - use BUILDPLATFORM to run natively (no QEMU emulation)
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
-
-ARG TARGETOS
-ARG TARGETARCH
+# Build stage
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /workspace
 
@@ -16,7 +13,9 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Cross-compile for the target platform (Go handles this natively with CGO_ENABLED=0)
+# Build the binary
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-w -s -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev) -X main.commit=$(git rev-parse HEAD 2>/dev/null || echo unknown) -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     -o stratos \
