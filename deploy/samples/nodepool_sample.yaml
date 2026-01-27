@@ -50,15 +50,15 @@ spec:
     cloudProvider:
       provider: aws
       aws:
-        region: us-east-1
+        region: <YOUR_AWS_REGION>
         instanceType: m5.large
-        ami: ami-0123456789abcdef0  # Replace with your AMI
+        ami: <YOUR_AMI_ID>
         subnetIds:
-          - subnet-12345678
-          - subnet-87654321
+          - <YOUR_SUBNET_ID_1>
+          - <YOUR_SUBNET_ID_2>
         securityGroupIds:
-          - sg-12345678
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/stratos-node
+          - <YOUR_SECURITY_GROUP_ID>
+        iamInstanceProfile: <YOUR_IAM_INSTANCE_PROFILE_ARN>
         # User data script that joins cluster and self-stops when ready
         userData: |
           #!/bin/bash
@@ -67,7 +67,7 @@ spec:
           # Register with startup taint to prevent pod scheduling until CNI is ready.
           # IMPORTANT: This taint MUST match the startupTaints field in the NodePool spec.
           # Stratos will remove this taint after verifying the CNI is ready.
-          /etc/eks/bootstrap.sh my-cluster \
+          /etc/eks/bootstrap.sh <YOUR_CLUSTER_NAME> \
             --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
 
           # Wait for kubelet to be healthy
@@ -134,19 +134,19 @@ spec:
     cloudProvider:
       provider: aws
       aws:
-        region: us-west-2
+        region: <YOUR_AWS_REGION>
         instanceType: c5.xlarge
-        ami: ami-0123456789abcdef0
+        ami: <YOUR_AMI_ID>
         subnetIds:
-          - subnet-abcdefgh
+          - <YOUR_SUBNET_ID>
         securityGroupIds:
-          - sg-abcdefgh
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/ci-runner
+          - <YOUR_SECURITY_GROUP_ID>
+        iamInstanceProfile: <YOUR_IAM_INSTANCE_PROFILE_ARN>
         userData: |
           #!/bin/bash
           set -e
           # Startup taint MUST match startupTaints in spec
-          /etc/eks/bootstrap.sh my-cluster \
+          /etc/eks/bootstrap.sh <YOUR_CLUSTER_NAME> \
             --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
           until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do sleep 5; done
           sleep 30
@@ -173,19 +173,19 @@ spec:
     cloudProvider:
       provider: aws
       aws:
-        region: us-west-2
+        region: <YOUR_AWS_REGION>
         instanceType: m5.large
-        ami: ami-0123456789abcdef0
+        ami: <YOUR_AMI_ID>
         subnetIds:
-          - subnet-abcdefgh
+          - <YOUR_SUBNET_ID>
         securityGroupIds:
-          - sg-abcdefgh
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/stratos-node
+          - <YOUR_SECURITY_GROUP_ID>
+        iamInstanceProfile: <YOUR_IAM_INSTANCE_PROFILE_ARN>
         userData: |
           #!/bin/bash
           set -e
           # Cilium removes this taint automatically when the agent is ready
-          /etc/eks/bootstrap.sh my-cluster \
+          /etc/eks/bootstrap.sh <YOUR_CLUSTER_NAME> \
             --kubelet-extra-args '--register-with-taints=node.cilium.io/agent-not-ready=true:NoSchedule'
           until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do sleep 5; done
           sleep 30

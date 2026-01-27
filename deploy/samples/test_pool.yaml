@@ -23,26 +23,26 @@ spec:
   template:
     cloudProvider:
       aws:
-        ami: ami-0123456789abcdef0
+        ami: <YOUR_AMI_ID>
         blockDeviceMappings:
         - deviceName: /dev/xvda
           encrypted: true
           volumeSize: 20
           volumeType: gp3
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/StratosNodeRole
+        iamInstanceProfile: <YOUR_IAM_INSTANCE_PROFILE_ARN>
         instanceType: m5.large
-        region: us-east-1
+        region: <YOUR_AWS_REGION>
         securityGroupIds:
-        - sg-0123456789abcdef0
+        - <YOUR_SECURITY_GROUP_ID>
         subnetIds:
-        - subnet-0123456789abcdef0
+        - <YOUR_SUBNET_ID>
         tags:
           Environment: test
         userData: |
           #!/bin/bash
           set -ex
 
-          /etc/eks/bootstrap.sh my-cluster \
+          /etc/eks/bootstrap.sh <YOUR_CLUSTER_NAME> \
             --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
 
           echo "DEBUG: bootstrap.sh completed, waiting for kubelet to be healthy..."
