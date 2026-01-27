@@ -144,7 +144,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= $(CONTROLLER_GEN_VERSION)
-GOLANGCI_LINT_VERSION ?= v1.55.2
+GOLANGCI_LINT_VERSION ?= v2.8.0
 ENVTEST_K8S_VERSION ?= 1.28.0
 
 .PHONY: controller-gen
@@ -157,7 +157,7 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary
 $(GOLANGCI_LINT): $(LOCALBIN)
 	@test -s $(LOCALBIN)/golangci-lint || \
-	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Downlo-ad envtest-setup locally if necessary
