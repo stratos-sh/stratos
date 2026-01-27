@@ -26,11 +26,12 @@ make vet                      # Run go vet
 
 # Code Generation (run after modifying api/v1alpha1/*.go)
 make generate                 # Generate deepcopy methods
-make manifests                # Generate CRD and RBAC manifests
+make manifests                # Generate CRD manifests
 
 # Deployment
 make install                  # Install CRDs to cluster
-make deploy                   # Deploy controller to cluster
+make deploy CLUSTER_NAME=main # Deploy controller via Helm
+make undeploy                 # Uninstall Helm release
 ```
 
 Run a single test:
@@ -62,10 +63,13 @@ internal/
 │   ├── aws/instance_types.go     # Instance type → capacity mapping
 │   └── fake/provider.go          # Mock provider for testing (with hooks)
 └── metrics/                  # Prometheus metrics
-config/
-├── crd/bases/                # Generated CRD manifests
-├── rbac/                     # Generated RBAC manifests
-└── samples/                  # Example NodePool resources
+deploy/
+├── charts/stratos/           # Helm chart
+│   ├── Chart.yaml                # Chart metadata and version
+│   ├── values.yaml               # Default configuration values
+│   ├── crds/                     # Generated CRD manifests
+│   └── templates/                # Kubernetes resource templates
+└── samples/                  # Example NodePool/AWSNodeClass resources
 ```
 
 **Key patterns:**
