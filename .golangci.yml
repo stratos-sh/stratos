@@ -24,16 +24,16 @@ linters:
         - shadow
         - nilness
 
+  exclusions:
+    paths:
+      - vendor
+      - testdata
+    rules:
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - errcheck
+          - gosec
+
 run:
   timeout: 5m
-
-issues:
-  exclude-dirs:
-    - vendor
-    - testdata
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - errcheck
-        - gosec
