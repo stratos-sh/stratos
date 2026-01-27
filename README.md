@@ -1,8 +1,22 @@
-# Stratos
+<p align="center">
+  <img src="https://stratos-sh.github.io/stratos/img/logo.png" alt="Stratos Logo" width="200">
+</p>
 
-**Eliminate cloud instance cold-start delays with pre-warmed, instantly-ready nodes.**
+<h1 align="center">Stratos</h1>
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+<p align="center">
+  <strong>Eliminate cloud instance cold-start delays with pre-warmed, instantly-ready nodes.</strong>
+</p>
+
+<p align="center">
+  <a href="https://stratos-sh.github.io/stratos/">Documentation</a> •
+  <a href="https://github.com/stratos-sh/stratos/issues">Issues</a> •
+  <a href="#quick-start">Quick Start</a>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"></a>
+</p>
 
 ## What is Stratos?
 
@@ -148,10 +162,12 @@ The controller watches for:
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) - Installation and first NodePool
-- [Architecture](docs/architecture.md) - System design and components
-- [Configuration](docs/configuration.md) - NodePool CRD and controller options
-- [Operations](docs/operations.md) - Monitoring, troubleshooting, best practices
+Full documentation is available at **[stratos-sh.github.io/stratos](https://stratos-sh.github.io/stratos/)**
+
+- [Getting Started](https://stratos-sh.github.io/stratos/getting-started/installation) - Installation and first NodePool
+- [Concepts](https://stratos-sh.github.io/stratos/concepts/architecture) - Architecture and node lifecycle
+- [Guides](https://stratos-sh.github.io/stratos/guides/aws-setup) - AWS setup, scaling policies, monitoring
+- [API Reference](https://stratos-sh.github.io/stratos/reference/api/nodepool) - NodePool and AWSNodeClass CRDs
 
 ### Running Docs Locally
 
@@ -161,7 +177,7 @@ npm install
 npm start
 ```
 
-The documentation site will be available at `http://localhost:3000`.
+The documentation site will be available at `http://localhost:3000/stratos/`.
 
 ## Development
 
