@@ -30,15 +30,29 @@ metadata:
 spec:
   region: <string>
   instanceType: <string>
+  # AMI: use one of ami or amiSelector
   ami: <string>
+  amiSelector: <AMISelector>
+  # Subnets: use one of subnetIds or subnetSelector
   subnetIds: <[]string>
+  subnetSelector: <SubnetSelector>
+  # Security groups: use one of securityGroupIds or securityGroupSelector
   securityGroupIds: <[]string>
+  securityGroupSelector: <SecurityGroupSelector>
+  # IAM: use one of iamInstanceProfile or role
   iamInstanceProfile: <string>
+  role: <string>
+  # IMDS configuration
+  metadataOptions: <MetadataOptions>
   userData: <string>
   blockDeviceMappings: <[]BlockDeviceMapping>
   tags: <map[string]string>
 status:
   nodePoolCount: <int32>
+  resolvedAMI: <string>
+  resolvedSubnets: <[]ResolvedSubnet>
+  resolvedSecurityGroups: <[]ResolvedSecurityGroup>
+  resolvedInstanceProfile: <string>
   conditions: <[]Condition>
 ```
 
@@ -49,19 +63,117 @@ status:
 | Field | Type | Description |
 |-------|------|-------------|
 | `instanceType` | string | EC2 instance type (e.g., `m5.large`, `c5.xlarge`, `m8g.large`). |
-| `ami` | string | Amazon Machine Image ID. Must match pattern `^ami-[a-z0-9]+$`. Use EKS-optimized AMIs for EKS clusters. |
-| `subnetIds` | []string | List of subnet IDs for instance placement. Instances are distributed round-robin across subnets for AZ distribution. Minimum 1 required. |
-| `securityGroupIds` | []string | List of security group IDs to attach to instances. Minimum 1 required. |
-| `iamInstanceProfile` | string | IAM instance profile ARN or name. The profile must have permissions to join the Kubernetes cluster. |
+
+### AMI Configuration (one required)
+
+Exactly one of `ami` or `amiSelector` must be specified. Setting both is rejected by CEL validation.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ami` | string | Static AMI ID. Must match pattern `^ami-[a-z0-9]+$`. |
+| `amiSelector` | [AMISelector](#amiselector) | Dynamic AMI selection by tags, name, and/or owner. The newest matching AMI is selected. |
+
+### Subnet Configuration (one required)
+
+Exactly one of `subnetIds` or `subnetSelector` must be specified.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `subnetIds` | []string | Static list of subnet IDs. Minimum 1. Instances are distributed round-robin. |
+| `subnetSelector` | [SubnetSelector](#subnetselector) | Dynamic subnet selection by tags. All matching subnets are used for round-robin placement. |
+
+### Security Group Configuration (one required)
+
+Exactly one of `securityGroupIds` or `securityGroupSelector` must be specified.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `securityGroupIds` | []string | Static list of security group IDs. Minimum 1. |
+| `securityGroupSelector` | [SecurityGroupSelector](#securitygroupselector) | Dynamic security group selection by tags and/or name. |
+
+### IAM Configuration (one required)
+
+Exactly one of `iamInstanceProfile` or `role` must be specified.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `iamInstanceProfile` | string | Static IAM instance profile ARN or name. |
+| `role` | string | IAM role name. The controller creates and manages an instance profile named `stratos-<cluster>-<name>` automatically. |
 
 ### Optional Fields
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `region` | string | Controller region | AWS region for launching instances (e.g., `us-east-1`). Defaults to the region where the controller is running. |
-| `userData` | string | - | User data script. For AL2/AL2023, this is a shell script. For Bottlerocket, this is TOML configuration. Not base64 encoded - Stratos handles encoding. |
-| `blockDeviceMappings` | []BlockDeviceMapping | - | EBS volume configuration. See Block Device Mapping below. |
-| `tags` | map[string]string | - | Additional tags to apply to instances. Stratos management tags (`managed-by`, `stratos.sh/pool`, etc.) are added automatically. |
+| `region` | string | Controller region | AWS region for launching instances (e.g., `us-east-1`). |
+| `metadataOptions` | [MetadataOptions](#metadataoptions) | EC2 defaults | IMDS configuration for launched instances. |
+| `userData` | string | - | User data script. For AL2/AL2023, a shell script. For Bottlerocket, TOML configuration. Not base64 encoded -- Stratos handles encoding. |
+| `blockDeviceMappings` | [][BlockDeviceMapping](#block-device-mapping) | - | EBS volume configuration. |
+| `tags` | map[string]string | - | Additional tags to apply to instances. Stratos management tags are added automatically. |
+
+### AMISelector
+
+Selects an AMI dynamically. All specified fields use AND semantics. When multiple AMIs match, the most recently created one is selected.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tags` | map[string]string | No | Tag key-value pairs to match (AND semantics). |
+| `name` | string | No | AMI name pattern. Supports wildcards (e.g., `my-eks-ami-*`). |
+| `owner` | string | No | Owner account ID or alias (`self`, `amazon`). |
+
+```yaml title="Example"
+amiSelector:
+  name: "my-eks-ami-*"
+  owner: self
+  tags:
+    kubernetes.io/os: linux
+```
+
+### SubnetSelector
+
+Selects subnets dynamically by tags.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tags` | map[string]string | No | Tag key-value pairs to match (AND semantics). |
+
+```yaml title="Example"
+subnetSelector:
+  tags:
+    stratos.sh/discovery: my-cluster
+```
+
+### SecurityGroupSelector
+
+Selects security groups dynamically by tags and/or name.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tags` | map[string]string | No | Tag key-value pairs to match (AND semantics). |
+| `name` | string | No | Security group name pattern. Supports wildcards (e.g., `stratos-nodes-*`). |
+
+```yaml title="Example"
+securityGroupSelector:
+  tags:
+    stratos.sh/discovery: my-cluster
+  name: "stratos-*"
+```
+
+### MetadataOptions
+
+Controls the Instance Metadata Service (IMDS) configuration for launched instances. Maps directly to EC2 `InstanceMetadataOptionsRequest`.
+
+| Field | Type | Required | Validation | Description |
+|-------|------|----------|------------|-------------|
+| `httpTokens` | string | No | `required` or `optional` | `required` enforces IMDSv2; `optional` allows both v1 and v2. |
+| `httpPutResponseHopLimit` | *int32 | No | 1--64 | HTTP PUT response hop limit for IMDS token requests. Set to 2 for containerized workloads. |
+| `httpEndpoint` | string | No | `enabled` or `disabled` | Controls whether the IMDS endpoint is available. |
+
+```yaml title="Example: Enforce IMDSv2"
+metadataOptions:
+  httpTokens: required
+  httpPutResponseHopLimit: 2
+  httpEndpoint: enabled
+```
 
 ### Block Device Mapping
 
@@ -76,19 +188,72 @@ status:
 
 ## Status Fields
 
-The AWSNodeClass status is updated by the controller:
+The AWSNodeClass status is updated by the controller. When selectors are used, the resolved values are populated after successful resolution.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `nodePoolCount` | int32 | Number of NodePools currently referencing this AWSNodeClass. |
-| `conditions` | []Condition | Current conditions (Valid, InUse). |
+| `resolvedAMI` | string | The resolved AMI ID (from selector or static field). |
+| `resolvedSubnets` | [][ResolvedSubnet](#resolvedsubnet) | Resolved subnets with IDs and availability zones. |
+| `resolvedSecurityGroups` | [][ResolvedSecurityGroup](#resolvedsecuritygroup) | Resolved security groups with IDs and names. |
+| `resolvedInstanceProfile` | string | The resolved instance profile ARN. |
+| `conditions` | []Condition | Current conditions (see below). |
+
+### ResolvedSubnet
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Subnet ID (e.g., `subnet-12345678`). |
+| `zone` | string | Availability zone (e.g., `us-east-1a`). Empty for static subnet IDs. |
+
+### ResolvedSecurityGroup
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Security group ID (e.g., `sg-12345678`). |
+| `name` | string | Security group name. Empty for static security group IDs. |
 
 ### Conditions
 
 | Condition | Description |
 |-----------|-------------|
-| `Valid` | The AWSNodeClass spec is valid (AMI exists, networking configured correctly). |
+| `Valid` | The AWSNodeClass spec is valid. |
 | `InUse` | The AWSNodeClass is referenced by one or more NodePools. |
+| `AMIReady` | The AMI has been resolved successfully. |
+| `SubnetsReady` | Subnets have been resolved successfully. |
+| `SecurityGroupsReady` | Security groups have been resolved successfully. |
+| `InstanceProfileReady` | The instance profile is ready (static or controller-managed). |
+
+#### Condition Reasons
+
+| Reason | Applies To | Description |
+|--------|-----------|-------------|
+| `Resolved` | AMI, Subnets, SGs, InstanceProfile | Resource successfully resolved. |
+| `ResolutionFailed` | AMI, Subnets, SGs, InstanceProfile | AWS API call failed. |
+| `NoMatchingResources` | AMI, Subnets, SGs | No resources matched the selector. |
+| `RoleNotFound` | InstanceProfile | The IAM role does not exist. |
+| `RoleUpdateFailed` | InstanceProfile | Failed to update the role on the instance profile. |
+
+:::note
+The NodePool controller checks all four readiness conditions before launching instances. If any condition is `False`, the NodePool is set to `Ready=False` with reason `NodeClassNotReady`.
+:::
+
+## Validation Rules
+
+The CRD uses CEL (Common Expression Language) validation to enforce mutual exclusivity:
+
+| Rule | Error Message |
+|------|---------------|
+| `ami` or `amiSelector` must be set | "one of ami or amiSelector is required" |
+| `ami` and `amiSelector` cannot both be set | "ami and amiSelector are mutually exclusive" |
+| `subnetIds` or `subnetSelector` must be set | "one of subnetIds or subnetSelector is required" |
+| `subnetIds` and `subnetSelector` cannot both be set | "subnetIds and subnetSelector are mutually exclusive" |
+| `securityGroupIds` or `securityGroupSelector` must be set | "one of securityGroupIds or securityGroupSelector is required" |
+| `securityGroupIds` and `securityGroupSelector` cannot both be set | "securityGroupIds and securityGroupSelector are mutually exclusive" |
+| `iamInstanceProfile` or `role` must be set | "one of iamInstanceProfile or role is required" |
+| `iamInstanceProfile` and `role` cannot both be set | "role and iamInstanceProfile are mutually exclusive" |
+
+These validations run at admission time, providing immediate feedback when applying manifests.
 
 ## Lifecycle Management
 
@@ -97,7 +262,7 @@ The AWSNodeClass status is updated by the controller:
 AWSNodeClass uses a finalizer (`stratos.sh/in-use`) to prevent deletion while referenced by NodePools. You must delete all referencing NodePools before deleting an AWSNodeClass.
 
 ```bash
-# This will fail if NodePools reference it
+# This will block if NodePools reference it
 kubectl delete awsnodeclass my-nodeclass
 
 # Check which NodePools reference it
@@ -107,6 +272,17 @@ kubectl get nodepools -o json | jq '.items[] | select(.spec.template.nodeClassRe
 kubectl delete nodepool my-pool
 kubectl delete awsnodeclass my-nodeclass
 ```
+
+### Instance Profile Cleanup
+
+When using `spec.role`, the controller adds a second finalizer (`stratos.sh/instance-profile`). On deletion, the controller:
+
+1. Waits for the `stratos.sh/in-use` finalizer to be removed (all NodePools deleted)
+2. Removes the role from the instance profile
+3. Deletes the instance profile
+4. Removes the `stratos.sh/instance-profile` finalizer
+
+This ordering ensures no NodePools are launching with the profile while it is being deleted.
 
 ### Reference from NodePool
 
@@ -123,119 +299,128 @@ spec:
   template:
     nodeClassRef:
       kind: AWSNodeClass
-      name: standard-nodes  # References AWSNodeClass by name
+      name: standard-nodes
     labels:
       stratos.sh/pool: workers
 ```
 
 ## Examples
 
-### Amazon Linux 2023 (AL2023)
+### Static IDs (Original Pattern)
 
-```yaml title="awsnodeclass-al2023.yaml"
+```yaml title="awsnodeclass-static.yaml"
 apiVersion: stratos.sh/v1alpha1
 kind: AWSNodeClass
 metadata:
-  name: al2023-standard
+  name: static-nodes
 spec:
-  region: us-east-1
-  instanceType: m8g.large  # ARM64 for AL2023 ARM64 AMI
-
-  # AL2023 ARM64 AMI (EKS 1.34)
-  # aws ssm get-parameter --name /aws/service/eks/optimized-ami/1.34/amazon-linux-2023/arm64/standard/recommended/image_id
-  ami: ami-00171c2155dff951e
-
+  instanceType: m5.large
+  ami: ami-0123456789abcdef0
   subnetIds:
     - subnet-12345678
     - subnet-87654321
   securityGroupIds:
     - sg-12345678
   iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
+```
+
+### Dynamic Selectors
+
+```yaml title="awsnodeclass-selectors.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: dynamic-nodes
+spec:
+  instanceType: m5.large
+
+  amiSelector:
+    name: "my-eks-ami-*"
+    owner: self
+    tags:
+      kubernetes.io/os: linux
+
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  role: my-eks-node-role
+
+  metadataOptions:
+    httpTokens: required
+    httpPutResponseHopLimit: 2
 
   blockDeviceMappings:
     - deviceName: /dev/xvda
       volumeSize: 20
       volumeType: gp3
       encrypted: true
-
-  tags:
-    Environment: production
-    OS: al2023
-    Architecture: arm64
-
-  # AL2023 uses nodeadm with MIME multipart user data
-  userData: |
-    MIME-Version: 1.0
-    Content-Type: multipart/mixed; boundary="BOUNDARY"
-
-    --BOUNDARY
-    Content-Type: application/node.eks.aws
-
-    ---
-    apiVersion: node.eks.aws/v1alpha1
-    kind: NodeConfig
-    spec:
-      cluster:
-        name: my-cluster
-        apiServerEndpoint: https://ABCDEF.gr7.us-east-1.eks.amazonaws.com
-        certificateAuthority: LS0tLS1CRUdJTi...
-        cidr: 10.100.0.0/16
-      kubelet:
-        flags:
-          - --register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule
-
-    --BOUNDARY
-    Content-Type: text/x-shellscript; charset="us-ascii"
-
-    #!/bin/bash
-    # Wait for kubelet, then poweroff for Stratos standby
-    (
-      until curl -sf http://localhost:10248/healthz; do sleep 5; done
-      sleep 30
-      poweroff
-    ) &> /var/log/stratos-warmup.log &
-
-    --BOUNDARY--
 ```
 
-### Bottlerocket
+### Mixed (Static AMI, Dynamic Networking)
 
-```yaml title="awsnodeclass-bottlerocket.yaml"
+```yaml title="awsnodeclass-mixed.yaml"
 apiVersion: stratos.sh/v1alpha1
 kind: AWSNodeClass
 metadata:
-  name: bottlerocket-standard
+  name: mixed-nodes
 spec:
-  region: us-east-1
+  instanceType: m5.large
+  ami: ami-0123456789abcdef0
+
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
+```
+
+### Bottlerocket with Selectors
+
+```yaml title="awsnodeclass-bottlerocket-selectors.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: bottlerocket-dynamic
+spec:
   instanceType: m5.large
 
-  # Bottlerocket x86_64 AMI (EKS 1.34)
-  # aws ssm get-parameter --name /aws/service/bottlerocket/aws-k8s-1.34/x86_64/latest/image_id
-  ami: ami-02471ee0da5a34d1e
+  amiSelector:
+    name: "bottlerocket-aws-k8s-*-x86_64-*"
+    owner: amazon
 
-  subnetIds:
-    - subnet-12345678
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
 
-  # Bottlerocket has two volumes: root (small) and data
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  role: my-eks-node-role
+
+  metadataOptions:
+    httpTokens: required
+    httpPutResponseHopLimit: 2
+
   blockDeviceMappings:
-    - deviceName: /dev/xvda  # Root volume (OS)
+    - deviceName: /dev/xvda
       volumeSize: 8
       volumeType: gp3
       encrypted: true
-    - deviceName: /dev/xvdb  # Data volume (containers, images)
+    - deviceName: /dev/xvdb
       volumeSize: 20
       volumeType: gp3
       encrypted: true
 
-  tags:
-    Environment: production
-    OS: bottlerocket
-
-  # Bottlerocket TOML configuration
-  # No shutdown script - use ControllerStop mode in NodePool
   userData: |
     [settings.kubernetes]
     cluster-name = "my-cluster"
@@ -247,57 +432,6 @@ spec:
 
     [settings.kubernetes.node-labels]
     "stratos.sh/pool" = "bottlerocket-workers"
-```
-
-### Minimal Configuration
-
-```yaml title="awsnodeclass-minimal.yaml"
-apiVersion: stratos.sh/v1alpha1
-kind: AWSNodeClass
-metadata:
-  name: minimal
-spec:
-  instanceType: m5.large
-  ami: ami-0123456789abcdef0
-  subnetIds:
-    - subnet-12345678
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
-```
-
-### High-Performance Configuration
-
-```yaml title="awsnodeclass-performance.yaml"
-apiVersion: stratos.sh/v1alpha1
-kind: AWSNodeClass
-metadata:
-  name: high-performance
-spec:
-  region: us-east-1
-  instanceType: c5.4xlarge
-  ami: ami-0123456789abcdef0
-
-  subnetIds:
-    - subnet-12345678
-    - subnet-87654321
-    - subnet-abcdefgh
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
-
-  blockDeviceMappings:
-    - deviceName: /dev/xvda
-      volumeSize: 100
-      volumeType: gp3
-      encrypted: true
-      iops: 6000
-      throughput: 500
-
-  tags:
-    Environment: production
-    Tier: compute
-    CostCenter: engineering
 ```
 
 ## Finding AMI IDs
@@ -342,85 +476,25 @@ kubectl get awsnodeclasses
 # Short name
 kubectl get awsnc
 
-# Get detailed status
-kubectl describe awsnodeclass al2023-standard
+# Get detailed status including resolved resources
+kubectl describe awsnodeclass dynamic-nodes
 
-# Get YAML output
-kubectl get awsnodeclass al2023-standard -o yaml
+# Get YAML output to see resolved status
+kubectl get awsnodeclass dynamic-nodes -o yaml
 
 # Check which NodePools reference an AWSNodeClass
 kubectl get nodepools -o custom-columns='NAME:.metadata.name,NODECLASS:.spec.template.nodeClassRef.name'
+
+# Check resolved AMI
+kubectl get awsnodeclass dynamic-nodes -o jsonpath='{.status.resolvedAMI}'
+
+# Check all conditions
+kubectl get awsnodeclass dynamic-nodes -o jsonpath='{.status.conditions[*].type}={.status.conditions[*].status}'
 ```
-
-## Migration from Inline CloudProvider
-
-If you have existing NodePools using the inline `cloudProvider` configuration, migrate to AWSNodeClass:
-
-### Before (Inline Configuration)
-
-```yaml
-# OLD FORMAT - No longer supported
-apiVersion: stratos.sh/v1alpha1
-kind: NodePool
-metadata:
-  name: workers
-spec:
-  poolSize: 10
-  minStandby: 3
-  template:
-    labels:
-      stratos.sh/pool: workers
-    cloudProvider:           # Inline configuration
-      provider: aws
-      aws:
-        instanceType: m5.large
-        ami: ami-0123456789abcdef0
-        subnetIds:
-          - subnet-12345678
-        securityGroupIds:
-          - sg-12345678
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
-```
-
-### After (AWSNodeClass Reference)
-
-```yaml
-# Step 1: Create the AWSNodeClass
-apiVersion: stratos.sh/v1alpha1
-kind: AWSNodeClass
-metadata:
-  name: standard-nodes
-spec:
-  instanceType: m5.large
-  ami: ami-0123456789abcdef0
-  subnetIds:
-    - subnet-12345678
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
----
-# Step 2: Update NodePool to reference AWSNodeClass
-apiVersion: stratos.sh/v1alpha1
-kind: NodePool
-metadata:
-  name: workers
-spec:
-  poolSize: 10
-  minStandby: 3
-  template:
-    nodeClassRef:            # Reference to AWSNodeClass
-      kind: AWSNodeClass
-      name: standard-nodes
-    labels:
-      stratos.sh/pool: workers
-```
-
-:::warning Breaking Change
-The inline `cloudProvider` configuration is no longer supported. You must migrate to the AWSNodeClass pattern. Since Stratos is in v1alpha1, breaking changes are expected.
-:::
 
 ## Next Steps
 
-- [NodePool API Reference](./nodepool.md) - NodePool configuration
-- [AWS Setup](../../guides/aws-setup.md) - AWS prerequisites and IAM configuration
-- [Bottlerocket Setup](../../guides/bottlerocket.md) - Using AWSNodeClass with Bottlerocket
+- [Dynamic Resource Selectors Guide](../../guides/dynamic-resource-selectors.md) -- Step-by-step guide with examples and tagging patterns
+- [NodePool API Reference](./nodepool.md) -- NodePool configuration
+- [AWS Setup](../../guides/aws-setup.md) -- AWS prerequisites and IAM configuration
+- [Bottlerocket Setup](../../guides/bottlerocket.md) -- Using AWSNodeClass with Bottlerocket

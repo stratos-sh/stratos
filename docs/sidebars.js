@@ -40,6 +40,7 @@ const sidebars = {
       items: [
         'guides/use-cases',
         'guides/aws-setup',
+        'guides/dynamic-resource-selectors',
         'guides/bottlerocket',
         'guides/scaling-policies',
         'guides/monitoring',
