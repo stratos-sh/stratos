@@ -39,15 +39,15 @@ For time-sensitive workloads like CI/CD pipelines, autoscaling events, or burst 
 Stratos maintains a pool of pre-warmed, stopped instances using a four-phase lifecycle:
 
 ```
-warmup --> standby --> running --> terminating
-                ^                       |
-                |_______________________|
+warmup --> standby --> running --> stopping
+                ^                     |
+                |_____________________|
 ```
 
 1. **Warmup** - Stratos launches instances that run initialization scripts (join cluster, pull images, configure networking) and self-stop when ready
 2. **Standby** - Stopped instances wait in the pool, costing only storage (no compute charges)
 3. **Running** - When pods are pending, Stratos instantly starts standby nodes (seconds, not minutes)
-4. **Terminating** - Empty nodes are drained and returned to standby for reuse
+4. **Stopping** - Empty nodes are drained and returned to standby for reuse
 
 ## Key Features
 
