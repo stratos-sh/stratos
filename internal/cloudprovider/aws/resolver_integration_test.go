@@ -58,7 +58,7 @@ func TestMain(m *testing.M) {
 	}
 	defer container.Terminate(ctx) //nolint:errcheck
 
-	endpoint, err := container.ConnectionString(ctx)
+	endpoint, err := container.Endpoint(ctx, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get endpoint: %v\n", err)
 		os.Exit(1)
