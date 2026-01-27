@@ -124,7 +124,7 @@ eksctl utils associate-iam-oidc-provider \
 eksctl create iamserviceaccount \
   --cluster=your-cluster \
   --namespace=stratos-system \
-  --name=stratos-controller \
+  --name=stratos \
   --role-name=stratos-controller-role \
   --attach-policy-arn=arn:aws:iam::YOUR_ACCOUNT:policy/stratos-controller-policy \
   --approve
@@ -133,7 +133,7 @@ eksctl create iamserviceaccount \
 ### Step 3: Verify Configuration
 
 ```bash
-kubectl -n stratos-system get serviceaccount stratos-controller -o yaml
+kubectl -n stratos-system get serviceaccount stratos -o yaml
 ```
 
 You should see the IAM role annotation:
@@ -430,7 +430,7 @@ kubectl describe nodepool test
 Check controller logs:
 
 ```bash
-kubectl -n stratos-system logs deployment/stratos-controller
+kubectl -n stratos-system logs deployment/stratos
 ```
 
 Check if AWSNodeClass is found:
@@ -454,7 +454,7 @@ Common issues:
 
 ## Next Steps
 
-- [First NodePool](../getting-started/first-nodepool.md) - Create your first NodePool
+- [Quickstart](../getting-started/quickstart.md) - Create your first NodePool
 - [AWSNodeClass Reference](../reference/api/awsnodeclass.md) - Complete API reference
 - [Bottlerocket Setup](./bottlerocket.md) - Using Bottlerocket with Stratos
 - [Monitoring](./monitoring.md) - Set up monitoring and alerts

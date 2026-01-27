@@ -10,7 +10,7 @@ This guide covers how to run Stratos locally for development and testing.
 
 ## Prerequisites
 
-- Go 1.21 or later
+- Go 1.25 or later
 - kubectl configured with a Kubernetes cluster
 - AWS credentials (for AWS provider) or use fake provider
 
@@ -117,7 +117,7 @@ go run ./cmd/stratos/main.go --cluster-name=dev --cloud-provider=fake
 ### 5. Test with a NodePool
 
 ```bash
-kubectl apply -f config/samples/nodepool_sample.yaml
+kubectl apply -f deploy/samples/nodepool_sample.yaml
 ```
 
 ### 6. Observe Behavior
@@ -212,7 +212,24 @@ go test -v -tags=integration -run TestNodePoolLifecycle ./tests/integration/...
 
 ### Manual Testing
 
-1. Create a test NodePool:
+1. Create a test AWSNodeClass and NodePool:
+   ```yaml title="test-nodeclass.yaml"
+   apiVersion: stratos.sh/v1alpha1
+   kind: AWSNodeClass
+   metadata:
+     name: test
+   spec:
+     instanceType: t3.small
+     ami: ami-0123456789abcdef0
+     subnetIds: ["subnet-12345678"]
+     securityGroupIds: ["sg-12345678"]
+     iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/test
+     userData: |
+       #!/bin/bash
+       echo "test"
+       poweroff
+   ```
+
    ```yaml title="test-pool.yaml"
    apiVersion: stratos.sh/v1alpha1
    kind: NodePool
@@ -222,24 +239,16 @@ go test -v -tags=integration -run TestNodePoolLifecycle ./tests/integration/...
      poolSize: 3
      minStandby: 1
      template:
+       nodeClassRef:
+         kind: AWSNodeClass
+         name: test
        labels:
          stratos.sh/pool: test
-       cloudProvider:
-         provider: aws  # or fake
-         aws:
-           instanceType: t3.small
-           ami: ami-0123456789abcdef0
-           subnetIds: ["subnet-12345678"]
-           securityGroupIds: ["sg-12345678"]
-           iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/test
-           userData: |
-             #!/bin/bash
-             echo "test"
-             poweroff
    ```
 
 2. Apply and observe:
    ```bash
+   kubectl apply -f test-nodeclass.yaml
    kubectl apply -f test-pool.yaml
    kubectl get nodepools -w
    ```
@@ -247,6 +256,7 @@ go test -v -tags=integration -run TestNodePoolLifecycle ./tests/integration/...
 3. Clean up:
    ```bash
    kubectl delete nodepool test
+   kubectl delete awsnodeclass test
    ```
 
 ## Environment Setup

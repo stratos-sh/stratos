@@ -297,7 +297,7 @@ If nodes remain in warmup state:
 
 3. **Check controller logs**:
    ```bash
-   kubectl logs -n stratos-system deployment/stratos-controller | grep "ControllerStop"
+   kubectl logs -n stratos-system deployment/stratos | grep "ControllerStop"
    ```
 
 4. **Check if AWSNodeClass exists**:

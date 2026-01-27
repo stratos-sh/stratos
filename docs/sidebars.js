@@ -14,7 +14,7 @@ const sidebars = {
       items: [
         'getting-started/installation',
         'getting-started/configuration',
-        'getting-started/first-nodepool',
+        'getting-started/quickstart',
       ],
     },
     {
@@ -38,6 +38,7 @@ const sidebars = {
         description: 'Step-by-step guides for common tasks.',
       },
       items: [
+        'guides/use-cases',
         'guides/aws-setup',
         'guides/bottlerocket',
         'guides/scaling-policies',

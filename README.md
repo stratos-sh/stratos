@@ -63,70 +63,69 @@ warmup --> standby --> running --> terminating
 ### Prerequisites
 
 - Kubernetes cluster (1.26+)
+- [Helm](https://helm.sh/docs/intro/install/) 3.x
 - AWS credentials configured (for EC2 operations)
-- kubectl and kustomize installed
 
 ### Installation
 
-1. **Install CRDs:**
-   ```bash
-   kubectl apply -k config/crd
-   ```
+```bash
+helm install stratos oci://ghcr.io/stratos-sh/charts/stratos \
+  --namespace stratos-system --create-namespace \
+  --set clusterName=my-cluster
+```
 
-2. **Deploy the controller:**
-   ```bash
-   kubectl apply -k config/default
-   ```
+### Create Resources
 
-3. **Create an AWSNodeClass** (cloud-specific configuration):
-   ```yaml
-   apiVersion: stratos.sh/v1alpha1
-   kind: AWSNodeClass
-   metadata:
-     name: workers
-   spec:
-     region: us-east-1
-     instanceType: m5.large
-     ami: ami-0123456789abcdef0
-     subnetIds:
-       - subnet-12345678
-     securityGroupIds:
-       - sg-12345678
-     iamInstanceProfile: arn:aws:iam::123456789:instance-profile/node-role
-     userData: |
-       #!/bin/bash
-       /etc/eks/bootstrap.sh my-cluster \
-         --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-       until curl -sf http://localhost:10248/healthz; do sleep 5; done
-       sleep 30
-       poweroff
-   ```
+**AWSNodeClass** (cloud-specific configuration):
 
-4. **Create a NodePool** (references the AWSNodeClass):
-   ```yaml
-   apiVersion: stratos.sh/v1alpha1
-   kind: NodePool
-   metadata:
-     name: workers
-   spec:
-     poolSize: 10
-     minStandby: 3
-     template:
-       labels:
-         stratos.sh/pool: workers
-       startupTaints:
-         - key: node.eks.amazonaws.com/not-ready
-           value: "true"
-           effect: NoSchedule
-       nodeClassRef:
-         kind: AWSNodeClass
-         name: workers
-   ```
+```yaml
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: workers
+spec:
+  region: us-east-1
+  instanceType: m5.large
+  ami: ami-0123456789abcdef0
+  subnetIds: ["subnet-12345678"]
+  securityGroupIds: ["sg-12345678"]
+  iamInstanceProfile: arn:aws:iam::123456789:instance-profile/node-role
+  userData: |
+    #!/bin/bash
+    /etc/eks/bootstrap.sh my-cluster \
+      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
+    until curl -sf http://localhost:10248/healthz; do sleep 5; done
+    sleep 30
+    poweroff
+```
 
-5. **Verify the pool:**
-   ```bash
-   kubectl get awsnodeclasses,nodepools
-   ```
+**NodePool** (references the AWSNodeClass):
+
+```yaml
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: workers
+spec:
+  poolSize: 10
+  minStandby: 3
+  template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: workers
+    labels:
+      stratos.sh/pool: workers
+    startupTaints:
+      - key: node.eks.amazonaws.com/not-ready
+        value: "true"
+        effect: NoSchedule
+```
+
+**Verify:**
+
+```bash
+kubectl get awsnodeclasses,nodepools
+```
 
 ## Architecture Overview
 
@@ -151,20 +150,25 @@ The controller watches for:
 - **Pending pods** - Trigger scale-up when pods can't be scheduled
 - **Node state changes** - Track node lifecycle and health
 
-## Example Use Cases
+## Use Cases
 
-| Use Case | Problem | Stratos Solution |
-|----------|---------|------------------|
-| **CI/CD Pipelines** | Runners queued waiting for capacity | Instant runners, zero queue time |
-| **Kubernetes Autoscaling** | 3-5 min delay for new nodes | Sub-minute node availability |
-| **Batch Processing** | Cold start delays compound | Pre-warmed workers ready instantly |
-| **ML Inference** | Model loading takes minutes | Models pre-loaded, serve immediately |
+### CI/CD Pipelines
+
+Traditional autoscalers don't just make you wait for a node to boot — they give you a completely cold environment. Every pipeline run pulls all DaemonSet images from scratch, then pulls the CI agent image, and every `docker build` or `npm install` starts with an empty cache. Stratos nodes come pre-warmed with all DaemonSet images already pulled, and since nodes are reused (stopped and restarted rather than terminated), build caches, Docker layer caches, and package manager caches persist across runs. Your second pipeline run is dramatically faster than the first.
+
+### LLM / AI Model Serving
+
+Large model images (often 10-50GB+) make cold starts painfully slow. Downloading a model, loading it into GPU memory, and running health checks can take 10+ minutes before the first request is served. With Stratos, the model image is pre-pulled during the warmup phase and persists on the node's EBS volume. When demand spikes, a standby node starts in seconds with the model image already on disk — cutting startup time from minutes to seconds.
+
+### Scale-to-Zero Applications
+
+Stratos's ~20-second pending-to-running time (when properly configured) makes true scale-to-zero viable for latency-sensitive services. Pair a simple ingress doorman with a 30-second timeout: when a request arrives at a scaled-down service, the doorman holds the connection while Stratos starts a standby node, and the request completes within the timeout window. No idle compute costs, no cold-start frustration.
 
 ## Documentation
 
 Full documentation is available at **[stratos-sh.github.io/stratos](https://stratos-sh.github.io/stratos/)**
 
-- [Getting Started](https://stratos-sh.github.io/stratos/getting-started/installation) - Installation and first NodePool
+- [Getting Started](https://stratos-sh.github.io/stratos/getting-started/installation) - Installation and quickstart
 - [Concepts](https://stratos-sh.github.io/stratos/concepts/architecture) - Architecture and node lifecycle
 - [Guides](https://stratos-sh.github.io/stratos/guides/aws-setup) - AWS setup, scaling policies, monitoring
 - [API Reference](https://stratos-sh.github.io/stratos/reference/api/nodepool) - NodePool and AWSNodeClass CRDs

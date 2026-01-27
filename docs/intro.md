@@ -1,98 +1,107 @@
 ---
 sidebar_position: 1
 title: Introduction
-description: Stratos is a Kubernetes operator that eliminates cloud instance cold-start delays by maintaining pools of pre-warmed, stopped instances.
+description: Stratos is a Kubernetes operator that eliminates cloud instance cold-start delays by maintaining pools of pre-warmed, reusable nodes.
 slug: /
 ---
 
 # Stratos
 
-Stratos is a Kubernetes operator that eliminates cloud instance cold-start delays by maintaining pools of pre-warmed, stopped instances ready to start in seconds.
+Stratos is a Kubernetes operator that maintains pools of pre-warmed, reusable Kubernetes nodes. Nodes are launched once, fully initialized, then stopped and restarted on demand — giving you instant capacity with warm caches, pre-pulled images, and zero cold-start overhead.
 
 ## The Problem
 
-When Kubernetes needs more capacity, even modern autoscalers face fundamental latency constraints:
+When Kubernetes needs more capacity, every existing autoscaler gives you a **brand new machine**. That means:
 
-### Traditional Cluster Autoscaler
+1. **Provisioning** — Wait for the cloud provider to allocate and launch an instance
+2. **Booting** — OS initialization, kubelet startup, cluster join
+3. **Networking** — CNI plugin initialization, IP allocation
+4. **Image pulls** — Every DaemonSet image downloaded from scratch
+5. **Application startup** — Your workload's images pulled, caches empty, no local state
 
-1. Pod becomes pending (unschedulable)
-2. Cluster Autoscaler detects pending pod
-3. Cloud provider launches new instance (2-5 minutes)
-4. Instance boots and joins cluster (1-2 minutes)
-5. CNI initializes networking (30-60 seconds)
-6. Pod finally schedules
-
-**Total time: 3-8 minutes**
-
-### Karpenter
-
-Karpenter improves on Cluster Autoscaler with direct cloud API integration and faster decision-making:
-
-1. Pod becomes pending
-2. Karpenter provisions instance directly via cloud API
-3. Instance launches, boots, joins cluster
-4. CNI initializes
-5. Pod schedules
-
-**Total time: ~40-50 seconds** - a major improvement, but still limited by cold-start fundamentals.
-
-### The Root Cause
-
-Both approaches share the same bottleneck: they provision instances on-demand. Every scale-up must wait for:
-
-- Instance launch and boot
-- OS initialization
-- Kubelet startup and cluster join
-- CNI initialization
-- DaemonSet pod startup
-
-No matter how fast the autoscaler's decision-making, these cold-start steps take time.
+Cluster Autoscaler takes 3-8 minutes. Karpenter brought this down to ~40-50 seconds. But even at Karpenter speed, you still get a **cold node every time** — empty caches, no pre-pulled images, no local state. For workloads like CI/CD pipelines, LLM inference, or bursty applications, the cold environment is just as painful as the wait.
 
 ## The Solution
 
-Stratos eliminates cold-start delays by doing the work ahead of time. Instead of provisioning on-demand, Stratos maintains a pool of pre-warmed instances in a stopped state:
+Stratos takes a fundamentally different approach: **nodes are initialized once and reused**.
 
-1. **Pre-warming**: Instances launch, join the cluster, initialize CNI, pre-pull DaemonSet images, then self-stop
-2. **Standby**: Stopped instances cost only EBS storage, ready for instant start
-3. **Scale-up**: When pods are pending, Stratos starts standby instances in ~20-25 seconds
-4. **Scale-down**: Empty nodes are drained and returned to standby
+1. **Warmup** — Stratos launches instances that join the cluster, initialize CNI, pull all DaemonSet images, run any custom setup, then self-stop
+2. **Standby** — Stopped instances sit in a pool, costing only EBS storage. The disk retains everything: images, caches, local state
+3. **Scale-up** — When pods are pending, Stratos starts a standby instance. Since the node is already initialized, it's ready in ~20 seconds
+4. **Scale-down** — Empty nodes are drained and stopped (not terminated), returning to standby with all their state intact
 
-**Result: Scale-up in ~20-25 seconds - roughly half the time of Karpenter.**
+The key insight: **Stratos stops and starts nodes instead of terminating and recreating them.** This means every scale-up benefits from everything the node has accumulated — Docker layer caches, package manager caches, pre-pulled images, downloaded models, and any other local state.
 
-### Why Stratos is Faster
+### Not Just Faster Boot — Faster Everything
 
-| Step | Karpenter | Stratos |
-|------|-----------|---------|
-| Instance launch | Must wait | Already done |
-| OS boot | Must wait | Already done |
-| Kubelet startup | Must wait | Already done |
-| CNI initialization | Must wait | Already done |
-| DaemonSet pods | Must pull images | Images pre-pulled |
-| **Instance start** | N/A | ~15-20 seconds |
-| **Node ready** | N/A | ~5 seconds |
+Traditional autoscalers measure success by "time to node ready." Stratos is faster there too (~20 seconds vs ~40-50 seconds). But the real advantage is what happens after the node is ready:
 
-The only work remaining at scale-up time is starting an already-initialized instance.
+| | Traditional Autoscaler | Stratos |
+|---|---|---|
+| **Node provisioning** | Launch new instance every time | Start existing instance (~20s) |
+| **DaemonSet images** | Pull from registry every time | Already on disk |
+| **Application images** | Pull from registry every time | Already on disk (if previously run) |
+| **Docker build cache** | Empty | Warm from previous runs |
+| **Package manager cache** | Empty (`npm install` from scratch) | Warm (`node_modules` cached) |
+| **Model weights** | Download every time (10+ min for LLMs) | Already on disk |
+| **OS/system caches** | Cold | Warm |
+
+A Karpenter node is ready in ~40 seconds, then your CI pipeline spends another 5 minutes pulling images and rebuilding dependencies. A Stratos node is ready in ~20 seconds, and your pipeline starts with warm caches from the last run.
+
+## Use Cases
+
+### CI/CD Pipelines
+CI agents on Kubernetes typically get a fresh node with empty caches. Every `docker build`, `npm install`, or `go mod download` starts from scratch. Stratos nodes retain build caches across runs — your second pipeline is dramatically faster than the first, and every run after that benefits from the warm cache.
+
+### LLM / AI Model Serving
+Model images are often 10-50GB+. Downloading them on every scale-up makes autoscaling impractical. With Stratos, the model image is pre-pulled during warmup and persists on the node's EBS volume. Scaling out goes from 15+ minutes to under 2.
+
+### Scale-to-Zero
+Stratos's ~20-second startup makes true scale-to-zero viable. Pair it with an ingress doorman that holds requests for up to 30 seconds — when traffic hits a scaled-down service, a standby node starts and begins serving before the timeout. No idle compute, no cold-start frustration.
+
+See the [Use Cases](./guides/use-cases.md) guide for detailed configurations.
 
 ## Key Features
 
-- **Fastest scale-up**: Start pre-warmed instances in ~20-25 seconds (half of Karpenter's ~40-50 seconds)
-- **Pre-pulled images**: DaemonSet images are automatically pre-pulled during warmup
-- **Custom image pre-pulling**: Configure additional images to pre-pull for even faster pod startup
-- **Cost-efficient**: Stopped instances only incur storage costs
+- **Instant capacity**: Start pre-warmed nodes in ~20 seconds
+- **Warm caches**: Nodes retain Docker layers, build caches, downloaded models, and local state across restarts
+- **Pre-pulled images**: DaemonSet images pulled automatically during warmup; configure additional images via `preWarm.imagesToPull`
+- **Cost-efficient**: Stopped instances only incur EBS storage costs
 - **CNI-aware**: Handles startup taints for VPC CNI, Cilium, and Calico
-- **Kubernetes-native**: Manages nodes through standard Kubernetes APIs
+- **Kubernetes-native**: Declarative NodePool and AWSNodeClass CRDs
 - **Cloud-agnostic design**: Built with a provider abstraction layer (AWS supported)
 
 ## Quick Start
 
-### 1. Install CRDs and Controller
+### 1. Install with Helm
 
 ```bash
-kubectl apply -k config/crd
-kubectl apply -k config/default
+helm install stratos oci://ghcr.io/stratos-sh/charts/stratos \
+  --namespace stratos-system --create-namespace \
+  --set clusterName=my-cluster
 ```
 
-### 2. Create a NodePool
+### 2. Create an AWSNodeClass and NodePool
+
+```yaml title="awsnodeclass.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: workers
+spec:
+  instanceType: m5.large
+  ami: ami-0123456789abcdef0
+  subnetIds: ["subnet-12345678"]
+  securityGroupIds: ["sg-12345678"]
+  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
+  userData: |
+    #!/bin/bash
+    /etc/eks/bootstrap.sh my-cluster \
+      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
+    until curl -sf http://localhost:10248/healthz; do sleep 5; done
+    sleep 30
+    poweroff
+```
 
 ```yaml title="nodepool.yaml"
 apiVersion: stratos.sh/v1alpha1
@@ -103,30 +112,19 @@ spec:
   poolSize: 10
   minStandby: 3
   template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: workers
     labels:
       stratos.sh/pool: workers
     startupTaints:
       - key: node.eks.amazonaws.com/not-ready
         value: "true"
         effect: NoSchedule
-    cloudProvider:
-      provider: aws
-      aws:
-        instanceType: m5.large
-        ami: ami-0123456789abcdef0
-        subnetIds: ["subnet-12345678"]
-        securityGroupIds: ["sg-12345678"]
-        iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-        userData: |
-          #!/bin/bash
-          /etc/eks/bootstrap.sh my-cluster \
-            --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-          until curl -sf http://localhost:10248/healthz; do sleep 5; done
-          sleep 30
-          poweroff
 ```
 
 ```bash
+kubectl apply -f awsnodeclass.yaml
 kubectl apply -f nodepool.yaml
 ```
 
@@ -140,32 +138,34 @@ kubectl get nodes -l stratos.sh/pool=workers -w
 
 ```
                     +---------+
-                    | warmup  |  Instance launching, running user data
+                    | warmup  |  Launch, join cluster, pull images, run setup
                     +----+----+
                          |
            self-stop     |
                          v
                     +---------+
-                    | standby |  Instance stopped, ready for instant start
+                    | standby |  Stopped — disk retains all state
                     +----+----+
                          |
          scale-up        |
          (start instance)|
                          v
                     +---------+
-                    | running |  Active node, serving pods
+                    | running |  Serving pods, accumulating caches
                     +----+----+
                          |
          scale-down      |
          (drain & stop)  |
                          v
                     +---------+
-                    | standby |  Back to pool
+                    | standby |  Back to pool — caches preserved
                     +---------+
 ```
 
 ## Next Steps
 
-- [Installation](./getting-started/installation.md) - Detailed installation instructions
+- [Installation](./getting-started/installation.md) - Install with Helm
+- [Quickstart](./getting-started/quickstart.md) - Create your first NodePool
+- [Use Cases](./guides/use-cases.md) - CI/CD, LLM serving, scale-to-zero
 - [Architecture](./concepts/architecture.md) - Understand how Stratos works
 - [AWS Setup](./guides/aws-setup.md) - Configure AWS prerequisites

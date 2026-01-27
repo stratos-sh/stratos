@@ -51,7 +51,7 @@ This document provides a complete reference for Stratos controller command-line 
 ### Basic Usage
 
 ```bash
-stratos-controller \
+stratos \
   --cluster-name=production \
   --cloud-provider=aws
 ```
@@ -68,7 +68,7 @@ go run ./cmd/stratos/main.go \
 ### Production with HA
 
 ```bash
-stratos-controller \
+stratos \
   --cluster-name=production \
   --cloud-provider=aws \
   --leader-elect=true \
@@ -80,7 +80,7 @@ stratos-controller \
 ### Custom Reconciliation Interval
 
 ```bash
-stratos-controller \
+stratos \
   --cluster-name=production \
   --sync-period=60s
 ```
@@ -88,7 +88,7 @@ stratos-controller \
 ### Custom Ports
 
 ```bash
-stratos-controller \
+stratos \
   --cluster-name=production \
   --metrics-bind-address=:9090 \
   --health-probe-bind-address=:9091
@@ -96,89 +96,36 @@ stratos-controller \
 
 ## Kubernetes Deployment
 
+Stratos is deployed via Helm. See [Installation](../getting-started/installation.md) for full details.
+
 ### Basic Deployment
 
-```yaml title="deployment.yaml"
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: stratos-controller
-  namespace: stratos-system
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: stratos-controller
-  template:
-    metadata:
-      labels:
-        app: stratos-controller
-    spec:
-      serviceAccountName: stratos-controller
-      containers:
-        - name: controller
-          image: stratos-controller:latest
-          args:
-            - --cluster-name=production
-            - --cloud-provider=aws
-            - --sync-period=30s
-          ports:
-            - containerPort: 8080
-              name: metrics
-            - containerPort: 8081
-              name: health
-          env:
-            - name: CLUSTER_NAME
-              value: production
+```bash
+helm install stratos oci://ghcr.io/stratos-sh/charts/stratos \
+  --namespace stratos-system --create-namespace \
+  --set clusterName=production
 ```
 
 ### High Availability Deployment
 
-```yaml title="deployment-ha.yaml"
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: stratos-controller
-  namespace: stratos-system
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: stratos-controller
-  template:
-    metadata:
-      labels:
-        app: stratos-controller
-    spec:
-      serviceAccountName: stratos-controller
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app: stratos-controller
-                topologyKey: kubernetes.io/hostname
-      containers:
-        - name: controller
-          image: stratos-controller:latest
-          args:
-            - --cluster-name=production
-            - --cloud-provider=aws
-            - --leader-elect=true
-            - --zap-encoder=json
-            - --zap-devel=false
+```bash
+helm install stratos oci://ghcr.io/stratos-sh/charts/stratos \
+  --namespace stratos-system --create-namespace \
+  --set clusterName=production \
+  --set replicaCount=2
 ```
+
+Leader election is enabled by default (`leaderElect: true`).
 
 ### Production Logging
 
-```yaml
-args:
-  - --zap-encoder=json
-  - --zap-log-level=info
-  - --zap-devel=false
-  - --zap-stacktrace-level=error
+```bash
+helm install stratos oci://ghcr.io/stratos-sh/charts/stratos \
+  --namespace stratos-system --create-namespace \
+  --set clusterName=production \
+  --set extraArgs[0]=--zap-encoder=json \
+  --set extraArgs[1]=--zap-devel=false \
+  --set extraArgs[2]=--zap-log-level=info
 ```
 
 ## Health Endpoints
@@ -222,12 +169,12 @@ Prometheus metrics are exposed at the metrics address:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: stratos-controller
+  name: stratos
   namespace: stratos-system
 spec:
   selector:
     matchLabels:
-      app: stratos-controller
+      app.kubernetes.io/name: stratos
   endpoints:
     - port: metrics
       interval: 30s

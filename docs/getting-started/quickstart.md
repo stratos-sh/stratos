@@ -1,10 +1,10 @@
 ---
 sidebar_position: 3
-title: First NodePool
+title: Quickstart
 description: Create and test your first Stratos NodePool
 ---
 
-# Creating Your First NodePool
+# Quickstart
 
 This guide walks you through creating your first NodePool and testing scale-up.
 
@@ -12,7 +12,7 @@ This guide walks you through creating your first NodePool and testing scale-up.
 
 Before creating a NodePool, ensure you have:
 
-- Stratos controller running (see [Installation](./installation.md))
+- Stratos installed via Helm (see [Installation](./installation.md))
 - AWS credentials configured (see [AWS Setup](../guides/aws-setup.md))
 - EKS-optimized AMI ID for your region
 - Subnet and security group IDs
@@ -354,7 +354,7 @@ kubectl get nodes -l stratos.sh/pool=workers,stratos.sh/state=standby
 Check controller logs:
 
 ```bash
-kubectl -n stratos-system logs deployment/stratos-controller
+kubectl -n stratos-system logs deployment/stratos
 ```
 
 ### AWSNodeClass Status Shows Issues

@@ -8,18 +8,69 @@ description: Configure the Stratos controller
 
 This guide covers the configuration options for the Stratos controller.
 
+## Helm Values
+
+When deploying with Helm, configuration is passed via `--set` flags or a values file:
+
+```bash
+helm install stratos oci://ghcr.io/stratos-sh/charts/stratos \
+  --namespace stratos-system --create-namespace \
+  --set clusterName=my-cluster \
+  --set syncPeriod=60s \
+  --set cloudProvider=aws
+```
+
+Or with a values file:
+
+```yaml title="values.yaml"
+clusterName: my-cluster
+cloudProvider: aws
+syncPeriod: "60s"
+leaderElect: true
+
+image:
+  repository: ghcr.io/stratos-sh/stratos
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/stratos-controller-role
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+extraEnv: []
+extraArgs: []
+```
+
+```bash
+helm install stratos oci://ghcr.io/stratos-sh/charts/stratos \
+  --namespace stratos-system --create-namespace \
+  -f values.yaml
+```
+
 ## Controller Flags
 
-The Stratos controller accepts the following command-line flags:
+The Stratos controller accepts the following command-line flags. When using Helm, most of these are configured via Helm values (shown in parentheses):
 
-| Flag | Environment Variable | Default | Description |
-|------|---------------------|---------|-------------|
-| `--cluster-name` | `CLUSTER_NAME` | `default` | Kubernetes cluster name. Used for cloud instance tagging. **Required for production.** |
-| `--cloud-provider` | - | `aws` | Cloud provider to use: `aws` or `fake`. |
-| `--sync-period` | - | `30s` | Minimum interval for reconciliation. |
-| `--metrics-bind-address` | - | `:8080` | Address for the metrics endpoint. |
-| `--health-probe-bind-address` | - | `:8081` | Address for health probe endpoints. |
-| `--graceful-shutdown-timeout` | - | `30s` | Timeout for graceful shutdown. |
+| Flag | Helm Value | Default | Description |
+|------|-----------|---------|-------------|
+| `--cluster-name` | `clusterName` | `""` | Kubernetes cluster name. Used for cloud instance tagging. **Required.** |
+| `--cloud-provider` | `cloudProvider` | `aws` | Cloud provider to use: `aws` or `fake`. |
+| `--sync-period` | `syncPeriod` | `30s` | Minimum interval for reconciliation. |
+| `--leader-elect` | `leaderElect` | `true` | Enable leader election for HA. |
+| `--metrics-bind-address` | `metricsBindAddress` | `:8080` | Address for the metrics endpoint. |
+| `--health-probe-bind-address` | `healthProbeBindAddress` | `:8081` | Address for health probe endpoints. |
+
+Additional flags can be passed via the `extraArgs` Helm value.
 
 ### Zap Logger Flags
 
@@ -32,69 +83,48 @@ The controller uses the Zap logger with these additional flags:
 | `--zap-encoder` | `console` | Log encoder: `console` or `json`. |
 | `--zap-stacktrace-level` | `error` | Level at which to print stack traces. |
 
-## Deployment Configuration
+To set logger flags via Helm:
 
-### Basic Deployment
-
-```yaml title="deployment.yaml"
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: stratos-controller
-  namespace: stratos-system
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: stratos-controller
-  template:
-    metadata:
-      labels:
-        app: stratos-controller
-    spec:
-      serviceAccountName: stratos-controller
-      containers:
-        - name: controller
-          image: stratos-controller:latest
-          args:
-            - --cluster-name=my-cluster
-            - --cloud-provider=aws
-            - --sync-period=30s
-          ports:
-            - containerPort: 8080
-              name: metrics
-            - containerPort: 8081
-              name: health
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8081
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          readinessProbe:
-            httpGet:
-              path: /readyz
-              port: 8081
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
+```bash
+helm install stratos oci://ghcr.io/stratos-sh/charts/stratos \
+  --namespace stratos-system --create-namespace \
+  --set clusterName=my-cluster \
+  --set extraArgs[0]=--zap-encoder=json \
+  --set extraArgs[1]=--zap-devel=false \
+  --set extraArgs[2]=--zap-log-level=info
 ```
 
-### Production Logging
+## Production Configuration
 
-For production environments, use JSON logging:
+For production environments, use JSON logging and IRSA:
 
-```yaml
-args:
+```yaml title="values-production.yaml"
+clusterName: production
+cloudProvider: aws
+leaderElect: true
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/stratos-controller-role
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+extraArgs:
   - --zap-encoder=json
-  - --zap-log-level=info
   - --zap-devel=false
+  - --zap-log-level=info
+```
+
+```bash
+helm install stratos oci://ghcr.io/stratos-sh/charts/stratos \
+  --namespace stratos-system --create-namespace \
+  -f values-production.yaml
 ```
 
 ## Health Checks
@@ -105,6 +135,8 @@ The controller exposes health endpoints:
 |----------|------|-------------|
 | `/healthz` | 8081 | Liveness probe - is the controller running |
 | `/readyz` | 8081 | Readiness probe - is the controller ready to serve |
+
+These are configured automatically by the Helm chart.
 
 ## Metrics
 
@@ -119,7 +151,9 @@ Prometheus metrics are exposed at `:8080/metrics`. See [Monitoring](../guides/mo
 | `AWS_ACCESS_KEY_ID` | AWS access key (prefer IRSA instead) |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key (prefer IRSA instead) |
 
+Environment variables can be passed via the `extraEnv` Helm value.
+
 ## Next Steps
 
-- [First NodePool](./first-nodepool.md) - Create your first NodePool
+- [Quickstart](./quickstart.md) - Create your first NodePool
 - [AWS Setup](../guides/aws-setup.md) - Configure AWS prerequisites
