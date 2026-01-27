@@ -58,12 +58,17 @@ func TestMain(m *testing.M) {
 	}
 	defer container.Terminate(ctx) //nolint:errcheck
 
-	endpoint, err := container.Endpoint(ctx, "")
+	host, err := container.Host(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get endpoint: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to get host: %v\n", err)
 		os.Exit(1)
 	}
-	endpoint = "http://" + endpoint
+	port, err := container.MappedPort(ctx, "4566/tcp")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get port: %v\n", err)
+		os.Exit(1)
+	}
+	endpoint := fmt.Sprintf("http://%s:%s", host, port.Port())
 
 	cfg, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion("us-east-1"),
