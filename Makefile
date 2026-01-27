@@ -20,7 +20,7 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)"
 
 # Image variables
-IMG ?= stratos:$(VERSION)
+IMG ?= ghcr.io/stratos-sh/stratos:$(VERSION)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -80,7 +80,7 @@ run: fmt vet ## Run the controller locally
 
 .PHONY: docker-build
 docker-build: ## Build docker image
-	docker build -t $(IMG) .
+	docker buildx build --platform linux/$(shell go env GOARCH) -t $(IMG) --load .
 
 .PHONY: docker-push
 docker-push: ## Push docker image
@@ -94,26 +94,30 @@ generate: controller-gen ## Generate code (deepcopy, etc.)
 
 .PHONY: manifests
 manifests: controller-gen ## Generate CRD and RBAC manifests
-	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=config/crd/bases
-	$(CONTROLLER_GEN) rbac:roleName=stratos-controller paths="./..." output:rbac:artifacts:config=config/rbac
+	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=deploy/charts/stratos/crds
 
 ##@ Deployment
 
 .PHONY: install
 install: manifests ## Install CRDs into the K8s cluster
-	kubectl apply -f config/crd/bases
+	kubectl apply -f deploy/charts/stratos/crds
 
 .PHONY: uninstall
 uninstall: ## Uninstall CRDs from the K8s cluster
-	kubectl delete -f config/crd/bases
+	kubectl delete -f deploy/charts/stratos/crds
+
+HELM_RELEASE ?= stratos
+HELM_NAMESPACE ?= stratos-system
 
 .PHONY: deploy
-deploy: manifests ## Deploy controller to the K8s cluster
-	kubectl apply -k config/default
+deploy: ## Deploy controller via Helm
+	helm upgrade --install $(HELM_RELEASE) deploy/charts/stratos \
+		--namespace $(HELM_NAMESPACE) --create-namespace \
+		--set clusterName=$(CLUSTER_NAME)
 
 .PHONY: undeploy
-undeploy: ## Undeploy controller from the K8s cluster
-	kubectl delete -k config/default
+undeploy: ## Undeploy controller via Helm
+	helm uninstall $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
 
 ##@ Dependencies
 

@@ -37,10 +37,10 @@ import (
 
 // AWSProvider implements the CloudProvider interface for AWS EC2.
 type AWSProvider struct {
-	client       *ec2.Client
-	rateLimiter  *RateLimiter
-	region       string
-	subnetIndex  uint64 // atomic counter for round-robin subnet selection
+	client      *ec2.Client
+	rateLimiter *RateLimiter
+	region      string
+	subnetIndex uint64 // atomic counter for round-robin subnet selection
 }
 
 // NewAWSProvider creates a new AWS provider with the specified region.

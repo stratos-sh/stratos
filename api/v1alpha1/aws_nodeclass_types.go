@@ -143,10 +143,10 @@ const (
 
 // Condition reasons for AWSNodeClass
 const (
-	AWSNodeClassReasonSpecValid        = "SpecValid"
-	AWSNodeClassReasonInvalidAMI       = "InvalidAMI"
+	AWSNodeClassReasonSpecValid         = "SpecValid"
+	AWSNodeClassReasonInvalidAMI        = "InvalidAMI"
 	AWSNodeClassReasonReferencedByPools = "ReferencedByNodePools"
-	AWSNodeClassReasonNotReferenced    = "NotReferenced"
+	AWSNodeClassReasonNotReferenced     = "NotReferenced"
 )
 
 // Finalizer for AWSNodeClass
