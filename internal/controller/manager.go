@@ -613,7 +613,7 @@ func (m *NodeManager) MonitorCloudWarmup(ctx context.Context, pool *stratosv1alp
 	logger := log.FromContext(ctx)
 
 	instanceID := instance.ID
-	logger.V(1).Info("Monitoring cloud warmup instance", "instanceID", instanceID, "cloudState", instance.State)
+	// logger.V(1).Info("Monitoring cloud warmup instance", "instanceID", instanceID, "cloudState", instance.State)
 
 	// Check if K8s node exists for this instance
 	node, err := m.FindNodeByInstanceID(ctx, instanceID)

@@ -24,8 +24,8 @@ spec:
     # ControllerStop: Stratos stops the instance when the node becomes Ready
     # Use this for Bottlerocket which doesn't support shutdown scripts
     completionMode: ControllerStop
-    timeout: 10m0s
-    timeoutAction: stop
+    timeout: 10m0s 
+    timeoutAction: terminate # terminate the instance if the node doesn't become Ready within the timeout
   reconciliationInterval: 30s
   scaleDown:
     drainTimeout: 2m0s
