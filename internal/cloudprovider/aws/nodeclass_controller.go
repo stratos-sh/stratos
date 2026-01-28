@@ -22,7 +22,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -35,7 +35,7 @@ import (
 type AWSNodeClassReconciler struct {
 	client.Client
 	Resolver    Resolver
-	Recorder    record.EventRecorder
+	Recorder    events.EventRecorder
 	ClusterName string
 }
 
@@ -110,7 +110,7 @@ func (r *AWSNodeClassReconciler) resolveAMI(ctx context.Context, nodeClass *stra
 		if err != nil {
 			// Last-known-good: preserve previous value if it exists
 			if nodeClass.Status.ResolvedAMI != "" {
-				r.Recorder.Eventf(nodeClass, "Warning", "ResolutionFailed",
+				r.Recorder.Eventf(nodeClass, nil, "Warning", "ResolutionFailed", "ResolveAMI",
 					"AMI resolution failed, using cached value: %v", err)
 				return
 			}
@@ -156,7 +156,7 @@ func (r *AWSNodeClassReconciler) resolveSubnets(ctx context.Context, nodeClass *
 		subnets, err := r.Resolver.ResolveSubnets(ctx, nodeClass.Spec.SubnetSelector)
 		if err != nil {
 			if len(nodeClass.Status.ResolvedSubnets) > 0 {
-				r.Recorder.Eventf(nodeClass, "Warning", "ResolutionFailed",
+				r.Recorder.Eventf(nodeClass, nil, "Warning", "ResolutionFailed", "ResolveSubnets",
 					"Subnet resolution failed, using cached values: %v", err)
 				return
 			}
@@ -201,7 +201,7 @@ func (r *AWSNodeClassReconciler) resolveSecurityGroups(ctx context.Context, node
 		sgs, err := r.Resolver.ResolveSecurityGroups(ctx, nodeClass.Spec.SecurityGroupSelector)
 		if err != nil {
 			if len(nodeClass.Status.ResolvedSecurityGroups) > 0 {
-				r.Recorder.Eventf(nodeClass, "Warning", "ResolutionFailed",
+				r.Recorder.Eventf(nodeClass, nil, "Warning", "ResolutionFailed", "ResolveSecurityGroups",
 					"Security group resolution failed, using cached values: %v", err)
 				return
 			}
@@ -244,7 +244,7 @@ func (r *AWSNodeClassReconciler) resolveInstanceProfile(ctx context.Context, nod
 		arn, err := r.Resolver.ResolveInstanceProfile(ctx, nodeClass.Spec.Role, profileName)
 		if err != nil {
 			if nodeClass.Status.ResolvedInstanceProfile != "" {
-				r.Recorder.Eventf(nodeClass, "Warning", "ResolutionFailed",
+				r.Recorder.Eventf(nodeClass, nil, "Warning", "ResolutionFailed", "ResolveInstanceProfile",
 					"Instance profile resolution failed, using cached value: %v", err)
 				return
 			}
@@ -301,7 +301,7 @@ func (r *AWSNodeClassReconciler) handleDeletion(ctx context.Context, nodeClass *
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AWSNodeClassReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.Recorder = mgr.GetEventRecorderFor("awsnodeclass-controller")
+	r.Recorder = mgr.GetEventRecorder("awsnodeclass-controller")
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&stratosv1alpha1.AWSNodeClass{}).

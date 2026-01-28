@@ -24,7 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -42,13 +42,13 @@ type NodeLauncher interface {
 // NodeManager handles the lifecycle of Stratos-managed nodes.
 type NodeManager struct {
 	client        client.Client
-	recorder      record.EventRecorder
+	recorder      events.EventRecorder
 	cloudProvider cloudprovider.CloudProvider
 	clusterName   string
 }
 
 // NewNodeManager creates a new NodeManager.
-func NewNodeManager(c client.Client, recorder record.EventRecorder, provider cloudprovider.CloudProvider, clusterName string) *NodeManager {
+func NewNodeManager(c client.Client, recorder events.EventRecorder, provider cloudprovider.CloudProvider, clusterName string) *NodeManager {
 	return &NodeManager{
 		client:        c,
 		recorder:      recorder,
@@ -74,7 +74,7 @@ func (m *NodeManager) LaunchNode(ctx context.Context, pool *stratosv1alpha1.Node
 
 	// Record event
 	if m.recorder != nil {
-		m.recorder.Eventf(pool, corev1.EventTypeNormal, "WarmupStarted",
+		m.recorder.Eventf(pool, nil, corev1.EventTypeNormal, "WarmupStarted", "LaunchNode",
 			"Started warming up node %s", instance.ID)
 	}
 
@@ -227,7 +227,7 @@ func (m *NodeManager) MonitorWarmup(ctx context.Context, pool *stratosv1alpha1.N
 
 		// Record event
 		if m.recorder != nil {
-			m.recorder.Eventf(pool, corev1.EventTypeNormal, "WarmupCompleted",
+			m.recorder.Eventf(pool, nil, corev1.EventTypeNormal, "WarmupCompleted", "MonitorWarmup",
 				"Node %s completed warmup and is now standby", node.Name)
 		}
 
@@ -290,7 +290,7 @@ func (m *NodeManager) handleWarmupTimeout(ctx context.Context, pool *stratosv1al
 		}
 		// Will transition to standby on next reconcile when stopped
 		if m.recorder != nil {
-			m.recorder.Eventf(pool, corev1.EventTypeWarning, "WarmupTimeout",
+			m.recorder.Eventf(pool, nil, corev1.EventTypeWarning, "WarmupTimeout", "HandleWarmupTimeout",
 				"Node %s warmup timed out, forcing stop", node.Name)
 		}
 
@@ -306,7 +306,7 @@ func (m *NodeManager) handleWarmupTimeout(ctx context.Context, pool *stratosv1al
 			return err
 		}
 		if m.recorder != nil {
-			m.recorder.Eventf(pool, corev1.EventTypeWarning, "WarmupTimeout",
+			m.recorder.Eventf(pool, nil, corev1.EventTypeWarning, "WarmupTimeout", "HandleWarmupTimeout",
 				"Node %s warmup timed out, terminated", node.Name)
 		}
 	}
@@ -373,7 +373,7 @@ func (m *NodeManager) handleControllerStopWarmup(ctx context.Context, pool *stra
 
 	// Record event
 	if m.recorder != nil {
-		m.recorder.Eventf(pool, corev1.EventTypeNormal, "WarmupCompleted",
+		m.recorder.Eventf(pool, nil, corev1.EventTypeNormal, "WarmupCompleted", "HandleControllerStopWarmup",
 			"Node %s completed warmup (ControllerStop mode) and is now standby", node.Name)
 	}
 
@@ -437,7 +437,7 @@ func (m *NodeManager) StartNode(ctx context.Context, pool *stratosv1alpha1.NodeP
 
 	// Record event
 	if m.recorder != nil {
-		m.recorder.Eventf(pool, corev1.EventTypeNormal, "NodeStarted",
+		m.recorder.Eventf(pool, nil, corev1.EventTypeNormal, "NodeStarted", "StartNode",
 			"Started node %s for scale-up", node.Name)
 	}
 
@@ -487,7 +487,7 @@ func (m *NodeManager) StopNode(ctx context.Context, pool *stratosv1alpha1.NodePo
 
 	// Record event
 	if m.recorder != nil {
-		m.recorder.Eventf(pool, corev1.EventTypeNormal, "NodeStopped",
+		m.recorder.Eventf(pool, nil, corev1.EventTypeNormal, "NodeStopped", "StopNode",
 			"Stopped node %s after scale-down", node.Name)
 	}
 
@@ -711,7 +711,7 @@ func (m *NodeManager) handleWarmupFailure(ctx context.Context, pool *stratosv1al
 
 	// Record event
 	if m.recorder != nil {
-		m.recorder.Eventf(pool, corev1.EventTypeWarning, "WarmupFailed",
+		m.recorder.Eventf(pool, nil, corev1.EventTypeWarning, "WarmupFailed", "HandleWarmupFailure",
 			"Instance %s warmup failed (%s), terminated", instanceID, reason)
 	}
 
@@ -742,7 +742,7 @@ func (m *NodeManager) handleCloudWarmupTimeout(ctx context.Context, pool *strato
 		}
 
 		if m.recorder != nil {
-			m.recorder.Eventf(pool, corev1.EventTypeWarning, "WarmupTimeout",
+			m.recorder.Eventf(pool, nil, corev1.EventTypeWarning, "WarmupTimeout", "HandleCloudWarmupTimeout",
 				"Instance %s warmup timed out (no K8s node registration), stopped", instanceID)
 		}
 
@@ -752,7 +752,7 @@ func (m *NodeManager) handleCloudWarmupTimeout(ctx context.Context, pool *strato
 			return fmt.Errorf("failed to terminate instance: %w", err)
 		}
 		if m.recorder != nil {
-			m.recorder.Eventf(pool, corev1.EventTypeWarning, "WarmupTimeout",
+			m.recorder.Eventf(pool, nil, corev1.EventTypeWarning, "WarmupTimeout", "HandleCloudWarmupTimeout",
 				"Instance %s warmup timed out (no K8s node registration), terminated", instanceID)
 		}
 	}
@@ -811,7 +811,7 @@ func (m *NodeManager) adoptAndTransitionToStandby(ctx context.Context, pool *str
 
 	// Record event
 	if m.recorder != nil {
-		m.recorder.Eventf(pool, corev1.EventTypeNormal, "NodeAdopted",
+		m.recorder.Eventf(pool, nil, corev1.EventTypeNormal, "NodeAdopted", "AdoptAndTransitionToStandby",
 			"Adopted unlabeled node %s and transitioned to standby", node.Name)
 	}
 
@@ -1069,7 +1069,7 @@ func (m *NodeManager) handleStartupTaintTimeout(ctx context.Context, pool *strat
 
 		// Emit warning event
 		if m.recorder != nil {
-			m.recorder.Eventf(pool, corev1.EventTypeWarning, "StartupTaintTimeout",
+			m.recorder.Eventf(pool, nil, corev1.EventTypeWarning, "StartupTaintTimeout", "HandleStartupTaintTimeout",
 				"Node %s startup taints removed after timeout (CNI may not be ready)", node.Name)
 		}
 
@@ -1091,7 +1091,7 @@ func (m *NodeManager) handleStartupTaintTimeout(ctx context.Context, pool *strat
 			"node", node.Name, "timeout", StartupTaintRemovalTimeout)
 
 		if m.recorder != nil {
-			m.recorder.Eventf(pool, corev1.EventTypeWarning, "StartupTaintTimeoutExternal",
+			m.recorder.Eventf(pool, nil, corev1.EventTypeWarning, "StartupTaintTimeoutExternal", "HandleStartupTaintTimeout",
 				"Node %s waiting for external controller to remove startup taints (timeout exceeded)", node.Name)
 		}
 		return false, nil
@@ -1145,7 +1145,7 @@ func (m *NodeManager) removeStartupTaintsWhenNetworkReady(ctx context.Context, p
 
 	// Emit event
 	if m.recorder != nil {
-		m.recorder.Eventf(pool, corev1.EventTypeNormal, "StartupTaintsRemoved",
+		m.recorder.Eventf(pool, nil, corev1.EventTypeNormal, "StartupTaintsRemoved", "RemoveStartupTaintsWhenNetworkReady",
 			"Removed startup taints from node %s after network ready (%s)", node.Name, reason)
 	}
 

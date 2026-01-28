@@ -25,7 +25,7 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -33,7 +33,7 @@ import (
 // DrainHelper assists with draining nodes.
 type DrainHelper struct {
 	client                   client.Client
-	recorder                 record.EventRecorder
+	recorder                 events.EventRecorder
 	gracePeriodSeconds       int64
 	ignoreAllDaemonSets      bool
 	deleteEmptyDirData       bool
@@ -65,7 +65,7 @@ func DefaultDrainConfig() *DrainConfig {
 }
 
 // NewDrainHelper creates a new drain helper.
-func NewDrainHelper(c client.Client, recorder record.EventRecorder, config *DrainConfig) *DrainHelper {
+func NewDrainHelper(c client.Client, recorder events.EventRecorder, config *DrainConfig) *DrainHelper {
 	if config == nil {
 		config = DefaultDrainConfig()
 	}
