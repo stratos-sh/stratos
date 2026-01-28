@@ -209,19 +209,20 @@ var _ = Describe("Scale Up", func() {
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
 			updateNodeState(node.Name, controller.NodeStateRunning)
 
-			// Manually add the scale-up annotation (simulating what the controller does)
-			nodeUpdate := &corev1.Node{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, nodeUpdate)
-			Expect(err).NotTo(HaveOccurred())
-
 			// The annotation should be set when scale-up is triggered
-			// For this test, we verify the annotation mechanism works
-			if nodeUpdate.Annotations == nil {
-				nodeUpdate.Annotations = make(map[string]string)
-			}
-			nodeUpdate.Annotations[controller.AnnotationScaleUpStarted] = time.Now().Format(time.RFC3339)
-			err = k8sClient.Update(ctx, nodeUpdate)
-			Expect(err).NotTo(HaveOccurred())
+			// For this test, we verify the annotation mechanism works.
+			// Use Eventually to handle conflicts from concurrent controller updates.
+			Eventually(func() error {
+				latest := &corev1.Node{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, latest); err != nil {
+					return err
+				}
+				if latest.Annotations == nil {
+					latest.Annotations = make(map[string]string)
+				}
+				latest.Annotations[controller.AnnotationScaleUpStarted] = time.Now().Format(time.RFC3339)
+				return k8sClient.Update(ctx, latest)
+			}, timeout, interval).Should(Succeed())
 
 			// Verify annotation exists
 			updated := getNode(node.Name)

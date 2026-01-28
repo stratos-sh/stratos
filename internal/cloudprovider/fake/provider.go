@@ -66,9 +66,16 @@ func (f *FakeProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1a
 	f.counter++
 	instanceID := fmt.Sprintf("i-fake-%06d", f.counter)
 
-	// Select subnet using round-robin
+	// Select subnet using round-robin from resolved status (or fallback to spec for backward compat)
+	var subnetID string
 	subnetIdx := atomic.AddUint64(&f.subnetIndex, 1) - 1
-	subnetID := nodeClass.Spec.SubnetIDs[subnetIdx%uint64(len(nodeClass.Spec.SubnetIDs))]
+	if len(nodeClass.Status.ResolvedSubnets) > 0 {
+		subnetID = nodeClass.Status.ResolvedSubnets[subnetIdx%uint64(len(nodeClass.Status.ResolvedSubnets))].ID
+	} else if len(nodeClass.Spec.SubnetIDs) > 0 {
+		subnetID = nodeClass.Spec.SubnetIDs[subnetIdx%uint64(len(nodeClass.Spec.SubnetIDs))]
+	} else {
+		subnetID = "subnet-fake-default"
+	}
 
 	instance := &cloudprovider.Instance{
 		ID:               instanceID,

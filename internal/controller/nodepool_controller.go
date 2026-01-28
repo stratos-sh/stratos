@@ -130,6 +130,13 @@ func (r *NodePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil // Don't requeue, user needs to fix the spec
 	}
 
+	// Check AWSNodeClass readiness conditions before proceeding
+	if err := r.checkNodeClassReady(ctx, nodePool); err != nil {
+		logger.Info("AWSNodeClass not ready", "error", err)
+		r.setDegradedCondition(ctx, nodePool, "NodeClassNotReady", err.Error())
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
 	// Initialize cloud provider for this pool if needed
 	if err := r.ensureCloudProvider(nodePool); err != nil {
 		logger.Error(err, "Failed to initialize cloud provider")
@@ -424,6 +431,39 @@ func (r *NodePoolReconciler) validateNodePool(nodePool *stratosv1alpha1.NodePool
 	// Currently only AWSNodeClass is supported
 	if ref.Kind != "AWSNodeClass" {
 		return fmt.Errorf("unsupported nodeClassRef.kind: %s (only AWSNodeClass is supported)", ref.Kind)
+	}
+
+	return nil
+}
+
+// checkNodeClassReady checks whether the AWSNodeClass referenced by this NodePool
+// has all readiness conditions set to True.
+func (r *NodePoolReconciler) checkNodeClassReady(ctx context.Context, nodePool *stratosv1alpha1.NodePool) error {
+	ref := nodePool.Spec.Template.NodeClassRef
+	if ref.Kind != "AWSNodeClass" {
+		return nil
+	}
+
+	nodeClass, err := r.getAWSNodeClass(ctx, ref.Name)
+	if err != nil {
+		return fmt.Errorf("failed to fetch AWSNodeClass %s: %w", ref.Name, err)
+	}
+
+	requiredConditions := []string{
+		stratosv1alpha1.AWSNodeClassConditionTypeAMIReady,
+		stratosv1alpha1.AWSNodeClassConditionTypeSubnetsReady,
+		stratosv1alpha1.AWSNodeClassConditionTypeSecurityGroupsReady,
+		stratosv1alpha1.AWSNodeClassConditionTypeInstanceProfileReady,
+	}
+
+	for _, condType := range requiredConditions {
+		cond := meta.FindStatusCondition(nodeClass.Status.Conditions, condType)
+		if cond == nil {
+			return fmt.Errorf("AWSNodeClass %s condition %s not set", ref.Name, condType)
+		}
+		if cond.Status != metav1.ConditionTrue {
+			return fmt.Errorf("AWSNodeClass %s condition %s is %s: %s", ref.Name, condType, cond.Status, cond.Message)
+		}
 	}
 
 	return nil
@@ -730,7 +770,7 @@ func (r *NodePoolReconciler) getInUseCondition(refCount int) metav1.Condition {
 
 // getValidCondition returns the Valid condition based on spec validation.
 func (r *NodePoolReconciler) getValidCondition(nodeClass *stratosv1alpha1.AWSNodeClass) metav1.Condition {
-	// Validate AMI format - must start with "ami-" and have content after
+	// Validate AMI format if static AMI is specified
 	if nodeClass.Spec.AMI != "" {
 		if len(nodeClass.Spec.AMI) <= 4 || nodeClass.Spec.AMI[:4] != "ami-" {
 			return metav1.Condition{

@@ -33,14 +33,95 @@ The Stratos controller needs permissions to manage EC2 instances.
                 "ec2:StartInstances",
                 "ec2:StopInstances",
                 "ec2:DescribeInstances",
+                "ec2:DescribeInstanceStatus",
                 "ec2:CreateTags",
                 "ec2:DescribeTags"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EC2ResourceDiscovery",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeImages",
+                "ec2:DescribeSubnets",
+                "ec2:DescribeSecurityGroups"
             ],
             "Resource": "*"
         }
     ]
 }
 ```
+
+:::note
+The `EC2ResourceDiscovery` statement is required when using [dynamic resource selectors](./dynamic-resource-selectors.md) (`amiSelector`, `subnetSelector`, `securityGroupSelector`). If you only use static IDs, this statement can be omitted.
+:::
+
+### Policy with Instance Profile Management
+
+If you use the `role` field in AWSNodeClass (automatic instance profile management), add IAM permissions:
+
+```json title="stratos-controller-policy-full.json"
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "StratosEC2Operations",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:RunInstances",
+                "ec2:TerminateInstances",
+                "ec2:StartInstances",
+                "ec2:StopInstances",
+                "ec2:DescribeInstances",
+                "ec2:DescribeInstanceStatus",
+                "ec2:CreateTags",
+                "ec2:DescribeTags"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EC2ResourceDiscovery",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeImages",
+                "ec2:DescribeSubnets",
+                "ec2:DescribeSecurityGroups"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "IAMInstanceProfileManagement",
+            "Effect": "Allow",
+            "Action": [
+                "iam:CreateInstanceProfile",
+                "iam:DeleteInstanceProfile",
+                "iam:GetInstanceProfile",
+                "iam:AddRoleToInstanceProfile",
+                "iam:RemoveRoleFromInstanceProfile"
+            ],
+            "Resource": "arn:aws:iam::*:instance-profile/stratos-*"
+        },
+        {
+            "Sid": "IAMPassRole",
+            "Effect": "Allow",
+            "Action": [
+                "iam:PassRole"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "iam:PassedToService": "ec2.amazonaws.com"
+                }
+            }
+        }
+    ]
+}
+```
+
+:::tip
+The `IAMInstanceProfileManagement` statement is scoped to instance profiles prefixed with `stratos-`, matching the naming convention used by the controller. The Helm chart includes a complete IAM policy template at `deploy/charts/stratos/templates/iam-policy.yaml`.
+:::
 
 ### Scoped Policy (Recommended)
 
@@ -55,7 +136,11 @@ For better security, scope the policy to Stratos-managed resources:
             "Effect": "Allow",
             "Action": [
                 "ec2:DescribeInstances",
-                "ec2:DescribeTags"
+                "ec2:DescribeInstanceStatus",
+                "ec2:DescribeTags",
+                "ec2:DescribeImages",
+                "ec2:DescribeSubnets",
+                "ec2:DescribeSecurityGroups"
             ],
             "Resource": "*"
         },
@@ -281,8 +366,16 @@ subnetIds:
   - subnet-abcdefgh  # us-east-1c
 ```
 
+Alternatively, use [dynamic resource selectors](./dynamic-resource-selectors.md) to discover subnets by tags:
+
+```yaml
+subnetSelector:
+  tags:
+    stratos.sh/discovery: my-cluster
+```
+
 :::tip
-Stratos round-robins instance launches across subnets, providing automatic AZ distribution.
+Stratos round-robins instance launches across subnets, providing automatic AZ distribution. This works with both static `subnetIds` and dynamic `subnetSelector`.
 :::
 
 ## EKS Authentication
@@ -455,6 +548,7 @@ Common issues:
 ## Next Steps
 
 - [Quickstart](../getting-started/quickstart.md) - Create your first NodePool
+- [Dynamic Resource Selectors](./dynamic-resource-selectors.md) - Use tag-based discovery instead of hardcoded IDs
 - [AWSNodeClass Reference](../reference/api/awsnodeclass.md) - Complete API reference
 - [Bottlerocket Setup](./bottlerocket.md) - Using Bottlerocket with Stratos
 - [Monitoring](./monitoring.md) - Set up monitoring and alerts

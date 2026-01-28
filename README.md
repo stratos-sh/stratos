@@ -56,6 +56,7 @@ warmup --> standby --> running --> stopping
 - **Kubernetes native** - Declarative NodePool and NodeClass CRDs, integrates with existing clusters
 - **CNI-aware** - Properly handles startup taints for VPC CNI, Cilium, Calico
 - **Automatic maintenance** - Pool replenishment, node recycling, state synchronization
+- **Dynamic resource selectors** - Discover AMIs, subnets, and security groups by tags instead of hardcoding IDs
 - **Observable** - Prometheus metrics for all operations
 
 ## Quick Start
@@ -84,12 +85,22 @@ kind: AWSNodeClass
 metadata:
   name: workers
 spec:
-  region: us-east-1
   instanceType: m5.large
-  ami: ami-0123456789abcdef0
-  subnetIds: ["subnet-12345678"]
-  securityGroupIds: ["sg-12345678"]
-  iamInstanceProfile: arn:aws:iam::123456789:instance-profile/node-role
+
+  # Dynamic resource selectors - discover resources by tags instead of hardcoding IDs
+  amiSelector:
+    name: "my-eks-ami-*"
+    owner: self
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  # Automatic instance profile management from IAM role name
+  role: my-node-role
+
   userData: |
     #!/bin/bash
     /etc/eks/bootstrap.sh my-cluster \
@@ -98,6 +109,8 @@ spec:
     sleep 30
     poweroff
 ```
+
+> **Note:** You can also use static IDs (`ami`, `subnetIds`, `securityGroupIds`, `iamInstanceProfile`) instead of selectors. See the [Dynamic Resource Selectors guide](https://stratos-sh.github.io/stratos/guides/dynamic-resource-selectors) for details.
 
 **NodePool** (references the AWSNodeClass):
 
@@ -170,7 +183,7 @@ Full documentation is available at **[stratos-sh.github.io/stratos](https://stra
 
 - [Getting Started](https://stratos-sh.github.io/stratos/getting-started/installation) - Installation and quickstart
 - [Concepts](https://stratos-sh.github.io/stratos/concepts/architecture) - Architecture and node lifecycle
-- [Guides](https://stratos-sh.github.io/stratos/guides/aws-setup) - AWS setup, scaling policies, monitoring
+- [Guides](https://stratos-sh.github.io/stratos/guides/aws-setup) - AWS setup, dynamic resource selectors, scaling policies, monitoring
 - [API Reference](https://stratos-sh.github.io/stratos/reference/api/nodepool) - NodePool and AWSNodeClass CRDs
 
 ### Running Docs Locally

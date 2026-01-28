@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
+	awsprovider "github.com/stratos-sh/stratos/internal/cloudprovider/aws"
 	"github.com/stratos-sh/stratos/internal/cloudprovider/fake"
 	"github.com/stratos-sh/stratos/internal/controller"
 )
@@ -51,6 +52,7 @@ var (
 	cancel      context.CancelFunc
 	testScheme  *runtime.Scheme
 	fakeProvider *fake.FakeProvider
+	fakeResolver *fake.FakeResolver
 	reconciler  *controller.NodePoolReconciler
 	mgr         ctrl.Manager
 )
@@ -73,7 +75,7 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "deploy", "charts", "stratos", "crds")},
 		ErrorIfCRDPathMissing: true,
 	}
 
@@ -114,6 +116,16 @@ var _ = BeforeSuite(func() {
 	err = reconciler.SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
+	// Create and register the AWSNodeClass reconciler with FakeResolver
+	fakeResolver = fake.NewFakeResolver()
+	awsNodeClassReconciler := &awsprovider.AWSNodeClassReconciler{
+		Client:      mgr.GetClient(),
+		Resolver:    fakeResolver,
+		ClusterName: testClusterName,
+	}
+	err = awsNodeClassReconciler.SetupWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
 	// Start manager in background
 	go func() {
 		defer GinkgoRecover()
@@ -136,6 +148,13 @@ var _ = BeforeEach(func() {
 	fakeProvider.StartHook = nil
 	fakeProvider.StopHook = nil
 	fakeProvider.TerminateHook = nil
+
+	// Reset fake resolver hooks
+	fakeResolver.ResolveAMIHook = nil
+	fakeResolver.ResolveSubnetsHook = nil
+	fakeResolver.ResolveSecurityGroupsHook = nil
+	fakeResolver.ResolveInstanceProfileHook = nil
+	fakeResolver.DeleteInstanceProfileHook = nil
 })
 
 var _ = AfterEach(func() {

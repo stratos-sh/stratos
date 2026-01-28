@@ -20,7 +20,7 @@ spec:
     - jsonPath: .spec.instanceType
       name: InstanceType
       type: string
-    - jsonPath: .spec.ami
+    - jsonPath: .status.resolvedAMI
       name: AMI
       type: string
     - jsonPath: .status.nodePoolCount
@@ -57,9 +57,26 @@ spec:
             description: AWSNodeClassSpec defines the desired state of AWSNodeClass
             properties:
               ami:
-                description: AMI is the Amazon Machine Image ID
+                description: AMI is the Amazon Machine Image ID (mutually exclusive
+                  with amiSelector)
                 pattern: ^ami-[a-z0-9]+$
                 type: string
+              amiSelector:
+                description: AMISelector defines criteria for dynamically selecting
+                  an AMI (mutually exclusive with ami)
+                properties:
+                  name:
+                    description: Name with wildcard support (e.g., "my-eks-ami-*")
+                    type: string
+                  owner:
+                    description: Owner account ID or alias ("self", "amazon")
+                    type: string
+                  tags:
+                    additionalProperties:
+                      type: string
+                    description: Tags to match (AND semantics)
+                    type: object
+                type: object
               blockDeviceMappings:
                 description: BlockDeviceMappings defines the EBS volumes
                 items:
@@ -98,31 +115,86 @@ spec:
                 type: array
               iamInstanceProfile:
                 description: IAMInstanceProfile is the IAM instance profile ARN or
-                  name
+                  name (mutually exclusive with role)
                 type: string
               instanceType:
                 description: InstanceType is the EC2 instance type (e.g., "m5.large")
                 type: string
+              metadataOptions:
+                description: MetadataOptions defines IMDS configuration for launched
+                  instances
+                properties:
+                  httpEndpoint:
+                    description: |-
+                      HTTPEndpoint controls whether the IMDS endpoint is available.
+                      "enabled" or "disabled".
+                    enum:
+                    - enabled
+                    - disabled
+                    type: string
+                  httpPutResponseHopLimit:
+                    description: HTTPPutResponseHopLimit is the HTTP PUT response
+                      hop limit for IMDS token requests (1-64).
+                    format: int32
+                    maximum: 64
+                    minimum: 1
+                    type: integer
+                  httpTokens:
+                    description: |-
+                      HTTPTokens determines whether IMDSv2 is required.
+                      "required" enforces IMDSv2; "optional" allows IMDSv1 and v2.
+                    enum:
+                    - required
+                    - optional
+                    type: string
+                type: object
               region:
                 description: |-
                   Region is the AWS region (e.g., "us-east-1")
                   Defaults to the controller's region if not specified.
                 type: string
+              role:
+                description: Role is the IAM role name for automatic instance profile
+                  management (mutually exclusive with iamInstanceProfile)
+                type: string
               securityGroupIds:
                 description: SecurityGroupIDs is the list of security groups to attach
-                  to instances.
+                  to instances (mutually exclusive with securityGroupSelector).
                 items:
                   type: string
                 minItems: 1
                 type: array
+              securityGroupSelector:
+                description: SecurityGroupSelector defines criteria for dynamically
+                  selecting security groups (mutually exclusive with securityGroupIds)
+                properties:
+                  name:
+                    description: Name with wildcard support
+                    type: string
+                  tags:
+                    additionalProperties:
+                      type: string
+                    description: Tags to match (AND semantics)
+                    type: object
+                type: object
               subnetIds:
                 description: |-
-                  SubnetIDs is the list of subnets to launch instances in.
+                  SubnetIDs is the list of subnets to launch instances in (mutually exclusive with subnetSelector).
                   Instances are distributed across subnets using round-robin.
                 items:
                   type: string
                 minItems: 1
                 type: array
+              subnetSelector:
+                description: SubnetSelector defines criteria for dynamically selecting
+                  subnets (mutually exclusive with subnetIds)
+                properties:
+                  tags:
+                    additionalProperties:
+                      type: string
+                    description: Tags to match (AND semantics)
+                    type: object
+                type: object
               tags:
                 additionalProperties:
                   type: string
@@ -135,12 +207,25 @@ spec:
                   This script should join the cluster and self-stop when ready.
                 type: string
             required:
-            - ami
-            - iamInstanceProfile
             - instanceType
-            - securityGroupIds
-            - subnetIds
             type: object
+            x-kubernetes-validations:
+            - message: one of ami or amiSelector is required
+              rule: has(self.ami) || has(self.amiSelector)
+            - message: ami and amiSelector are mutually exclusive
+              rule: '!(has(self.ami) && has(self.amiSelector))'
+            - message: one of subnetIds or subnetSelector is required
+              rule: has(self.subnetIds) || has(self.subnetSelector)
+            - message: subnetIds and subnetSelector are mutually exclusive
+              rule: '!(has(self.subnetIds) && has(self.subnetSelector))'
+            - message: one of securityGroupIds or securityGroupSelector is required
+              rule: has(self.securityGroupIds) || has(self.securityGroupSelector)
+            - message: securityGroupIds and securityGroupSelector are mutually exclusive
+              rule: '!(has(self.securityGroupIds) && has(self.securityGroupSelector))'
+            - message: one of iamInstanceProfile or role is required
+              rule: has(self.iamInstanceProfile) || has(self.role)
+            - message: role and iamInstanceProfile are mutually exclusive
+              rule: '!(has(self.iamInstanceProfile) && has(self.role))'
           status:
             description: AWSNodeClassStatus defines the observed state of AWSNodeClass
             properties:
@@ -207,6 +292,49 @@ spec:
                   this AWSNodeClass
                 format: int32
                 type: integer
+              resolvedAMI:
+                description: ResolvedAMI is the resolved AMI ID (from selector or
+                  static field)
+                type: string
+              resolvedInstanceProfile:
+                description: ResolvedInstanceProfile is the resolved instance profile
+                  ARN
+                type: string
+              resolvedSecurityGroups:
+                description: ResolvedSecurityGroups is the list of resolved security
+                  groups with IDs and names
+                items:
+                  description: ResolvedSecurityGroup represents a resolved security
+                    group with its ID and name.
+                  properties:
+                    id:
+                      description: ID is the security group ID
+                      type: string
+                    name:
+                      description: Name is the security group name
+                      type: string
+                  required:
+                  - id
+                  type: object
+                type: array
+              resolvedSubnets:
+                description: ResolvedSubnets is the list of resolved subnets with
+                  IDs and availability zones
+                items:
+                  description: ResolvedSubnet represents a resolved subnet with its
+                    ID and availability zone.
+                  properties:
+                    id:
+                      description: ID is the subnet ID
+                      type: string
+                    zone:
+                      description: Zone is the availability zone of the subnet
+                      type: string
+                  required:
+                  - id
+                  - zone
+                  type: object
+                type: array
             type: object
         type: object
     served: true
