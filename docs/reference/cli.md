@@ -38,13 +38,45 @@ This document provides a complete reference for Stratos controller command-line 
 
 ## Environment Variables
 
-| Variable | Corresponding Flag | Description |
-|----------|-------------------|-------------|
-| `CLUSTER_NAME` | `--cluster-name` | Kubernetes cluster name |
-| `AWS_REGION` | - | Default AWS region (can be overridden per NodePool) |
-| `AWS_ACCESS_KEY_ID` | - | AWS access key (prefer IRSA instead) |
-| `AWS_SECRET_ACCESS_KEY` | - | AWS secret key (prefer IRSA instead) |
-| `AWS_SESSION_TOKEN` | - | AWS session token for temporary credentials |
+All CLI flags can be configured via environment variables using the `STRATOS_` prefix. The controller also supports loading environment variables from a `.env` file in the working directory via [godotenv](https://github.com/joho/godotenv).
+
+**Precedence:** CLI flags > STRATOS_ env vars > legacy env vars > defaults
+
+### Controller Environment Variables
+
+| Environment Variable | Corresponding Flag | Legacy Alias | Default |
+|---------------------|-------------------|--------------|---------|
+| `STRATOS_CLUSTER_NAME` | `--cluster-name` | `CLUSTER_NAME` | - |
+| `STRATOS_CLUSTER_ENDPOINT` | `--cluster-endpoint` | `CLUSTER_ENDPOINT` | - |
+| `STRATOS_CLUSTER_CA` | `--cluster-ca` | `CLUSTER_CA` | - |
+| `STRATOS_CLUSTER_CIDR` | `--cluster-cidr` | `CLUSTER_CIDR` | - |
+| `STRATOS_CLOUD_PROVIDER` | `--cloud-provider` | - | `aws` |
+| `STRATOS_SYNC_PERIOD` | `--sync-period` | - | `30s` |
+| `STRATOS_LEADER_ELECT` | `--leader-elect` | - | `false` |
+| `STRATOS_METRICS_BIND_ADDRESS` | `--metrics-bind-address` | - | `:8080` |
+| `STRATOS_HEALTH_PROBE_BIND_ADDRESS` | `--health-probe-bind-address` | - | `:8081` |
+| `STRATOS_GRACEFUL_SHUTDOWN_TIMEOUT` | `--graceful-shutdown-timeout` | - | `30s` |
+
+### AWS Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `AWS_REGION` | Default AWS region (can be overridden per NodePool) |
+| `AWS_ACCESS_KEY_ID` | AWS access key (prefer IRSA instead) |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key (prefer IRSA instead) |
+| `AWS_SESSION_TOKEN` | AWS session token for temporary credentials |
+
+### Using .env Files
+
+For local development, create a `.env` file in the working directory:
+
+```bash title=".env"
+STRATOS_CLUSTER_NAME=dev-cluster
+STRATOS_CLOUD_PROVIDER=fake
+STRATOS_SYNC_PERIOD=60s
+```
+
+The controller automatically loads this file at startup. See `.env.example` in the repository for a complete template.
 
 ## Usage Examples
 

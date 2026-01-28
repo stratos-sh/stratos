@@ -6,34 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Stratos is a Kubernetes operator that eliminates cloud instance cold-start delays by maintaining pools of pre-warmed, stopped instances ready to start in seconds. Built on controller-runtime (kubebuilder pattern).
 
-## Common Commands
-
-```bash
-# Build & Run
-make build                    # Build binary (includes fmt, vet)
-make run                      # Run controller locally against kubeconfig
-make docker-build             # Build container image
-
-# Testing
-make test                     # Unit tests with race detection & coverage
-make test-integration         # Integration tests with envtest
-make coverage                 # Generate HTML coverage report
-
-# Code Quality
-make lint                     # Run golangci-lint
-make fmt                      # Format code
-make vet                      # Run go vet
-
-# Code Generation (run after modifying api/v1alpha1/*.go)
-make generate                 # Generate deepcopy methods
-make manifests                # Generate CRD manifests
-
-# Deployment
-make install                  # Install CRDs to cluster
-make deploy CLUSTER_NAME=main # Deploy controller via Helm
-make undeploy                 # Uninstall Helm release
-```
-
 Run a single test:
 ```bash
 go test -v -run TestSpecificName ./internal/controller/...
@@ -115,6 +87,25 @@ State transitions are defined in `internal/controller/state.go` with explicit va
 --health-probe-bind-address=:8081
 ```
 
+## Environment Variables
+
+All CLI flags can be configured via environment variables with the `STRATOS_` prefix. The controller also loads `.env` files automatically via godotenv.
+
+**Precedence:** CLI flags > STRATOS_ env vars > legacy env vars > defaults
+
+| Flag | Environment Variable | Legacy Alias | Default |
+|------|---------------------|--------------|---------|
+| `--metrics-bind-address` | `STRATOS_METRICS_BIND_ADDRESS` | - | `:8080` |
+| `--health-probe-bind-address` | `STRATOS_HEALTH_PROBE_BIND_ADDRESS` | - | `:8081` |
+| `--leader-elect` | `STRATOS_LEADER_ELECT` | - | `false` |
+| `--sync-period` | `STRATOS_SYNC_PERIOD` | - | `30s` |
+| `--cluster-name` | `STRATOS_CLUSTER_NAME` | `CLUSTER_NAME` | - |
+| `--cluster-endpoint` | `STRATOS_CLUSTER_ENDPOINT` | `CLUSTER_ENDPOINT` | - |
+| `--cluster-ca` | `STRATOS_CLUSTER_CA` | `CLUSTER_CA` | - |
+| `--cluster-cidr` | `STRATOS_CLUSTER_CIDR` | `CLUSTER_CIDR` | - |
+| `--cloud-provider` | `STRATOS_CLOUD_PROVIDER` | - | `aws` |
+| `--graceful-shutdown-timeout` | `STRATOS_GRACEFUL_SHUTDOWN_TIMEOUT` | - | `30s` |
+
 ## Running the Controller Locally
 
 **IMPORTANT:** Always use `go run` to run the controller locally. Never build a separate binary (`/tmp/stratos`, etc.) as it makes it harder to track running processes.
@@ -137,17 +128,36 @@ The controller process appears as `main --cluster-name=...` in the process list,
 
 golangci-lint configured with: errcheck, gosimple, govet (shadow, nilness), ineffassign, staticcheck, unused, gosec, gocyclo (min: 15), misspell. Test files excluded from gocyclo, errcheck, gosec.
 
-## Testing Patterns
+## Testing
+
+### Running Tests
+
+```bash
+# Unit tests
+make test                     # Run all unit tests with coverage
+
+# Integration tests (uses envtest with in-memory K8s API server)
+make test-integration         # Run all integration tests
+
+# Run a specific unit test
+go test -v -run TestSpecificName ./internal/controller/...
+
+# Run a specific integration test
+make test-integration TEST=TestNodePoolLifecycle
+```
+
+**Important:** Always use `make test-integration` for integration tests. Running `go test` directly will fail because integration tests require kubebuilder binaries (etcd, kube-apiserver). The Makefile sets up `KUBEBUILDER_ASSETS` automatically.
+
+### Test Patterns
 
 - **Unit tests**: Standard Go tests in `*_test.go` files alongside source
 - **Integration tests**: Use `envtest` (in-memory K8s API server) in `tests/integration/`
 - **Fake provider**: `internal/cloudprovider/fake/provider.go` supports hooks for intercepting cloud operations
 - **BDD style**: Integration tests use Ginkgo/Gomega for readable assertions
 
-```bash
-# Run specific integration test
-go test -v -tags=integration -run TestNodePoolLifecycle ./tests/integration/...
-```
+## OpenSpec Workflow
+
+After completing an OpenSpec implementation (`/opsx:apply` finishes all tasks), always run the full test suite (unit + integration) before marking the work as complete. Use `/run-tests` to execute all tests.
 
 ## Context7 MCP
 
