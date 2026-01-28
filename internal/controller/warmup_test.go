@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
@@ -127,7 +127,7 @@ func TestMonitorWarmup_SelfStop_InstanceStopped(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	// Manually add an instance in stopped state
@@ -190,7 +190,7 @@ func TestMonitorWarmup_ControllerStop_NodeNotReady(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	// Create instance in running state
@@ -260,7 +260,7 @@ func TestMonitorWarmup_ControllerStop_NodeReady(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	// Track if StopInstance was called
@@ -337,7 +337,7 @@ func TestMonitorWarmup_ControllerStop_WaitsForNetworkReady(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	// Track if StopInstance was called
@@ -418,7 +418,7 @@ func TestMonitorWarmup_ControllerStop_NetworkReady(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	// Track if StopInstance was called
@@ -504,7 +504,7 @@ func TestMonitorCloudWarmup_PoolOnlyLabel_LabelsNode(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
@@ -568,7 +568,7 @@ func TestMonitorCloudWarmup_NoLabels_LabelsNode(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
@@ -637,7 +637,7 @@ func TestMonitorCloudWarmup_PoolOnlyLabel_InstanceStopped_AdoptsToStandby(t *tes
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
@@ -720,7 +720,7 @@ func TestMonitorCloudWarmup_FullyLabeled_NoChange(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
@@ -778,7 +778,7 @@ func TestMonitorWarmup_SelfStop_BackwardCompatibility(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	// Track if StopInstance was called

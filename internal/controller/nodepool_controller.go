@@ -29,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -58,7 +58,7 @@ const (
 type NodePoolReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
-	Recorder      record.EventRecorder
+	Recorder      events.EventRecorder
 	ClusterName   string
 	CloudProvider string
 
@@ -891,14 +891,14 @@ func (r *NodePoolReconciler) setDegradedCondition(ctx context.Context, nodePool 
 // recordEvent records a Kubernetes event for the NodePool.
 func (r *NodePoolReconciler) recordEvent(nodePool *stratosv1alpha1.NodePool, eventType, reason, message string) {
 	if r.Recorder != nil {
-		r.Recorder.Event(nodePool, eventType, reason, message)
+		r.Recorder.Eventf(nodePool, nil, eventType, reason, reason, "%s", message)
 	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *NodePoolReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Get the event recorder
-	r.Recorder = mgr.GetEventRecorderFor("nodepool-controller")
+	r.Recorder = mgr.GetEventRecorder("nodepool-controller")
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&stratosv1alpha1.NodePool{}).
