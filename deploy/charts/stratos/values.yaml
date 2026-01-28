@@ -1,9 +1,26 @@
 # Stratos controller configuration
+#
+# All settings can also be configured via environment variables using the STRATOS_ prefix.
+# CLI flags/values take precedence over environment variables.
+# See the "extraEnv" section below for examples.
 
-# -- Required: Kubernetes cluster name passed to the controller
-clusterName: ""
+# Cluster configuration for node bootstrap and userData generation
+cluster:
+  # -- Required: Kubernetes cluster name
+  # Env: STRATOS_CLUSTER_NAME (legacy: CLUSTER_NAME)
+  name: ""
+  # -- Required: Kubernetes API server endpoint (e.g., https://...)
+  # Env: STRATOS_CLUSTER_ENDPOINT (legacy: CLUSTER_ENDPOINT)
+  apiServerEndpoint: ""
+  # -- Required: Base64-encoded CA certificate for the API server
+  # Env: STRATOS_CLUSTER_CA (legacy: CLUSTER_CA)
+  certificateAuthority: ""
+  # -- Required: Cluster service CIDR (e.g., 172.20.0.0/16)
+  # Env: STRATOS_CLUSTER_CIDR (legacy: CLUSTER_CIDR)
+  cidr: ""
 
 # -- Cloud provider to use (aws or fake)
+# Env: STRATOS_CLOUD_PROVIDER
 cloudProvider: aws
 
 image:
@@ -35,18 +52,32 @@ resources:
     memory: 128Mi
 
 # -- Enable leader election for HA
+# Env: STRATOS_LEADER_ELECT
 leaderElect: true
 
 # -- Reconciliation sync period
+# Env: STRATOS_SYNC_PERIOD
 syncPeriod: "30s"
 
 # -- Metrics bind address
+# Env: STRATOS_METRICS_BIND_ADDRESS
 metricsBindAddress: ":8080"
 
 # -- Health probe bind address
+# Env: STRATOS_HEALTH_PROBE_BIND_ADDRESS
 healthProbeBindAddress: ":8081"
 
+# -- Graceful shutdown timeout
+# Env: STRATOS_GRACEFUL_SHUTDOWN_TIMEOUT
+gracefulShutdownTimeout: "30s"
+
 # -- Additional environment variables for the controller
+# Example using STRATOS_ prefixed env vars instead of CLI flags:
+#   extraEnv:
+#     - name: STRATOS_SYNC_PERIOD
+#       value: "60s"
+#     - name: STRATOS_CLOUD_PROVIDER
+#       value: "fake"
 extraEnv: []
 
 # -- Additional args for the controller

@@ -17,3 +17,48 @@ IMPORTANT: Helm does not upgrade CRDs automatically.
 When upgrading Stratos, apply CRDs manually before running helm upgrade:
 
   kubectl apply -f deploy/charts/stratos/crds/
+
+---
+MIGRATION NOTES (v0.2.0+)
+
+This release includes BREAKING CHANGES to AWSNodeClass and NodePool CRDs.
+
+AWSNodeClass changes:
+  - REMOVED: userData field - Stratos now generates userData automatically
+  - REMOVED: ami field - Use amiSelector or let Stratos auto-discover the AMI
+  - ADDED: bootstrapTemplate (required) - Set to AL2023, AL2, or Bottlerocket
+  - ADDED: architecture (optional) - Set to x86_64 (default) or arm64
+  - ADDED: kubelet (optional) - Configure maxPods, nodeLabels, nodeTaints, extraArgs
+  - ADDED: customUserData (optional) - Additional scripts merged with bootstrap
+
+NodePool changes:
+  - REMOVED: spec.template.preWarm.completionMode - Stratos now always uses
+    ControllerStop mode (controller stops nodes when warmup completes)
+
+Required Helm values for userData generation:
+  cluster.apiServerEndpoint: <your-cluster-api-endpoint>
+  cluster.certificateAuthority: <base64-encoded-ca-cert>
+  cluster.cidr: <cluster-service-cidr>
+
+Example AWSNodeClass (v0.2.0+):
+
+  apiVersion: stratos.sh/v1alpha1
+  kind: AWSNodeClass
+  metadata:
+    name: my-node-class
+  spec:
+    bootstrapTemplate: AL2023    # Required: AL2023, AL2, or Bottlerocket
+    architecture: x86_64         # Optional: x86_64 or arm64
+    instanceType: m5.large
+    subnetSelector:
+      tags:
+        kubernetes.io/cluster/my-cluster: owned
+    securityGroupSelector:
+      tags:
+        kubernetes.io/cluster/my-cluster: owned
+    role: my-node-role
+
+To migrate existing AWSNodeClass resources:
+  1. Remove userData and ami fields
+  2. Add bootstrapTemplate field (AL2023, AL2, or Bottlerocket)
+  3. Optionally add kubelet configuration for node customization
