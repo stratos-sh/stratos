@@ -1,0 +1,44 @@
+# Production-ready NodePool with workload isolation and tuned scale-down
+# This example demonstrates recommended settings for production workloads
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: production
+spec:
+  # Larger pool for production workloads
+  poolSize: 20
+  minStandby: 5
+
+  # Node template with production settings
+  template:
+    labels:
+      workload: production
+      environment: production
+
+    # Taints for workload isolation - only pods with matching tolerations will schedule
+    taints:
+      - key: workload
+        value: production
+        effect: NoSchedule
+
+    # Startup taints - prevent scheduling until node is fully ready
+    startupTaints:
+      - key: node.kubernetes.io/not-ready
+        effect: NoSchedule
+
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: production
+
+  # Scale-down configuration
+  scaleDown:
+    enabled: true
+    # Wait longer before scaling down in production
+    emptyNodeTTL: 10m
+    # Allow more time for graceful pod draining
+    drainTimeout: 10m
+
+  # Pre-warm configuration
+  preWarm:
+    timeout: 15m
+    timeoutAction: terminate

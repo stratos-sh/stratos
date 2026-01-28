@@ -1,0 +1,33 @@
+# Minimal Bottlerocket AWSNodeClass example
+# Bottlerocket uses dual volumes: root OS (/dev/xvda) and data (/dev/xvdb)
+# Replace placeholder values with your actual AWS resources
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: bottlerocket-basic
+spec:
+  # Bottlerocket uses TOML configuration format
+  bootstrapTemplate: Bottlerocket
+
+  # Instance configuration
+  instanceType: m5.large
+
+  # Network configuration (replace with your VPC resources)
+  subnetIds:
+    - <YOUR_SUBNET_ID>
+  securityGroupIds:
+    - <YOUR_SECURITY_GROUP_ID>
+
+  # IAM configuration (replace with your IAM instance profile)
+  iamInstanceProfile: <YOUR_INSTANCE_PROFILE_NAME>
+
+  # EBS configuration - Bottlerocket requires two volumes
+  blockDeviceMappings:
+    # Root volume for the OS
+    - deviceName: /dev/xvda
+      volumeSize: 4
+      volumeType: gp3
+    # Data volume for containers and images
+    - deviceName: /dev/xvdb
+      volumeSize: 50
+      volumeType: gp3

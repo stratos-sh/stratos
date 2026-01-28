@@ -1,0 +1,17 @@
+# NodePool using the AL2023 basic nodeclass
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: al2023-basic
+spec:
+  # Pool configuration
+  poolSize: 5
+  minStandby: 2
+
+  # Node template
+  template:
+    labels:
+      workload: general
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: al2023-basic
