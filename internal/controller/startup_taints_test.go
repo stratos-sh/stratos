@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
@@ -298,7 +298,7 @@ func TestNodeManager_ProcessStartupTaints_NoStartupTaints(t *testing.T) {
 	_ = stratosv1alpha1.AddToScheme(scheme)
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
 
 	pool := &stratosv1alpha1.NodePool{
@@ -339,7 +339,7 @@ func TestNodeManager_ProcessStartupTaints_AlreadyRemoved(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
 
 	pool := &stratosv1alpha1.NodePool{
@@ -389,7 +389,7 @@ func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkNotReady(t *te
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
 
 	pool := &stratosv1alpha1.NodePool{
@@ -445,7 +445,7 @@ func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkReady(t *testi
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
 
 	pool := &stratosv1alpha1.NodePool{
@@ -504,7 +504,7 @@ func TestNodeManager_ProcessStartupTaints_ExternalMode(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
 
 	pool := &stratosv1alpha1.NodePool{
@@ -565,7 +565,7 @@ func TestNodeManager_ProcessStartupTaints_Timeout_WhenNetworkReady(t *testing.T)
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
 
 	pool := &stratosv1alpha1.NodePool{
@@ -625,7 +625,7 @@ func TestNodeManager_ProcessStartupTaints_Timeout_External(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
 
 	pool := &stratosv1alpha1.NodePool{
@@ -690,7 +690,7 @@ func TestNodeManager_ProcessStartupTaints_DefaultMode(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
 
 	pool := &stratosv1alpha1.NodePool{
