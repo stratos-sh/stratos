@@ -34,9 +34,10 @@ import (
 // AWSNodeClassReconciler reconciles AWSNodeClass objects to resolve selectors.
 type AWSNodeClassReconciler struct {
 	client.Client
-	Resolver    Resolver
-	Recorder    events.EventRecorder
-	ClusterName string
+	Resolver          Resolver
+	Recorder          events.EventRecorder
+	ClusterName       string
+	KubernetesVersion string // Used for AMI auto-discovery
 }
 
 // Reconcile resolves selectors and updates AWSNodeClass status.
@@ -92,46 +93,69 @@ func (r *AWSNodeClassReconciler) Reconcile(ctx context.Context, req ctrl.Request
 }
 
 func (r *AWSNodeClassReconciler) resolveAMI(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass) {
-	if nodeClass.Spec.AMI != "" {
-		// Static AMI
-		nodeClass.Status.ResolvedAMI = nodeClass.Spec.AMI
-		meta.SetStatusCondition(&nodeClass.Status.Conditions, metav1.Condition{
-			Type:               stratosv1alpha1.AWSNodeClassConditionTypeAMIReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             stratosv1alpha1.AWSNodeClassReasonResolved,
-			Message:            fmt.Sprintf("Using static AMI %s", nodeClass.Spec.AMI),
-			LastTransitionTime: metav1.Now(),
-		})
-		return
-	}
+	// Determine which selector to use - explicit or auto-discovered
+	selector := nodeClass.Spec.AMISelector
 
-	if nodeClass.Spec.AMISelector != nil {
-		amiID, err := r.Resolver.ResolveAMI(ctx, nodeClass.Spec.AMISelector)
-		if err != nil {
-			// Last-known-good: preserve previous value if it exists
+	// Auto-discover AMI selector if not specified
+	if selector == nil {
+		// Requires K8s version for auto-discovery
+		if r.KubernetesVersion == "" {
+			// Can't auto-discover without K8s version
 			if nodeClass.Status.ResolvedAMI != "" {
-				r.Recorder.Eventf(nodeClass, nil, "Warning", "ResolutionFailed", "ResolveAMI",
-					"AMI resolution failed, using cached value: %v", err)
+				// Keep existing value if we have one
+				r.Recorder.Eventf(nodeClass, nil, "Warning", "VersionDetectionFailed", "ResolveAMI",
+					"Cannot auto-discover AMI: Kubernetes version detection failed. Specify amiSelector explicitly.")
 				return
 			}
 			meta.SetStatusCondition(&nodeClass.Status.Conditions, metav1.Condition{
 				Type:               stratosv1alpha1.AWSNodeClassConditionTypeAMIReady,
 				Status:             metav1.ConditionFalse,
-				Reason:             stratosv1alpha1.AWSNodeClassReasonResolutionFailed,
-				Message:            fmt.Sprintf("AMI resolution failed: %v", err),
+				Reason:             "VersionDetectionFailed",
+				Message:            "Cannot auto-discover AMI: Kubernetes version detection failed. Specify amiSelector explicitly.",
 				LastTransitionTime: metav1.Now(),
 			})
 			return
 		}
-		nodeClass.Status.ResolvedAMI = amiID
+
+		autoSelector, err := DefaultAMISelector(nodeClass.Spec.BootstrapTemplate, nodeClass.Spec.Architecture, r.KubernetesVersion)
+		if err != nil {
+			meta.SetStatusCondition(&nodeClass.Status.Conditions, metav1.Condition{
+				Type:               stratosv1alpha1.AWSNodeClassConditionTypeAMIReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             stratosv1alpha1.AWSNodeClassReasonResolutionFailed,
+				Message:            fmt.Sprintf("AMI auto-discovery failed: %v", err),
+				LastTransitionTime: metav1.Now(),
+			})
+			return
+		}
+		selector = autoSelector
+	}
+
+	amiID, err := r.Resolver.ResolveAMI(ctx, selector)
+	if err != nil {
+		// Last-known-good: preserve previous value if it exists
+		if nodeClass.Status.ResolvedAMI != "" {
+			r.Recorder.Eventf(nodeClass, nil, "Warning", "ResolutionFailed", "ResolveAMI",
+				"AMI resolution failed, using cached value: %v", err)
+			return
+		}
 		meta.SetStatusCondition(&nodeClass.Status.Conditions, metav1.Condition{
 			Type:               stratosv1alpha1.AWSNodeClassConditionTypeAMIReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             stratosv1alpha1.AWSNodeClassReasonResolved,
-			Message:            fmt.Sprintf("Resolved AMI %s", amiID),
+			Status:             metav1.ConditionFalse,
+			Reason:             stratosv1alpha1.AWSNodeClassReasonResolutionFailed,
+			Message:            fmt.Sprintf("AMI resolution failed: %v", err),
 			LastTransitionTime: metav1.Now(),
 		})
+		return
 	}
+	nodeClass.Status.ResolvedAMI = amiID
+	meta.SetStatusCondition(&nodeClass.Status.Conditions, metav1.Condition{
+		Type:               stratosv1alpha1.AWSNodeClassConditionTypeAMIReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             stratosv1alpha1.AWSNodeClassReasonResolved,
+		Message:            fmt.Sprintf("Resolved AMI %s", amiID),
+		LastTransitionTime: metav1.Now(),
+	})
 }
 
 func (r *AWSNodeClassReconciler) resolveSubnets(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass) {

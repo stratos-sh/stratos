@@ -37,14 +37,25 @@ import (
 
 // AWSProvider implements the CloudProvider interface for AWS EC2.
 type AWSProvider struct {
-	client      *ec2.Client
-	rateLimiter *RateLimiter
-	region      string
-	subnetIndex uint64 // atomic counter for round-robin subnet selection
+	client        *ec2.Client
+	rateLimiter   *RateLimiter
+	region        string
+	subnetIndex   uint64 // atomic counter for round-robin subnet selection
+	clusterConfig *ClusterConfig
 }
 
-// NewAWSProvider creates a new AWS provider with the specified region.
-func NewAWSProvider(ctx context.Context, region string) (*AWSProvider, error) {
+// ClusterConfig holds the cluster configuration needed for userData generation.
+// This is passed from controller.ClusterConfig at initialization.
+type ClusterConfig struct {
+	Name                 string
+	APIServerEndpoint    string
+	CertificateAuthority string
+	CIDR                 string
+	KubernetesVersion    string
+}
+
+// NewAWSProvider creates a new AWS provider with the specified region and cluster config.
+func NewAWSProvider(ctx context.Context, region string, clusterConfig *ClusterConfig) (*AWSProvider, error) {
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
 	)
@@ -53,9 +64,10 @@ func NewAWSProvider(ctx context.Context, region string) (*AWSProvider, error) {
 	}
 
 	return &AWSProvider{
-		client:      ec2.NewFromConfig(cfg),
-		rateLimiter: NewRateLimiter(),
-		region:      region,
+		client:        ec2.NewFromConfig(cfg),
+		rateLimiter:   NewRateLimiter(),
+		region:        region,
+		clusterConfig: clusterConfig,
 	}, nil
 }
 
@@ -163,9 +175,26 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 		input.MetadataOptions = mo
 	}
 
-	if nodeClass.Spec.UserData != "" {
-		// AWS requires user data to be base64 encoded
-		encoded := base64.StdEncoding.EncodeToString([]byte(nodeClass.Spec.UserData))
+	// Generate userData using the bootstrap generator
+	if p.clusterConfig != nil {
+		bootstrapConfig := &BootstrapConfig{
+			ClusterName:       p.clusterConfig.Name,
+			ClusterEndpoint:   p.clusterConfig.APIServerEndpoint,
+			ClusterCA:         p.clusterConfig.CertificateAuthority,
+			ClusterCIDR:       p.clusterConfig.CIDR,
+			PoolName:          poolName,
+			BootstrapTemplate: nodeClass.Spec.BootstrapTemplate,
+			Kubelet:           nodeClass.Spec.Kubelet,
+			CustomUserData:    nodeClass.Spec.CustomUserData,
+		}
+
+		userData, err := GenerateUserData(bootstrapConfig)
+		if err != nil {
+			status = "error"
+			return nil, fmt.Errorf("failed to generate userData: %w", err)
+		}
+
+		encoded := base64.StdEncoding.EncodeToString([]byte(userData))
 		input.UserData = aws.String(encoded)
 	}
 

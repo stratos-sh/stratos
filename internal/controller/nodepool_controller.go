@@ -61,6 +61,7 @@ type NodePoolReconciler struct {
 	Recorder      events.EventRecorder
 	ClusterName   string
 	CloudProvider string
+	ClusterConfig *ClusterConfig
 
 	// cloudProvidersMu protects cloudProviders map from concurrent access
 	cloudProvidersMu sync.RWMutex
@@ -515,7 +516,19 @@ func (r *NodePoolReconciler) ensureCloudProvider(nodePool *stratosv1alpha1.NodeP
 			if nodeClass.Spec.Region != "" {
 				region = nodeClass.Spec.Region
 			}
-			provider, err = aws.NewAWSProvider(context.Background(), region)
+
+			// Convert controller.ClusterConfig to aws.ClusterConfig
+			var awsClusterConfig *aws.ClusterConfig
+			if r.ClusterConfig != nil {
+				awsClusterConfig = &aws.ClusterConfig{
+					Name:                 r.ClusterConfig.Name,
+					APIServerEndpoint:    r.ClusterConfig.APIServerEndpoint,
+					CertificateAuthority: r.ClusterConfig.CertificateAuthority,
+					CIDR:                 r.ClusterConfig.CIDR,
+					KubernetesVersion:    r.ClusterConfig.KubernetesVersion,
+				}
+			}
+			provider, err = aws.NewAWSProvider(context.Background(), region, awsClusterConfig)
 			if err != nil {
 				return fmt.Errorf("failed to create AWS provider: %w", err)
 			}
@@ -770,16 +783,14 @@ func (r *NodePoolReconciler) getInUseCondition(refCount int) metav1.Condition {
 
 // getValidCondition returns the Valid condition based on spec validation.
 func (r *NodePoolReconciler) getValidCondition(nodeClass *stratosv1alpha1.AWSNodeClass) metav1.Condition {
-	// Validate AMI format if static AMI is specified
-	if nodeClass.Spec.AMI != "" {
-		if len(nodeClass.Spec.AMI) <= 4 || nodeClass.Spec.AMI[:4] != "ami-" {
-			return metav1.Condition{
-				Type:               stratosv1alpha1.AWSNodeClassConditionTypeValid,
-				Status:             metav1.ConditionFalse,
-				Reason:             stratosv1alpha1.AWSNodeClassReasonInvalidAMI,
-				Message:            "AMI must start with 'ami-' and include an ID",
-				LastTransitionTime: metav1.Now(),
-			}
+	// Validate bootstrapTemplate is set (required field)
+	if nodeClass.Spec.BootstrapTemplate == "" {
+		return metav1.Condition{
+			Type:               stratosv1alpha1.AWSNodeClassConditionTypeValid,
+			Status:             metav1.ConditionFalse,
+			Reason:             "MissingBootstrapTemplate",
+			Message:            "bootstrapTemplate is required",
+			LastTransitionTime: metav1.Now(),
 		}
 	}
 

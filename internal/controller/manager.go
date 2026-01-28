@@ -199,14 +199,14 @@ func (m *NodeManager) MonitorWarmup(ctx context.Context, pool *stratosv1alpha1.N
 
 	switch state {
 	case cloudprovider.InstanceStateStopped:
-		// Instance has self-stopped - transition to standby
-		logger.Info("Instance self-stopped, transitioning to standby", "node", node.Name)
+		// Instance stopped - transition to standby
+		logger.Info("Instance stopped, transitioning to standby", "node", node.Name)
 
 		// Record warmup completion
 		startTime := parseUnixTimestamp(node.Labels[LabelStateSince])
 		if !startTime.IsZero() {
 			duration := time.Since(startTime).Seconds()
-			metrics.RecordWarmupDuration(pool.Name, "self_stop", duration)
+			metrics.RecordWarmupDuration(pool.Name, "controller_stop", duration)
 		}
 
 		// Prepare node for standby (cordon + taint + re-add startup taints)
@@ -242,24 +242,21 @@ func (m *NodeManager) MonitorWarmup(ctx context.Context, pool *stratosv1alpha1.N
 		}
 
 	case cloudprovider.InstanceStateRunning:
-		// Instance still running - behavior depends on completion mode
+		// Instance still running - check readiness and stop when ready (ControllerStop behavior)
 		startTime := parseUnixTimestamp(node.Labels[LabelStateSince])
 		if startTime.IsZero() {
 			startTime = time.Now()
 		}
 
-		// Check timeout first (applies to both modes)
+		// Check timeout first
 		timeout := pool.Spec.PreWarm.GetTimeout().Duration
 		if time.Since(startTime) > timeout {
 			logger.Info("Warmup timeout exceeded", "node", node.Name, "timeout", timeout)
 			return m.handleWarmupTimeout(ctx, pool, node, instanceID)
 		}
 
-		// In ControllerStop mode, check if node is ready and stop it
-		if pool.Spec.PreWarm.GetCompletionMode() == stratosv1alpha1.WarmupCompletionModeControllerStop {
-			return m.handleControllerStopWarmup(ctx, pool, node, instanceID, startTime)
-		}
-		// In SelfStop mode, just wait for instance to self-stop (no action needed)
+		// Check if node is ready and stop it (always ControllerStop behavior)
+		return m.handleControllerStopWarmup(ctx, pool, node, instanceID, startTime)
 
 	case cloudprovider.InstanceStateTerminated:
 		// Instance was terminated - clean up node
@@ -314,15 +311,14 @@ func (m *NodeManager) handleWarmupTimeout(ctx context.Context, pool *stratosv1al
 	return nil
 }
 
-// handleControllerStopWarmup handles warmup in ControllerStop mode.
+// handleControllerStopWarmup handles warmup completion.
 // It checks if the node is ready and stops it when conditions are met.
 func (m *NodeManager) handleControllerStopWarmup(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node, instanceID string, startTime time.Time) error {
 	logger := log.FromContext(ctx)
 
 	// Check if node is Ready
 	if !IsNodeReady(node) {
-		logger.V(1).Info("Node not ready, waiting for warmup to complete",
-			"node", node.Name, "mode", "ControllerStop")
+		logger.V(1).Info("Node not ready, waiting for warmup to complete", "node", node.Name)
 		return nil
 	}
 
@@ -330,21 +326,18 @@ func (m *NodeManager) handleControllerStopWarmup(ctx context.Context, pool *stra
 	if pool.Spec.Template.StartupTaintRemoval == stratosv1alpha1.StartupTaintRemovalWhenNetworkReady {
 		checker := NewNetworkReadinessChecker(m.client)
 		if !checker.IsReady(node) {
-			logger.V(1).Info("Node ready but network not ready, waiting",
-				"node", node.Name, "mode", "ControllerStop")
+			logger.V(1).Info("Node ready but network not ready, waiting", "node", node.Name)
 			return nil
 		}
 		// For EKS, also verify aws-node pod is Ready
 		if checker.HasNetworkingReadyCondition(node) && !checker.IsAwsNodePodReady(ctx, node.Name) {
-			logger.V(1).Info("Node ready but aws-node pod not ready, waiting",
-				"node", node.Name, "mode", "ControllerStop")
+			logger.V(1).Info("Node ready but aws-node pod not ready, waiting", "node", node.Name)
 			return nil
 		}
 	}
 
 	// Node is ready (and network ready if required) - stop the instance
-	logger.Info("Node ready, stopping instance in ControllerStop mode",
-		"node", node.Name, "instanceID", instanceID)
+	logger.Info("Node ready, stopping instance", "node", node.Name, "instanceID", instanceID)
 
 	// Stop the instance
 	if err := m.cloudProvider.StopInstance(ctx, instanceID, false); err != nil {
@@ -374,7 +367,7 @@ func (m *NodeManager) handleControllerStopWarmup(ctx context.Context, pool *stra
 	// Record event
 	if m.recorder != nil {
 		m.recorder.Eventf(pool, nil, corev1.EventTypeNormal, "WarmupCompleted", "HandleControllerStopWarmup",
-			"Node %s completed warmup (ControllerStop mode) and is now standby", node.Name)
+			"Node %s completed warmup and is now standby", node.Name)
 	}
 
 	// Set warmup completed annotation
