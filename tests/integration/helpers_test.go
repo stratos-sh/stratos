@@ -44,7 +44,7 @@ func testAWSNodeClass(name string) *stratosv1alpha1.AWSNodeClass {
 		Spec: stratosv1alpha1.AWSNodeClassSpec{
 			Region:             "us-east-1",
 			InstanceType:       "m5.large",
-			AMI:                "ami-12345678",
+			BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 			SubnetIDs:          []string{"subnet-12345678"},
 			SecurityGroupIDs:   []string{"sg-12345678"},
 			IAMInstanceProfile: "test-profile",

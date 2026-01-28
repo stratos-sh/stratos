@@ -17,22 +17,112 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"strings"
 	"testing"
 )
 
-func TestAWSNodeClassSpec_Validation(t *testing.T) {
+func TestBootstrapTemplate_Values(t *testing.T) {
 	tests := []struct {
-		name        string
-		spec        AWSNodeClassSpec
-		wantValid   bool
-		invalidPart string // which part should be invalid (if any)
+		name     string
+		template BootstrapTemplate
+		valid    bool
 	}{
 		{
-			name: "valid spec with all required fields",
+			name:     "AL2023 is valid",
+			template: BootstrapTemplateAL2023,
+			valid:    true,
+		},
+		{
+			name:     "AL2 is valid",
+			template: BootstrapTemplateAL2,
+			valid:    true,
+		},
+		{
+			name:     "Bottlerocket is valid",
+			template: BootstrapTemplateBottlerocket,
+			valid:    true,
+		},
+		{
+			name:     "empty string is invalid",
+			template: "",
+			valid:    false,
+		},
+		{
+			name:     "arbitrary value is invalid",
+			template: "Windows",
+			valid:    false,
+		},
+	}
+
+	validTemplates := map[BootstrapTemplate]bool{
+		BootstrapTemplateAL2023:      true,
+		BootstrapTemplateAL2:         true,
+		BootstrapTemplateBottlerocket: true,
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := validTemplates[tt.template]
+			if ok != tt.valid {
+				t.Errorf("BootstrapTemplate %q validity = %v, want %v", tt.template, ok, tt.valid)
+			}
+		})
+	}
+}
+
+func TestArchitecture_Values(t *testing.T) {
+	tests := []struct {
+		name  string
+		arch  Architecture
+		valid bool
+	}{
+		{
+			name:  "x86_64 is valid",
+			arch:  ArchitectureX86_64,
+			valid: true,
+		},
+		{
+			name:  "arm64 is valid",
+			arch:  ArchitectureARM64,
+			valid: true,
+		},
+		{
+			name:  "empty string defaults to x86_64 per kubebuilder",
+			arch:  "",
+			valid: false, // needs explicit value or kubebuilder default
+		},
+		{
+			name:  "arbitrary value is invalid",
+			arch:  "amd64",
+			valid: false,
+		},
+	}
+
+	validArchs := map[Architecture]bool{
+		ArchitectureX86_64: true,
+		ArchitectureARM64:  true,
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := validArchs[tt.arch]
+			if ok != tt.valid {
+				t.Errorf("Architecture %q validity = %v, want %v", tt.arch, ok, tt.valid)
+			}
+		})
+	}
+}
+
+func TestAWSNodeClassSpec_BootstrapTemplate_Required(t *testing.T) {
+	tests := []struct {
+		name      string
+		spec      AWSNodeClassSpec
+		wantValid bool
+	}{
+		{
+			name: "valid spec with AL2023 bootstrapTemplate",
 			spec: AWSNodeClassSpec{
+				BootstrapTemplate:  BootstrapTemplateAL2023,
 				InstanceType:       "m5.large",
-				AMI:                "ami-12345678",
 				SubnetIDs:          []string{"subnet-12345678"},
 				SecurityGroupIDs:   []string{"sg-12345678"},
 				IAMInstanceProfile: "test-profile",
@@ -40,85 +130,111 @@ func TestAWSNodeClassSpec_Validation(t *testing.T) {
 			wantValid: true,
 		},
 		{
-			name: "valid spec with optional fields",
+			name: "valid spec with Bottlerocket bootstrapTemplate",
 			spec: AWSNodeClassSpec{
-				Region:             "us-west-2",
-				InstanceType:       "m5.xlarge",
-				AMI:                "ami-abcdef12",
-				SubnetIDs:          []string{"subnet-111", "subnet-222"},
-				SecurityGroupIDs:   []string{"sg-111", "sg-222"},
-				IAMInstanceProfile: "arn:aws:iam::123456789012:instance-profile/MyRole",
-				UserData:           "#!/bin/bash\necho hello",
-				Tags: map[string]string{
-					"Environment": "test",
-					"Owner":       "stratos",
-				},
-				BlockDeviceMappings: []BlockDeviceMapping{
-					{
-						DeviceName: "/dev/xvda",
-						VolumeSize: 20,
-						VolumeType: "gp3",
-						Encrypted:  true,
+				BootstrapTemplate:  BootstrapTemplateBottlerocket,
+				InstanceType:       "m5.large",
+				Architecture:       ArchitectureARM64,
+				SubnetIDs:          []string{"subnet-12345678"},
+				SecurityGroupIDs:   []string{"sg-12345678"},
+				IAMInstanceProfile: "test-profile",
+			},
+			wantValid: true,
+		},
+		{
+			name: "valid spec with kubelet config",
+			spec: AWSNodeClassSpec{
+				BootstrapTemplate:  BootstrapTemplateAL2023,
+				InstanceType:       "m5.large",
+				SubnetIDs:          []string{"subnet-12345678"},
+				SecurityGroupIDs:   []string{"sg-12345678"},
+				IAMInstanceProfile: "test-profile",
+				Kubelet: &KubeletConfig{
+					MaxPods: ptr[int32](110),
+					NodeLabels: map[string]string{
+						"team": "platform",
 					},
 				},
 			},
 			wantValid: true,
 		},
 		{
-			name: "valid AMI format",
+			name: "valid spec with customUserData",
 			spec: AWSNodeClassSpec{
-				InstanceType:       "t3.small",
-				AMI:                "ami-0123456789abcdef0",
+				BootstrapTemplate:  BootstrapTemplateAL2,
+				InstanceType:       "m5.large",
 				SubnetIDs:          []string{"subnet-12345678"},
 				SecurityGroupIDs:   []string{"sg-12345678"},
-				IAMInstanceProfile: "profile",
+				IAMInstanceProfile: "test-profile",
+				CustomUserData:     "#!/bin/bash\necho hello",
 			},
 			wantValid: true,
 		},
 		{
-			name: "invalid AMI format - no ami- prefix",
+			name: "invalid spec - missing bootstrapTemplate",
 			spec: AWSNodeClassSpec{
-				InstanceType:       "t3.small",
-				AMI:                "invalid-ami-id",
+				InstanceType:       "m5.large",
 				SubnetIDs:          []string{"subnet-12345678"},
 				SecurityGroupIDs:   []string{"sg-12345678"},
-				IAMInstanceProfile: "profile",
+				IAMInstanceProfile: "test-profile",
 			},
-			wantValid:   false,
-			invalidPart: "AMI",
-		},
-		{
-			name: "invalid AMI format - just ami",
-			spec: AWSNodeClassSpec{
-				InstanceType:       "t3.small",
-				AMI:                "ami",
-				SubnetIDs:          []string{"subnet-12345678"},
-				SecurityGroupIDs:   []string{"sg-12345678"},
-				IAMInstanceProfile: "profile",
-			},
-			wantValid:   false,
-			invalidPart: "AMI",
+			wantValid: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Validate AMI format
-			valid := true
-			invalidPart := ""
-
-			if tt.spec.AMI != "" {
-				if !strings.HasPrefix(tt.spec.AMI, "ami-") || len(tt.spec.AMI) <= 4 {
-					valid = false
-					invalidPart = "AMI"
-				}
-			}
+			// Check bootstrapTemplate is required
+			valid := tt.spec.BootstrapTemplate != ""
 
 			if valid != tt.wantValid {
-				t.Errorf("validation = %v, want %v", valid, tt.wantValid)
+				t.Errorf("spec validity = %v, want %v", valid, tt.wantValid)
 			}
-			if !tt.wantValid && invalidPart != tt.invalidPart {
-				t.Errorf("invalid part = %q, want %q", invalidPart, tt.invalidPart)
+		})
+	}
+}
+
+func TestAWSNodeClassSpec_WithAMISelector(t *testing.T) {
+	tests := []struct {
+		name string
+		spec AWSNodeClassSpec
+	}{
+		{
+			name: "spec with explicit amiSelector",
+			spec: AWSNodeClassSpec{
+				BootstrapTemplate:  BootstrapTemplateAL2023,
+				InstanceType:       "m5.large",
+				SubnetIDs:          []string{"subnet-12345678"},
+				SecurityGroupIDs:   []string{"sg-12345678"},
+				IAMInstanceProfile: "test-profile",
+				AMISelector: &AMISelector{
+					Name:  "my-custom-ami-*",
+					Owner: "self",
+				},
+			},
+		},
+		{
+			name: "spec without amiSelector uses auto-discovery",
+			spec: AWSNodeClassSpec{
+				BootstrapTemplate:  BootstrapTemplateAL2023,
+				InstanceType:       "m5.large",
+				Architecture:       ArchitectureX86_64,
+				SubnetIDs:          []string{"subnet-12345678"},
+				SecurityGroupIDs:   []string{"sg-12345678"},
+				IAMInstanceProfile: "test-profile",
+				// AMISelector is nil - auto-discovery should be used
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Verify struct is properly populated
+			if tt.spec.BootstrapTemplate == "" {
+				t.Error("BootstrapTemplate should not be empty")
+			}
+			if tt.spec.InstanceType == "" {
+				t.Error("InstanceType should not be empty")
 			}
 		})
 	}
@@ -131,6 +247,9 @@ func TestAWSNodeClassConditionConstants(t *testing.T) {
 	}
 	if AWSNodeClassConditionTypeInUse != "InUse" {
 		t.Errorf("AWSNodeClassConditionTypeInUse = %q, want %q", AWSNodeClassConditionTypeInUse, "InUse")
+	}
+	if AWSNodeClassConditionTypeAMIReady != "AMIReady" {
+		t.Errorf("AWSNodeClassConditionTypeAMIReady = %q, want %q", AWSNodeClassConditionTypeAMIReady, "AMIReady")
 	}
 
 	// Verify condition reason constants
@@ -218,4 +337,59 @@ func TestBlockDeviceMapping_Validation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestKubeletConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *KubeletConfig
+	}{
+		{
+			name: "nil config",
+			config: nil,
+		},
+		{
+			name: "maxPods only",
+			config: &KubeletConfig{
+				MaxPods: ptr[int32](110),
+			},
+		},
+		{
+			name: "nodeLabels only",
+			config: &KubeletConfig{
+				NodeLabels: map[string]string{
+					"team":        "platform",
+					"environment": "production",
+				},
+			},
+		},
+		{
+			name: "all fields",
+			config: &KubeletConfig{
+				MaxPods: ptr[int32](58),
+				NodeLabels: map[string]string{
+					"team": "platform",
+				},
+				ExtraArgs: map[string]string{
+					"feature-gates": "NodeSwap=true",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Just verify the struct can be created - actual validation is in kubebuilder
+			if tt.config != nil {
+				if tt.config.MaxPods != nil && *tt.config.MaxPods < 0 {
+					t.Error("MaxPods should be non-negative if specified")
+				}
+			}
+		})
+	}
+}
+
+// ptr is a helper function to create a pointer to a value
+func ptr[T any](v T) *T {
+	return &v
 }

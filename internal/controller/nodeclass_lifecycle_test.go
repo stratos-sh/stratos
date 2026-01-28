@@ -39,7 +39,7 @@ func TestGetAWSNodeClass(t *testing.T) {
 		},
 		Spec: stratosv1alpha1.AWSNodeClassSpec{
 			InstanceType:       "m5.large",
-			AMI:                "ami-12345678",
+			BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 			SubnetIDs:          []string{"subnet-1"},
 			SecurityGroupIDs:   []string{"sg-1"},
 			IAMInstanceProfile: "test-profile",
@@ -96,7 +96,7 @@ func TestGetNodeClass(t *testing.T) {
 		},
 		Spec: stratosv1alpha1.AWSNodeClassSpec{
 			InstanceType:       "m5.large",
-			AMI:                "ami-12345678",
+			BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 			SubnetIDs:          []string{"subnet-1"},
 			SecurityGroupIDs:   []string{"sg-1"},
 			IAMInstanceProfile: "test-profile",
@@ -352,44 +352,22 @@ func TestGetValidCondition(t *testing.T) {
 		reason    string
 	}{
 		{
-			name: "valid AMI",
+			name: "valid with bootstrapTemplate",
 			nodeClass: &stratosv1alpha1.AWSNodeClass{
 				Spec: stratosv1alpha1.AWSNodeClassSpec{
-					AMI: "ami-12345678",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 				},
 			},
 			wantValid: true,
 			reason:    stratosv1alpha1.AWSNodeClassReasonSpecValid,
 		},
 		{
-			name: "invalid AMI - no prefix",
+			name: "invalid - missing bootstrapTemplate",
 			nodeClass: &stratosv1alpha1.AWSNodeClass{
-				Spec: stratosv1alpha1.AWSNodeClassSpec{
-					AMI: "invalid-ami",
-				},
+				Spec: stratosv1alpha1.AWSNodeClassSpec{},
 			},
 			wantValid: false,
-			reason:    stratosv1alpha1.AWSNodeClassReasonInvalidAMI,
-		},
-		{
-			name: "invalid AMI - too short",
-			nodeClass: &stratosv1alpha1.AWSNodeClass{
-				Spec: stratosv1alpha1.AWSNodeClassSpec{
-					AMI: "ami",
-				},
-			},
-			wantValid: false,
-			reason:    stratosv1alpha1.AWSNodeClassReasonInvalidAMI,
-		},
-		{
-			name: "empty AMI treated as valid",
-			nodeClass: &stratosv1alpha1.AWSNodeClass{
-				Spec: stratosv1alpha1.AWSNodeClassSpec{
-					AMI: "",
-				},
-			},
-			wantValid: true,
-			reason:    stratosv1alpha1.AWSNodeClassReasonSpecValid,
+			reason:    "MissingBootstrapTemplate",
 		},
 	}
 
@@ -485,7 +463,7 @@ func TestUpdateNodeClassLifecycle_AddsFinalizer(t *testing.T) {
 		},
 		Spec: stratosv1alpha1.AWSNodeClassSpec{
 			InstanceType:       "m5.large",
-			AMI:                "ami-12345678",
+			BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 			SubnetIDs:          []string{"subnet-1"},
 			SecurityGroupIDs:   []string{"sg-1"},
 			IAMInstanceProfile: "test-profile",
@@ -542,7 +520,7 @@ func TestUpdateNodeClassLifecycle_UpdatesStatus(t *testing.T) {
 		},
 		Spec: stratosv1alpha1.AWSNodeClassSpec{
 			InstanceType:       "m5.large",
-			AMI:                "ami-12345678",
+			BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 			SubnetIDs:          []string{"subnet-1"},
 			SecurityGroupIDs:   []string{"sg-1"},
 			IAMInstanceProfile: "test-profile",
@@ -599,7 +577,7 @@ func TestCleanupNodeClassReference_RemovesFinalizer(t *testing.T) {
 		},
 		Spec: stratosv1alpha1.AWSNodeClassSpec{
 			InstanceType:       "m5.large",
-			AMI:                "ami-12345678",
+			BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 			SubnetIDs:          []string{"subnet-1"},
 			SecurityGroupIDs:   []string{"sg-1"},
 			IAMInstanceProfile: "test-profile",
@@ -660,7 +638,7 @@ func TestCleanupNodeClassReference_KeepsFinalizerWithOtherPools(t *testing.T) {
 		},
 		Spec: stratosv1alpha1.AWSNodeClassSpec{
 			InstanceType:       "m5.large",
-			AMI:                "ami-12345678",
+			BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 			SubnetIDs:          []string{"subnet-1"},
 			SecurityGroupIDs:   []string{"sg-1"},
 			IAMInstanceProfile: "test-profile",

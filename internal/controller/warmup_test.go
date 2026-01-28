@@ -41,8 +41,8 @@ func testNodeClass() *stratosv1alpha1.AWSNodeClass {
 			Name: "test-class",
 		},
 		Spec: stratosv1alpha1.AWSNodeClassSpec{
+			BootstrapTemplate:  stratosv1alpha1.BootstrapTemplateAL2023,
 			InstanceType:       "m5.large",
-			AMI:                "ami-12345678",
 			SubnetIDs:          []string{"subnet-1"},
 			SecurityGroupIDs:   []string{"sg-1"},
 			IAMInstanceProfile: "test-profile",
@@ -108,7 +108,7 @@ func TestIsNodeReady(t *testing.T) {
 	}
 }
 
-func TestMonitorWarmup_SelfStop_InstanceStopped(t *testing.T) {
+func TestMonitorWarmup_InstanceStopped(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -143,9 +143,7 @@ func TestMonitorWarmup_SelfStop_InstanceStopped(t *testing.T) {
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				// Default: SelfStop mode
-			},
+			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 		},
 	}
 
@@ -165,7 +163,7 @@ func TestMonitorWarmup_SelfStop_InstanceStopped(t *testing.T) {
 	}
 }
 
-func TestMonitorWarmup_ControllerStop_NodeNotReady(t *testing.T) {
+func TestMonitorWarmup_NodeNotReady(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -203,13 +201,10 @@ func TestMonitorWarmup_ControllerStop_NodeNotReady(t *testing.T) {
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
-	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				CompletionMode: &controllerStop,
-			},
+			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 		},
 	}
 
@@ -235,7 +230,7 @@ func TestMonitorWarmup_ControllerStop_NodeNotReady(t *testing.T) {
 	}
 }
 
-func TestMonitorWarmup_ControllerStop_NodeReady(t *testing.T) {
+func TestMonitorWarmup_NodeReady_StopsInstance(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -280,13 +275,10 @@ func TestMonitorWarmup_ControllerStop_NodeReady(t *testing.T) {
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
-	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				CompletionMode: &controllerStop,
-			},
+			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 		},
 	}
 
@@ -298,7 +290,7 @@ func TestMonitorWarmup_ControllerStop_NodeReady(t *testing.T) {
 
 	// Verify StopInstance was called
 	if !stopCalled {
-		t.Error("StopInstance should have been called when node is ready in ControllerStop mode")
+		t.Error("StopInstance should have been called when node is ready")
 	}
 
 	// Verify node transitioned to standby
@@ -311,7 +303,7 @@ func TestMonitorWarmup_ControllerStop_NodeReady(t *testing.T) {
 	}
 }
 
-func TestMonitorWarmup_ControllerStop_WaitsForNetworkReady(t *testing.T) {
+func TestMonitorWarmup_WaitsForNetworkReady(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -357,13 +349,10 @@ func TestMonitorWarmup_ControllerStop_WaitsForNetworkReady(t *testing.T) {
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
-	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				CompletionMode: &controllerStop,
-			},
+			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 			Template: stratosv1alpha1.NodeTemplate{
 				// WhenNetworkReady is the default
 				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
@@ -392,7 +381,7 @@ func TestMonitorWarmup_ControllerStop_WaitsForNetworkReady(t *testing.T) {
 	}
 }
 
-func TestMonitorWarmup_ControllerStop_NetworkReady(t *testing.T) {
+func TestMonitorWarmup_NetworkReady_StopsInstance(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -438,13 +427,10 @@ func TestMonitorWarmup_ControllerStop_NetworkReady(t *testing.T) {
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
-	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				CompletionMode: &controllerStop,
-			},
+			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 			Template: stratosv1alpha1.NodeTemplate{
 				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
 			},
@@ -752,6 +738,7 @@ func TestMonitorCloudWarmup_FullyLabeled_NoChange(t *testing.T) {
 	}
 }
 
+<<<<<<< HEAD
 func TestMonitorWarmup_SelfStop_BackwardCompatibility(t *testing.T) {
 	// Test that when CompletionMode is not specified, SelfStop behavior is used
 	scheme := runtime.NewScheme()

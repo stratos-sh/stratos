@@ -119,9 +119,10 @@ var _ = BeforeSuite(func() {
 	// Create and register the AWSNodeClass reconciler with FakeResolver
 	fakeResolver = fake.NewFakeResolver()
 	awsNodeClassReconciler := &awsprovider.AWSNodeClassReconciler{
-		Client:      mgr.GetClient(),
-		Resolver:    fakeResolver,
-		ClusterName: testClusterName,
+		Client:            mgr.GetClient(),
+		Resolver:          fakeResolver,
+		ClusterName:       testClusterName,
+		KubernetesVersion: "1.34", // Fixed version for testing AMI auto-discovery
 	}
 	err = awsNodeClassReconciler.SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())

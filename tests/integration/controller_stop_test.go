@@ -37,17 +37,17 @@ import (
 	"github.com/stratos-sh/stratos/internal/controller"
 )
 
-var _ = Describe("ControllerStop Mode", func() {
+var _ = Describe("Warmup Completion", func() {
 	var (
 		poolName string
 	)
 
 	BeforeEach(func() {
-		poolName = fmt.Sprintf("controller-stop-test-%d", time.Now().UnixNano())
+		poolName = fmt.Sprintf("warmup-test-%d", time.Now().UnixNano())
 	})
 
-	Describe("Warmup Completion", func() {
-		It("should stop instance when node is Ready in ControllerStop mode", func() {
+	Describe("Instance Stop on Node Ready", func() {
+		It("should stop instance when node is Ready", func() {
 			// Track if StopInstance was called
 			var stopCalled bool
 			var stoppedInstanceID string
@@ -57,8 +57,8 @@ var _ = Describe("ControllerStop Mode", func() {
 				return nil
 			}
 
-			// Create NodePool with ControllerStop mode
-			np := createTestNodePoolWithControllerStop(poolName, 3, 2)
+			// Create NodePool
+			np := createTestNodePool(poolName, 3, 2)
 			Expect(np).NotTo(BeNil())
 
 			// Launch instance and simulate it joining the cluster
@@ -87,7 +87,7 @@ var _ = Describe("ControllerStop Mode", func() {
 			Expect(stoppedInstanceID).To(Equal(instanceID))
 		})
 
-		It("should not stop instance when node is not Ready in ControllerStop mode", func() {
+		It("should not stop instance when node is not Ready", func() {
 			// Track if StopInstance was called
 			var stopCalled bool
 			fakeProvider.StopHook = func(ctx context.Context, instanceID string, force bool) error {
@@ -95,8 +95,8 @@ var _ = Describe("ControllerStop Mode", func() {
 				return nil
 			}
 
-			// Create NodePool with ControllerStop mode
-			np := createTestNodePoolWithControllerStop(poolName, 3, 2)
+			// Create NodePool
+			np := createTestNodePool(poolName, 3, 2)
 			Expect(np).NotTo(BeNil())
 
 			// Launch instance
@@ -131,8 +131,8 @@ var _ = Describe("ControllerStop Mode", func() {
 				return nil
 			}
 
-			// Create NodePool with ControllerStop mode and WhenNetworkReady
-			np := createTestNodePoolWithControllerStopAndNetworkReady(poolName, 3, 2)
+			// Create NodePool with WhenNetworkReady
+			np := createTestNodePoolWithNetworkReady(poolName, 3, 2)
 			Expect(np).NotTo(BeNil())
 
 			// Launch instance
@@ -172,47 +172,9 @@ var _ = Describe("ControllerStop Mode", func() {
 				return stopCalled
 			}, timeout, interval).Should(BeTrue())
 		})
-	})
 
-	Describe("SelfStop Backward Compatibility", func() {
-		It("should use SelfStop mode by default", func() {
-			// Track if StopInstance was called
-			var stopCalled bool
-			fakeProvider.StopHook = func(ctx context.Context, instanceID string, force bool) error {
-				stopCalled = true
-				return nil
-			}
-
-			// Create NodePool without specifying CompletionMode (should default to SelfStop)
-			np := createTestNodePool(poolName, 3, 2)
-			Expect(np).NotTo(BeNil())
-
-			// Launch instance
-			instanceID := launchFakeInstance(poolName)
-			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-
-			// Simulate node joining and becoming Ready
-			node := simulateNodeJoinWithReady(poolName, instanceID, controller.NodeStateWarmup, true)
-			Expect(node).NotTo(BeNil())
-
-			// Trigger reconciliation multiple times
-			for i := 0; i < 3; i++ {
-				triggerReconcile(poolName)
-				time.Sleep(100 * time.Millisecond)
-			}
-
-			// Verify StopInstance was NOT called (waiting for self-stop)
-			Expect(stopCalled).To(BeFalse())
-
-			// Node should still be in warmup state
-			updatedNode := &corev1.Node{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(updatedNode.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateWarmup)))
-		})
-
-		It("should transition to standby when instance self-stops in SelfStop mode", func() {
-			// Create NodePool without specifying CompletionMode (should default to SelfStop)
+		It("should transition to standby when instance already stopped", func() {
+			// Create NodePool
 			np := createTestNodePool(poolName, 3, 2)
 			Expect(np).NotTo(BeNil())
 
@@ -224,7 +186,7 @@ var _ = Describe("ControllerStop Mode", func() {
 			node := simulateNodeJoinWithReady(poolName, instanceID, controller.NodeStateWarmup, true)
 			Expect(node).NotTo(BeNil())
 
-			// Simulate instance self-stopping (what userdata would do)
+			// Simulate instance stopping externally
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
 
 			// Trigger reconciliation
@@ -243,10 +205,10 @@ var _ = Describe("ControllerStop Mode", func() {
 	})
 
 	Describe("Warmup Timeout", func() {
-		It("should handle timeout in ControllerStop mode", func() {
-			// Create NodePool with ControllerStop mode and short timeout
-			timeout := 1 * time.Second
-			np := createTestNodePoolWithControllerStopAndTimeout(poolName, 3, 2, timeout)
+		It("should handle timeout by stopping instance", func() {
+			// Create NodePool with short timeout
+			shortTimeout := 1 * time.Second
+			np := createTestNodePoolWithTimeout(poolName, 3, 2, shortTimeout)
 			Expect(np).NotTo(BeNil())
 
 			// Launch instance
@@ -261,7 +223,7 @@ var _ = Describe("ControllerStop Mode", func() {
 			triggerReconcile(poolName)
 
 			// Wait for timeout handling (either stop or terminate based on timeoutAction)
-			// Default timeoutAction is stop, so node should transition to standby
+			// Default timeoutAction is stop, so instance should be stopping or stopped
 			Eventually(func() bool {
 				state, err := fakeProvider.GetInstanceState(ctx, instanceID)
 				if err != nil {
@@ -284,8 +246,8 @@ var _ = Describe("ControllerStop Mode", func() {
 				return nil
 			}
 
-			// Create NodePool with ControllerStop mode
-			np := createTestNodePoolWithControllerStop(poolName, 3, 2)
+			// Create NodePool
+			np := createTestNodePool(poolName, 3, 2)
 			Expect(np).NotTo(BeNil())
 
 			// Launch instance (running state)
@@ -300,8 +262,7 @@ var _ = Describe("ControllerStop Mode", func() {
 			triggerReconcile(poolName)
 
 			// Wait for the controller to adopt the node (add state label and instance-id)
-			// In ControllerStop mode with a ready node, adoption may go directly to standby
-			// in a single reconciliation, so we accept either warmup or standby here
+			// With a ready node, adoption may go directly to standby in a single reconciliation
 			Eventually(func() string {
 				n := &corev1.Node{}
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n)
@@ -337,8 +298,8 @@ var _ = Describe("ControllerStop Mode", func() {
 		})
 
 		It("should adopt Bottlerocket-like node directly to standby when instance already stopped", func() {
-			// Create NodePool with ControllerStop mode
-			np := createTestNodePoolWithControllerStop(poolName, 3, 2)
+			// Create NodePool
+			np := createTestNodePool(poolName, 3, 2)
 			Expect(np).NotTo(BeNil())
 
 			// Launch instance and set to stopped state
@@ -380,118 +341,15 @@ var _ = Describe("ControllerStop Mode", func() {
 			}
 			Expect(hasTaint).To(BeTrue())
 		})
-
-		It("should adopt Bottlerocket-like node in SelfStop mode", func() {
-			// Track if StopInstance was called
-			var stopCalled bool
-			fakeProvider.StopHook = func(ctx context.Context, instanceID string, force bool) error {
-				stopCalled = true
-				return nil
-			}
-
-			// Create NodePool without specifying CompletionMode (defaults to SelfStop)
-			np := createTestNodePool(poolName, 3, 2)
-			Expect(np).NotTo(BeNil())
-
-			// Launch instance (running state)
-			instanceID := launchFakeInstance(poolName)
-			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-
-			// Simulate node joining with ONLY pool label (Bottlerocket scenario)
-			node := simulateNodeJoinWithPoolLabelOnly(poolName, instanceID, true)
-			Expect(node).NotTo(BeNil())
-
-			// Trigger reconciliation
-			triggerReconcile(poolName)
-
-			// Wait for the controller to adopt the node (add state=warmup, instance-id)
-			Eventually(func() string {
-				n := &corev1.Node{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n)
-				if err != nil {
-					return ""
-				}
-				return n.Labels[controller.LabelState]
-			}, timeout, interval).Should(Equal(string(controller.NodeStateWarmup)))
-
-			// Verify instance-id was set
-			updatedNode := &corev1.Node{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(updatedNode.Labels[controller.LabelInstanceID]).To(Equal(instanceID))
-
-			// Give the controller time to potentially call StopInstance
-			time.Sleep(200 * time.Millisecond)
-			triggerReconcile(poolName)
-			time.Sleep(200 * time.Millisecond)
-
-			// Verify StopInstance was NOT called (SelfStop mode waits for self-stop)
-			Expect(stopCalled).To(BeFalse())
-
-			// Verify node is still in warmup state
-			err = k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(updatedNode.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateWarmup)))
-
-			// Simulate instance self-stopping
-			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-
-			// Trigger reconciliation
-			triggerReconcile(poolName)
-
-			// Wait for the node to transition to standby
-			Eventually(func() string {
-				n := &corev1.Node{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n)
-				if err != nil {
-					return ""
-				}
-				return n.Labels[controller.LabelState]
-			}, timeout, interval).Should(Equal(string(controller.NodeStateStandby)))
-		})
 	})
 })
 
-// createTestNodePoolWithControllerStop creates a NodePool with ControllerStop completion mode.
-func createTestNodePoolWithControllerStop(name string, poolSize, minStandby int32) *stratosv1alpha1.NodePool {
+// createTestNodePoolWithNetworkReady creates a NodePool with WhenNetworkReady startup taint removal mode.
+func createTestNodePoolWithNetworkReady(name string, poolSize, minStandby int32) *stratosv1alpha1.NodePool {
 	// Create an AWSNodeClass for this pool
 	nodeClassName := name + "-nodeclass"
 	createTestAWSNodeClass(nodeClassName)
 
-	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
-	np := &stratosv1alpha1.NodePool{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Spec: stratosv1alpha1.NodePoolSpec{
-			PoolSize:   poolSize,
-			MinStandby: minStandby,
-			Template: stratosv1alpha1.NodeTemplate{
-				NodeClassRef: stratosv1alpha1.NodeClassRef{
-					Kind: "AWSNodeClass",
-					Name: nodeClassName,
-				},
-			},
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				CompletionMode: &controllerStop,
-			},
-		},
-	}
-
-	reconciler.InjectCloudProvider(name, fakeProvider)
-	err := k8sClient.Create(ctx, np)
-	Expect(err).NotTo(HaveOccurred())
-	return np
-}
-
-// createTestNodePoolWithControllerStopAndNetworkReady creates a NodePool with ControllerStop mode
-// and WhenNetworkReady startup taint removal mode.
-func createTestNodePoolWithControllerStopAndNetworkReady(name string, poolSize, minStandby int32) *stratosv1alpha1.NodePool {
-	// Create an AWSNodeClass for this pool
-	nodeClassName := name + "-nodeclass"
-	createTestAWSNodeClass(nodeClassName)
-
-	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	np := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -506,9 +364,7 @@ func createTestNodePoolWithControllerStopAndNetworkReady(name string, poolSize, 
 				},
 				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
 			},
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				CompletionMode: &controllerStop,
-			},
+			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 		},
 	}
 
@@ -518,14 +374,12 @@ func createTestNodePoolWithControllerStopAndNetworkReady(name string, poolSize, 
 	return np
 }
 
-// createTestNodePoolWithControllerStopAndTimeout creates a NodePool with ControllerStop mode
-// and a custom timeout.
-func createTestNodePoolWithControllerStopAndTimeout(name string, poolSize, minStandby int32, timeout time.Duration) *stratosv1alpha1.NodePool {
+// createTestNodePoolWithTimeout creates a NodePool with a custom timeout.
+func createTestNodePoolWithTimeout(name string, poolSize, minStandby int32, timeout time.Duration) *stratosv1alpha1.NodePool {
 	// Create an AWSNodeClass for this pool
 	nodeClassName := name + "-nodeclass"
 	createTestAWSNodeClass(nodeClassName)
 
-	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	np := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -540,8 +394,7 @@ func createTestNodePoolWithControllerStopAndTimeout(name string, poolSize, minSt
 				},
 			},
 			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				CompletionMode: &controllerStop,
-				Timeout:        &metav1.Duration{Duration: timeout},
+				Timeout: &metav1.Duration{Duration: timeout},
 			},
 		},
 	}
