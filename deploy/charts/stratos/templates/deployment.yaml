@@ -77,7 +77,7 @@ spec:
               path: /readyz
               port: 8081
             initialDelaySeconds: 5
-            periodSeconds: 10
+            periodSeconds: 1
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       terminationGracePeriodSeconds: 30
