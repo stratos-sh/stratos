@@ -25,32 +25,17 @@ import (
 // AL2023 uses nodeadm for node initialization with MIME multipart format.
 type AL2023Generator struct{}
 
-// Generate creates MIME multipart userData for AL2023.
-// The format includes:
-// 1. nodeadm YAML configuration (application/node.eks.aws)
-// 2. Warmup shell script (text/x-shellscript)
-// 3. Optional custom userData (text/x-shellscript)
+// Generate creates userData for AL2023.
+// For AL2023 with nodeadm, we pass just the NodeConfig YAML directly.
+// nodeadm-config.service reads this from IMDS and configures kubelet.
+// The Stratos controller handles stopping the instance when the node becomes Ready.
 func (g *AL2023Generator) Generate(config *BootstrapConfig) (string, error) {
 	if config == nil {
 		return "", fmt.Errorf("config is nil")
 	}
 
-	var parts []string
-
-	// Part 1: nodeadm configuration
-	nodeadmConfig := g.generateNodeadmConfig(config)
-	parts = append(parts, mimePartNodeadm(nodeadmConfig))
-
-	// Part 2: Warmup script
-	warmupScript := GetWarmupScript()
-	parts = append(parts, mimePartShellScript(warmupScript, "stratos-warmup.sh"))
-
-	// Part 3: Optional custom userData
-	if config.CustomUserData != "" {
-		parts = append(parts, mimePartShellScript(config.CustomUserData, "custom-userdata.sh"))
-	}
-
-	return buildMIMEMultipart(parts), nil
+	// Just return the NodeConfig YAML - nodeadm will process it directly
+	return g.generateNodeadmConfig(config), nil
 }
 
 // generateNodeadmConfig creates the nodeadm YAML configuration.
@@ -70,60 +55,59 @@ func (g *AL2023Generator) generateNodeadmConfig(config *BootstrapConfig) string 
 	if config.Kubelet != nil || config.PoolName != "" {
 		sb.WriteString("  kubelet:\n")
 
-		// Add pool label
-		if config.PoolName != "" {
-			sb.WriteString("    flags:\n")
-			sb.WriteString(fmt.Sprintf("      - \"--node-labels=stratos.sh/pool=%s\"\n", config.PoolName))
+		// MaxPods goes in config section
+		if config.Kubelet != nil && config.Kubelet.MaxPods != nil {
+			sb.WriteString("    config:\n")
+			sb.WriteString(fmt.Sprintf("      maxPods: %d\n", *config.Kubelet.MaxPods))
 		}
 
+		// Collect all labels into a single --node-labels flag
+		var allLabels []string
+		if config.PoolName != "" {
+			allLabels = append(allLabels, fmt.Sprintf("stratos.sh/pool=%s", config.PoolName))
+		}
 		if config.Kubelet != nil {
-			// MaxPods
-			if config.Kubelet.MaxPods != nil {
-				sb.WriteString("    config:\n")
-				sb.WriteString(fmt.Sprintf("      maxPods: %d\n", *config.Kubelet.MaxPods))
+			for k, v := range config.Kubelet.NodeLabels {
+				allLabels = append(allLabels, fmt.Sprintf("%s=%s", k, v))
+			}
+		}
+
+		// Collect all taints into a single --register-with-taints flag
+		var allTaints []string
+		if config.Kubelet != nil {
+			for _, t := range config.Kubelet.NodeTaints {
+				if t.Value == "" {
+					allTaints = append(allTaints, fmt.Sprintf("%s:%s", t.Key, t.Effect))
+				} else {
+					allTaints = append(allTaints, fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect))
+				}
+			}
+		}
+
+		// Write flags section if we have any flags
+		hasFlags := len(allLabels) > 0 || len(allTaints) > 0 || (config.Kubelet != nil && len(config.Kubelet.ExtraArgs) > 0)
+		if hasFlags {
+			sb.WriteString("    flags:\n")
+
+			if len(allLabels) > 0 {
+				sortedLabels := sortStrings(allLabels)
+				sb.WriteString(fmt.Sprintf("      - \"--node-labels=%s\"\n", strings.Join(sortedLabels, ",")))
 			}
 
-			// Node labels (in addition to pool label)
-			if len(config.Kubelet.NodeLabels) > 0 {
-				// These will be added via kubelet flags
-				if config.PoolName == "" {
-					sb.WriteString("    flags:\n")
-				}
-				labels := make([]string, 0, len(config.Kubelet.NodeLabels))
-				for k, v := range config.Kubelet.NodeLabels {
-					labels = append(labels, fmt.Sprintf("%s=%s", k, v))
-				}
-				sb.WriteString(fmt.Sprintf("      - \"--node-labels=%s\"\n", strings.Join(labels, ",")))
-			}
-
-			// Node taints
-			if len(config.Kubelet.NodeTaints) > 0 {
-				taints := make([]string, 0, len(config.Kubelet.NodeTaints))
-				for _, t := range config.Kubelet.NodeTaints {
-					taint := fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect)
-					if t.Value == "" {
-						taint = fmt.Sprintf("%s:%s", t.Key, t.Effect)
-					}
-					taints = append(taints, taint)
-				}
-				sb.WriteString(fmt.Sprintf("      - \"--register-with-taints=%s\"\n", strings.Join(taints, ",")))
+			if len(allTaints) > 0 {
+				sb.WriteString(fmt.Sprintf("      - \"--register-with-taints=%s\"\n", strings.Join(allTaints, ",")))
 			}
 
 			// Extra args
-			for k, v := range config.Kubelet.ExtraArgs {
-				sb.WriteString(fmt.Sprintf("      - \"--%s=%s\"\n", k, v))
+			if config.Kubelet != nil {
+				for k, v := range config.Kubelet.ExtraArgs {
+					sb.WriteString(fmt.Sprintf("      - \"--%s=%s\"\n", k, v))
+				}
 			}
 		}
 	}
 
 	return sb.String()
-}
-
-// mimePartNodeadm creates a MIME part for nodeadm configuration.
-func mimePartNodeadm(content string) string {
-	return fmt.Sprintf(`Content-Type: application/node.eks.aws
-
-%s`, content)
 }
 
 // mimePartShellScript creates a MIME part for a shell script.
@@ -148,4 +132,18 @@ func buildMIMEMultipart(parts []string) string {
 	sb.WriteString(fmt.Sprintf("--%s--\n", boundary))
 
 	return sb.String()
+}
+
+// sortStrings returns a sorted copy of the input strings.
+func sortStrings(s []string) []string {
+	sorted := make([]string, len(s))
+	copy(sorted, s)
+	for i := 0; i < len(sorted)-1; i++ {
+		for j := i + 1; j < len(sorted); j++ {
+			if sorted[i] > sorted[j] {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+	return sorted
 }

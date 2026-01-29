@@ -39,7 +39,7 @@ type FakeProvider struct {
 	wg sync.WaitGroup
 
 	// Hooks for testing
-	LaunchHook    func(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) error
+	LaunchHook    func(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) error
 	StartHook     func(ctx context.Context, instanceID string) error
 	StopHook      func(ctx context.Context, instanceID string, force bool) error
 	TerminateHook func(ctx context.Context, instanceID string) error
@@ -53,9 +53,9 @@ func NewFakeProvider() *FakeProvider {
 }
 
 // LaunchInstance creates a new fake instance using AWSNodeClass configuration.
-func (f *FakeProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) (*cloudprovider.Instance, error) {
+func (f *FakeProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) (*cloudprovider.Instance, error) {
 	if f.LaunchHook != nil {
-		if err := f.LaunchHook(ctx, nodeClass, poolName, clusterName); err != nil {
+		if err := f.LaunchHook(ctx, nodeClass, poolName, clusterName, templateConfig); err != nil {
 			return nil, err
 		}
 	}

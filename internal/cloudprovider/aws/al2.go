@@ -60,40 +60,41 @@ func (g *AL2Generator) generateBootstrapScript(config *BootstrapConfig) string {
 	sb.WriteString("#!/bin/bash\n")
 	sb.WriteString("set -ex\n\n")
 
+	// Merge labels and taints from all sources
+	mergedLabels := mergeLabels(config.PoolName, config.Kubelet, config.TemplateLabels)
+	mergedTaints := mergeTaints(config.Kubelet, config.TemplateTaints)
+
 	// Build kubelet extra args
 	var kubeletArgs []string
 
-	// Pool label
-	if config.PoolName != "" {
-		kubeletArgs = append(kubeletArgs, fmt.Sprintf("--node-labels=stratos.sh/pool=%s", config.PoolName))
+	// Merged node labels (single flag)
+	if len(mergedLabels) > 0 {
+		labels := make([]string, 0, len(mergedLabels))
+		for k, v := range mergedLabels {
+			labels = append(labels, fmt.Sprintf("%s=%s", k, v))
+		}
+		// Sort for deterministic output
+		sortedLabels := sortStrings(labels)
+		kubeletArgs = append(kubeletArgs, fmt.Sprintf("--node-labels=%s", strings.Join(sortedLabels, ",")))
+	}
+
+	// Merged node taints (single flag)
+	if len(mergedTaints) > 0 {
+		taints := make([]string, 0, len(mergedTaints))
+		for _, t := range mergedTaints {
+			taint := fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect)
+			if t.Value == "" {
+				taint = fmt.Sprintf("%s:%s", t.Key, t.Effect)
+			}
+			taints = append(taints, taint)
+		}
+		kubeletArgs = append(kubeletArgs, fmt.Sprintf("--register-with-taints=%s", strings.Join(taints, ",")))
 	}
 
 	if config.Kubelet != nil {
 		// Max pods
 		if config.Kubelet.MaxPods != nil {
 			kubeletArgs = append(kubeletArgs, fmt.Sprintf("--max-pods=%d", *config.Kubelet.MaxPods))
-		}
-
-		// Node labels
-		if len(config.Kubelet.NodeLabels) > 0 {
-			labels := make([]string, 0, len(config.Kubelet.NodeLabels))
-			for k, v := range config.Kubelet.NodeLabels {
-				labels = append(labels, fmt.Sprintf("%s=%s", k, v))
-			}
-			kubeletArgs = append(kubeletArgs, fmt.Sprintf("--node-labels=%s", strings.Join(labels, ",")))
-		}
-
-		// Node taints
-		if len(config.Kubelet.NodeTaints) > 0 {
-			taints := make([]string, 0, len(config.Kubelet.NodeTaints))
-			for _, t := range config.Kubelet.NodeTaints {
-				taint := fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect)
-				if t.Value == "" {
-					taint = fmt.Sprintf("%s:%s", t.Key, t.Effect)
-				}
-				taints = append(taints, taint)
-			}
-			kubeletArgs = append(kubeletArgs, fmt.Sprintf("--register-with-taints=%s", strings.Join(taints, ",")))
 		}
 
 		// Extra args

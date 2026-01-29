@@ -18,6 +18,9 @@ package aws
 
 import (
 	"fmt"
+	"sort"
+
+	corev1 "k8s.io/api/core/v1"
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 )
@@ -44,6 +47,12 @@ type BootstrapConfig struct {
 
 	// Kubelet is the kubelet configuration
 	Kubelet *stratosv1alpha1.KubeletConfig
+
+	// TemplateLabels are labels from NodePool.Spec.Template.Labels
+	TemplateLabels map[string]string
+
+	// TemplateTaints are taints from NodePool.Spec.Template (Taints + StartupTaints merged)
+	TemplateTaints []corev1.Taint
 
 	// CustomUserData is optional user scripts to merge with generated bootstrap
 	CustomUserData string
@@ -77,4 +86,67 @@ func GenerateUserData(config *BootstrapConfig) (string, error) {
 		return "", err
 	}
 	return generator.Generate(config)
+}
+
+// mergeLabels merges labels from multiple sources with proper precedence.
+// Precedence (highest wins): template labels > nodeClass labels > pool label
+func mergeLabels(poolName string, kubelet *stratosv1alpha1.KubeletConfig, templateLabels map[string]string) map[string]string {
+	labels := make(map[string]string)
+
+	// 1. Pool label (lowest priority)
+	if poolName != "" {
+		labels["stratos.sh/pool"] = poolName
+	}
+
+	// 2. NodeClass kubelet labels
+	if kubelet != nil {
+		for k, v := range kubelet.NodeLabels {
+			labels[k] = v
+		}
+	}
+
+	// 3. Template labels (highest priority)
+	for k, v := range templateLabels {
+		labels[k] = v
+	}
+
+	return labels
+}
+
+// mergeTaints merges taints from multiple sources with proper precedence.
+// Precedence (highest wins): template taints (including startup taints) > nodeClass taints
+// Taints are deduplicated by key+effect.
+func mergeTaints(kubelet *stratosv1alpha1.KubeletConfig, templateTaints []corev1.Taint) []corev1.Taint {
+	// Use map for deduplication (key+effect as unique identifier)
+	taintMap := make(map[string]corev1.Taint)
+
+	// 1. NodeClass kubelet taints (lowest priority)
+	if kubelet != nil {
+		for _, t := range kubelet.NodeTaints {
+			key := fmt.Sprintf("%s:%s", t.Key, t.Effect)
+			taintMap[key] = t
+		}
+	}
+
+	// 2. Template taints (highest priority - includes both regular and startup taints pre-merged)
+	for _, t := range templateTaints {
+		key := fmt.Sprintf("%s:%s", t.Key, t.Effect)
+		taintMap[key] = t
+	}
+
+	// Convert to slice and sort for deterministic output
+	result := make([]corev1.Taint, 0, len(taintMap))
+	for _, t := range taintMap {
+		result = append(result, t)
+	}
+
+	// Sort by key for deterministic output
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Key != result[j].Key {
+			return result[i].Key < result[j].Key
+		}
+		return result[i].Effect < result[j].Effect
+	})
+
+	return result
 }

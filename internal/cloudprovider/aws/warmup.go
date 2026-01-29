@@ -54,16 +54,6 @@ if [ $elapsed -ge $MAX_WAIT_SECONDS ]; then
     # Continue anyway - controller will handle timeout
 fi
 
-# Initialize EBS volumes to warm block storage
-log "Initializing EBS volumes..."
-for dev in /dev/nvme*n1 /dev/xvd*; do
-    if [ -b "$dev" ] && [ ! -L "$dev" ]; then
-        log "Warming block device: $dev"
-        # Read first 1MB to initialize EBS
-        dd if="$dev" of=/dev/null bs=1M count=1 2>/dev/null || true
-    fi
-done
-
 log "Warmup script completed. Waiting for controller to stop instance..."
 # The Stratos controller will stop this instance when the node becomes Ready
 # Do NOT call poweroff here - that's the old SelfStop behavior

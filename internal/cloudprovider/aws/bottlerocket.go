@@ -42,27 +42,30 @@ func (g *BottlerocketGenerator) Generate(config *BootstrapConfig) (string, error
 	sb.WriteString(fmt.Sprintf("cluster-certificate = %q\n", config.ClusterCA))
 	sb.WriteString(fmt.Sprintf("cluster-dns-ip = %q\n", g.deriveDNSIP(config.ClusterCIDR)))
 
-	// Node labels (including pool label)
-	labels := make(map[string]string)
-	if config.PoolName != "" {
-		labels["stratos.sh/pool"] = config.PoolName
-	}
-	if config.Kubelet != nil && len(config.Kubelet.NodeLabels) > 0 {
-		for k, v := range config.Kubelet.NodeLabels {
-			labels[k] = v
-		}
-	}
-	if len(labels) > 0 {
+	// Merge labels from all sources
+	mergedLabels := mergeLabels(config.PoolName, config.Kubelet, config.TemplateLabels)
+
+	// Node labels
+	if len(mergedLabels) > 0 {
 		sb.WriteString("\n[settings.kubernetes.node-labels]\n")
-		for k, v := range labels {
-			sb.WriteString(fmt.Sprintf("%q = %q\n", k, v))
+		// Sort keys for deterministic output
+		keys := make([]string, 0, len(mergedLabels))
+		for k := range mergedLabels {
+			keys = append(keys, k)
+		}
+		sortedKeys := sortStrings(keys)
+		for _, k := range sortedKeys {
+			sb.WriteString(fmt.Sprintf("%q = %q\n", k, mergedLabels[k]))
 		}
 	}
 
+	// Merge taints from all sources
+	mergedTaints := mergeTaints(config.Kubelet, config.TemplateTaints)
+
 	// Node taints
-	if config.Kubelet != nil && len(config.Kubelet.NodeTaints) > 0 {
+	if len(mergedTaints) > 0 {
 		sb.WriteString("\n[settings.kubernetes.node-taints]\n")
-		for _, t := range config.Kubelet.NodeTaints {
+		for _, t := range mergedTaints {
 			// Bottlerocket format: "key" = ["value:effect"]
 			val := fmt.Sprintf("%s:%s", t.Value, t.Effect)
 			if t.Value == "" {
