@@ -89,21 +89,9 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 	}
 
 	// Read resolved values from status (populated by AWSNodeClass reconciler)
-	if nodeClass.Status.ResolvedAMI == "" {
+	if err := validateNodeClassResolved(nodeClass); err != nil {
 		status = "error"
-		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedAMI is empty", nodeClass.Name)
-	}
-	if len(nodeClass.Status.ResolvedSubnets) == 0 {
-		status = "error"
-		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedSubnets is empty", nodeClass.Name)
-	}
-	if len(nodeClass.Status.ResolvedSecurityGroups) == 0 {
-		status = "error"
-		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedSecurityGroups is empty", nodeClass.Name)
-	}
-	if nodeClass.Status.ResolvedInstanceProfile == "" {
-		status = "error"
-		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedInstanceProfile is empty", nodeClass.Name)
+		return nil, err
 	}
 
 	// Select subnet using round-robin from resolved subnets
@@ -179,31 +167,11 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 
 	// Generate userData using the bootstrap generator
 	if p.clusterConfig != nil {
-		bootstrapConfig := &BootstrapConfig{
-			ClusterName:       p.clusterConfig.Name,
-			ClusterEndpoint:   p.clusterConfig.APIServerEndpoint,
-			ClusterCA:         p.clusterConfig.CertificateAuthority,
-			ClusterCIDR:       p.clusterConfig.CIDR,
-			PoolName:          poolName,
-			BootstrapTemplate: nodeClass.Spec.BootstrapTemplate,
-			Kubelet:           nodeClass.Spec.Kubelet,
-			CustomUserData:    nodeClass.Spec.CustomUserData,
-		}
-
-		// Add template labels and taints if provided
-		if templateConfig != nil {
-			bootstrapConfig.TemplateLabels = templateConfig.Labels
-			// Merge template taints and startup taints (startup taints have higher priority)
-			bootstrapConfig.TemplateTaints = mergeTemplateTaints(templateConfig.Taints, templateConfig.StartupTaints)
-		}
-
-		userData, err := GenerateUserData(bootstrapConfig)
+		encoded, err := p.generateEncodedUserData(nodeClass, poolName, templateConfig)
 		if err != nil {
 			status = "error"
-			return nil, fmt.Errorf("failed to generate userData: %w", err)
+			return nil, err
 		}
-
-		encoded := base64.StdEncoding.EncodeToString([]byte(userData))
 		input.UserData = aws.String(encoded)
 	}
 
@@ -224,6 +192,49 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 
 	inst := result.Instances[0]
 	return p.convertInstance(&inst), nil
+}
+
+// validateNodeClassResolved checks that all required fields have been resolved.
+func validateNodeClassResolved(nodeClass *stratosv1alpha1.AWSNodeClass) error {
+	if nodeClass.Status.ResolvedAMI == "" {
+		return fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedAMI is empty", nodeClass.Name)
+	}
+	if len(nodeClass.Status.ResolvedSubnets) == 0 {
+		return fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedSubnets is empty", nodeClass.Name)
+	}
+	if len(nodeClass.Status.ResolvedSecurityGroups) == 0 {
+		return fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedSecurityGroups is empty", nodeClass.Name)
+	}
+	if nodeClass.Status.ResolvedInstanceProfile == "" {
+		return fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedInstanceProfile is empty", nodeClass.Name)
+	}
+	return nil
+}
+
+// generateEncodedUserData builds and base64-encodes userData from the cluster config and node class.
+func (p *AWSProvider) generateEncodedUserData(nodeClass *stratosv1alpha1.AWSNodeClass, poolName string, templateConfig *cloudprovider.TemplateConfig) (string, error) {
+	bootstrapConfig := &BootstrapConfig{
+		ClusterName:       p.clusterConfig.Name,
+		ClusterEndpoint:   p.clusterConfig.APIServerEndpoint,
+		ClusterCA:         p.clusterConfig.CertificateAuthority,
+		ClusterCIDR:       p.clusterConfig.CIDR,
+		PoolName:          poolName,
+		BootstrapTemplate: nodeClass.Spec.BootstrapTemplate,
+		Kubelet:           nodeClass.Spec.Kubelet,
+		CustomUserData:    nodeClass.Spec.CustomUserData,
+	}
+
+	if templateConfig != nil {
+		bootstrapConfig.TemplateLabels = templateConfig.Labels
+		bootstrapConfig.TemplateTaints = mergeTemplateTaints(templateConfig.Taints, templateConfig.StartupTaints)
+	}
+
+	userData, err := GenerateUserData(bootstrapConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate userData: %w", err)
+	}
+
+	return base64.StdEncoding.EncodeToString([]byte(userData)), nil
 }
 
 // StartInstance starts a stopped EC2 instance.

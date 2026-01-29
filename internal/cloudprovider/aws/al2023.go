@@ -53,61 +53,75 @@ func (g *AL2023Generator) generateNodeadmConfig(config *BootstrapConfig) string 
 
 	// Kubelet configuration
 	if config.Kubelet != nil || config.PoolName != "" {
-		sb.WriteString("  kubelet:\n")
-
-		// MaxPods goes in config section
-		if config.Kubelet != nil && config.Kubelet.MaxPods != nil {
-			sb.WriteString("    config:\n")
-			sb.WriteString(fmt.Sprintf("      maxPods: %d\n", *config.Kubelet.MaxPods))
-		}
-
-		// Collect all labels into a single --node-labels flag
-		var allLabels []string
-		if config.PoolName != "" {
-			allLabels = append(allLabels, fmt.Sprintf("stratos.sh/pool=%s", config.PoolName))
-		}
-		if config.Kubelet != nil {
-			for k, v := range config.Kubelet.NodeLabels {
-				allLabels = append(allLabels, fmt.Sprintf("%s=%s", k, v))
-			}
-		}
-
-		// Collect all taints into a single --register-with-taints flag
-		var allTaints []string
-		if config.Kubelet != nil {
-			for _, t := range config.Kubelet.NodeTaints {
-				if t.Value == "" {
-					allTaints = append(allTaints, fmt.Sprintf("%s:%s", t.Key, t.Effect))
-				} else {
-					allTaints = append(allTaints, fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect))
-				}
-			}
-		}
-
-		// Write flags section if we have any flags
-		hasFlags := len(allLabels) > 0 || len(allTaints) > 0 || (config.Kubelet != nil && len(config.Kubelet.ExtraArgs) > 0)
-		if hasFlags {
-			sb.WriteString("    flags:\n")
-
-			if len(allLabels) > 0 {
-				sortedLabels := sortStrings(allLabels)
-				sb.WriteString(fmt.Sprintf("      - \"--node-labels=%s\"\n", strings.Join(sortedLabels, ",")))
-			}
-
-			if len(allTaints) > 0 {
-				sb.WriteString(fmt.Sprintf("      - \"--register-with-taints=%s\"\n", strings.Join(allTaints, ",")))
-			}
-
-			// Extra args
-			if config.Kubelet != nil {
-				for k, v := range config.Kubelet.ExtraArgs {
-					sb.WriteString(fmt.Sprintf("      - \"--%s=%s\"\n", k, v))
-				}
-			}
-		}
+		g.writeKubeletConfig(&sb, config)
 	}
 
 	return sb.String()
+}
+
+// writeKubeletConfig writes the kubelet section of the nodeadm config.
+func (g *AL2023Generator) writeKubeletConfig(sb *strings.Builder, config *BootstrapConfig) {
+	sb.WriteString("  kubelet:\n")
+
+	// MaxPods goes in config section
+	if config.Kubelet != nil && config.Kubelet.MaxPods != nil {
+		sb.WriteString("    config:\n")
+		fmt.Fprintf(sb, "      maxPods: %d\n", *config.Kubelet.MaxPods)
+	}
+
+	allLabels := collectLabels(config)
+	allTaints := collectTaints(config)
+
+	// Write flags section if we have any flags
+	hasFlags := len(allLabels) > 0 || len(allTaints) > 0 || (config.Kubelet != nil && len(config.Kubelet.ExtraArgs) > 0)
+	if hasFlags {
+		sb.WriteString("    flags:\n")
+
+		if len(allLabels) > 0 {
+			sortedLabels := sortStrings(allLabels)
+			fmt.Fprintf(sb, "      - \"--node-labels=%s\"\n", strings.Join(sortedLabels, ","))
+		}
+
+		if len(allTaints) > 0 {
+			fmt.Fprintf(sb, "      - \"--register-with-taints=%s\"\n", strings.Join(allTaints, ","))
+		}
+
+		// Extra args
+		if config.Kubelet != nil {
+			for k, v := range config.Kubelet.ExtraArgs {
+				fmt.Fprintf(sb, "      - \"--%s=%s\"\n", k, v)
+			}
+		}
+	}
+}
+
+// collectLabels gathers all labels from the bootstrap config into a list of key=value strings.
+func collectLabels(config *BootstrapConfig) []string {
+	var labels []string
+	if config.PoolName != "" {
+		labels = append(labels, fmt.Sprintf("stratos.sh/pool=%s", config.PoolName))
+	}
+	if config.Kubelet != nil {
+		for k, v := range config.Kubelet.NodeLabels {
+			labels = append(labels, fmt.Sprintf("%s=%s", k, v))
+		}
+	}
+	return labels
+}
+
+// collectTaints gathers all taints from the bootstrap config into a list of taint strings.
+func collectTaints(config *BootstrapConfig) []string {
+	var taints []string
+	if config.Kubelet != nil {
+		for _, t := range config.Kubelet.NodeTaints {
+			if t.Value == "" {
+				taints = append(taints, fmt.Sprintf("%s:%s", t.Key, t.Effect))
+			} else {
+				taints = append(taints, fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect))
+			}
+		}
+	}
+	return taints
 }
 
 // mimePartShellScript creates a MIME part for a shell script.

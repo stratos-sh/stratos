@@ -386,7 +386,10 @@ func (r *NodePoolReconciler) estimatePodsPerNode(ctx context.Context, nodePool *
 		instanceType = nodeClass.Spec.InstanceType
 	}
 
-	existingNodes, _ := r.getNodesForPool(ctx, nodePool.Name)
+	existingNodes, err2 := r.getNodesForPool(ctx, nodePool.Name)
+	if err2 != nil {
+		return len(pods) // Fall back if we can't list nodes
+	}
 	calculator := NewScaleCalculator(nodePool, instanceType)
 	nodesNeeded := calculator.CalculateNodesNeeded(pods, existingNodes)
 	if nodesNeeded <= 0 {

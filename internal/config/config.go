@@ -62,7 +62,7 @@ func DefaultConfig() Config {
 // Precedence: STRATOS_ prefixed env vars > legacy env vars > defaults
 func LoadFromEnv() Config {
 	// Load .env file if present, ignore if not found
-	_ = godotenv.Load()
+	_ = godotenv.Load() //nolint:errcheck // .env file is optional
 
 	cfg := DefaultConfig()
 
