@@ -371,6 +371,36 @@ spec:
                 description: ObservedGeneration is the last observed generation
                 format: int64
                 type: integer
+              podAssignments:
+                description: |-
+                  PodAssignments tracks pending pods assigned to starting nodes.
+                  Prevents duplicate scale-ups during the window between node start and pod scheduling.
+                items:
+                  description: |-
+                    PodAssignment tracks the mapping of an unschedulable pod to a node being started for it.
+                    Used to prevent duplicate scale-ups when a node is starting but the pod hasn't been scheduled yet.
+                  properties:
+                    assignedAt:
+                      description: AssignedAt is when this assignment was created
+                      format: date-time
+                      type: string
+                    nodeName:
+                      description: NodeName is the name of the node started for this
+                        pod
+                      type: string
+                    podName:
+                      description: PodName is the name of the pending pod
+                      type: string
+                    podNamespace:
+                      description: PodNamespace is the namespace of the pending pod
+                      type: string
+                  required:
+                  - assignedAt
+                  - nodeName
+                  - podName
+                  - podNamespace
+                  type: object
+                type: array
               running:
                 description: Running is the count of nodes actively running pods
                 format: int32
