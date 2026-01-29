@@ -65,9 +65,9 @@ func (m *NodeManager) LaunchNode(ctx context.Context, pool *stratosv1alpha1.Node
 
 	// Build template config from NodePool spec
 	templateConfig := &cloudprovider.TemplateConfig{
-		Labels:        pool.Spec.Template.Labels,
-		Taints:        pool.Spec.Template.Taints,
-		StartupTaints: pool.Spec.Template.StartupTaints,
+		Labels:                      pool.Spec.Template.Labels,
+		Taints:                      pool.Spec.Template.Taints,
+		EnableNetworkReadinessTaint: pool.Spec.Template.IsNetworkReadinessTaintEnabled(),
 	}
 
 	// Launch the instance using the cloud-specific provider
@@ -338,8 +338,8 @@ func (m *NodeManager) handleControllerStopWarmup(ctx context.Context, pool *stra
 		return nil
 	}
 
-	// Check network readiness if WhenNetworkReady is configured
-	if pool.Spec.Template.StartupTaintRemoval == stratosv1alpha1.StartupTaintRemovalWhenNetworkReady {
+	// Check network readiness if the network readiness taint is enabled
+	if pool.Spec.Template.IsNetworkReadinessTaintEnabled() {
 		checker := NewNetworkReadinessChecker(m.client)
 		if !checker.IsReady(node) {
 			logger.V(1).Info("Node ready but network not ready, waiting", "node", node.Name)
@@ -909,12 +909,13 @@ func (m *NodeManager) prepareNodeForStandby(ctx context.Context, pool *stratosv1
 		modified = true
 	}
 
-	// Re-add startup taints so they're present when node starts from standby.
-	// EKS removes these during warmup when CNI becomes ready, but kubelet
-	// doesn't re-apply --register-with-taints on restart from standby.
-	for _, st := range pool.Spec.Template.StartupTaints {
-		if !hasTaintWithKeyAndEffect(node.Spec.Taints, st.Key, st.Effect) {
-			node.Spec.Taints = append(node.Spec.Taints, st)
+	// Re-add network readiness taint so it's present when node starts from standby.
+	// CNI removes this during warmup when ready, but kubelet doesn't re-apply
+	// --register-with-taints on restart from standby.
+	if pool.Spec.Template.IsNetworkReadinessTaintEnabled() {
+		nrt := NetworkReadinessTaint()
+		if !hasTaintWithKeyAndEffect(node.Spec.Taints, nrt.Key, nrt.Effect) {
+			node.Spec.Taints = append(node.Spec.Taints, nrt)
 			modified = true
 		}
 	}
@@ -927,8 +928,7 @@ func (m *NodeManager) prepareNodeForStandby(ctx context.Context, pool *stratosv1
 		return fmt.Errorf("failed to prepare node for standby: %w", err)
 	}
 
-	logger.Info("Prepared node for standby (cordoned + tainted)",
-		"node", node.Name, "startupTaintsAdded", len(pool.Spec.Template.StartupTaints))
+	logger.Info("Prepared node for standby (cordoned + tainted)", "node", node.Name)
 	return nil
 }
 
@@ -958,9 +958,8 @@ func (m *NodeManager) prepareNodeForRunning(ctx context.Context, pool *stratosv1
 		return fmt.Errorf("failed to uncordon and untaint node: %w", err)
 	}
 
-	hasStartupTaints := len(pool.Spec.Template.StartupTaints) > 0
 	logger.Info("Prepared node for running (uncordoned + standby taint removed)",
-		"node", node.Name, "hasStartupTaints", hasStartupTaints)
+		"node", node.Name, "networkReadinessTaintEnabled", pool.Spec.Template.IsNetworkReadinessTaintEnabled())
 	return nil
 }
 
@@ -992,59 +991,30 @@ func parseUnixTimestamp(ts string) time.Time {
 	return time.Unix(unix, 0)
 }
 
-// ProcessStartupTaints handles startup taint removal based on the configured mode.
-// Returns (removed, error) where removed is true ONLY if we actually removed taints this call.
-// Returns false if taints are already gone, waiting for conditions, or in External mode.
+// ProcessStartupTaints handles network readiness taint removal.
+// Returns (removed, error) where removed is true ONLY if we actually removed the taint this call.
+// Returns false if the taint is already gone or we're waiting for conditions.
 func (m *NodeManager) ProcessStartupTaints(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node) (bool, error) {
-	logger := log.FromContext(ctx)
-	startupTaints := pool.Spec.Template.StartupTaints
-	if len(startupTaints) == 0 {
-		return false, nil // No startup taints configured
+	if !pool.Spec.Template.IsNetworkReadinessTaintEnabled() {
+		return false, nil // Network readiness taint not enabled
 	}
 
-	// Check if node still has any startup taints
-	hasStartupTaints := m.nodeHasStartupTaints(node, startupTaints)
-	if !hasStartupTaints {
-		return false, nil // Already removed (by Stratos or external controller)
-	}
-
-	removalMode := pool.Spec.Template.StartupTaintRemoval
-	if removalMode == "" {
-		removalMode = stratosv1alpha1.StartupTaintRemovalWhenNetworkReady // default
+	// Check if node still has the network readiness taint
+	nrt := NetworkReadinessTaint()
+	if !hasTaintWithKeyAndEffect(node.Spec.Taints, nrt.Key, nrt.Effect) {
+		return false, nil // Already removed
 	}
 
 	// Get the node start time for timeout check
 	startedAt := m.getNodeStartTime(node)
 
-	// Check for timeout
+	// Check for timeout - force remove after StartupTaintRemovalTimeout
 	timedOut := !startedAt.IsZero() && time.Since(startedAt) > StartupTaintRemovalTimeout
 	if timedOut {
-		return m.handleStartupTaintTimeout(ctx, pool, node, removalMode, startedAt)
+		return m.forceRemoveNetworkReadinessTaint(ctx, pool, node, startedAt)
 	}
 
-	switch removalMode {
-	case stratosv1alpha1.StartupTaintRemovalWhenNetworkReady:
-		return m.removeStartupTaintsWhenNetworkReady(ctx, pool, node, startupTaints, startedAt)
-
-	case stratosv1alpha1.StartupTaintRemovalExternal:
-		// In External mode, just log that we're waiting
-		// We don't remove them - external controller should
-		logger.V(1).Info("Waiting for external controller to remove startup taints",
-			"node", node.Name, "mode", "External")
-		return false, nil
-	}
-
-	return false, nil
-}
-
-// nodeHasStartupTaints checks if the node has any of the configured startup taints.
-func (m *NodeManager) nodeHasStartupTaints(node *corev1.Node, startupTaints []corev1.Taint) bool {
-	for _, st := range startupTaints {
-		if hasTaintWithKeyAndEffect(node.Spec.Taints, st.Key, st.Effect) {
-			return true
-		}
-	}
-	return false
+	return m.removeNetworkReadinessTaintWhenReady(ctx, pool, node, startedAt)
 }
 
 // getNodeStartTime returns the time the node was started (from annotation).
@@ -1073,61 +1043,47 @@ func (m *NodeManager) checkStartupTaintTimeout(node *corev1.Node) (bool, time.Ti
 	return time.Since(startedAt) > StartupTaintRemovalTimeout, startedAt
 }
 
-// handleStartupTaintTimeout handles the case where startup taint removal has timed out.
-func (m *NodeManager) handleStartupTaintTimeout(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node, mode stratosv1alpha1.StartupTaintRemovalMode, startedAt time.Time) (bool, error) {
+// forceRemoveNetworkReadinessTaint forcibly removes the network readiness taint after timeout.
+func (m *NodeManager) forceRemoveNetworkReadinessTaint(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node, startedAt time.Time) (bool, error) {
 	logger := log.FromContext(ctx)
 
-	switch mode {
-	case stratosv1alpha1.StartupTaintRemovalWhenNetworkReady:
-		// In WhenNetworkReady mode, force remove taints after timeout
-		logger.Info("Startup taint timeout, removing taints despite CNI not ready",
-			"node", node.Name, "timeout", StartupTaintRemovalTimeout)
+	logger.Info("Startup taint timeout, removing taint despite CNI not ready",
+		"node", node.Name, "timeout", StartupTaintRemovalTimeout)
 
-		// Emit warning event
-		if m.recorder != nil {
-			m.recorder.Eventf(pool, nil, corev1.EventTypeWarning, "StartupTaintTimeout", "HandleStartupTaintTimeout",
-				"Node %s startup taints removed after timeout (CNI may not be ready)", node.Name)
-		}
-
-		if err := m.forceRemoveStartupTaints(ctx, pool, node); err != nil {
-			metrics.RecordStartupTaintRemoval(pool.Name, "timeout", "error")
-			return false, err
-		}
-
-		// Record metrics
-		if !startedAt.IsZero() {
-			metrics.RecordStartupTaintDuration(pool.Name, time.Since(startedAt).Seconds())
-		}
-		metrics.RecordStartupTaintRemoval(pool.Name, "timeout", "success")
-		return true, nil
-
-	case stratosv1alpha1.StartupTaintRemovalExternal:
-		// In External mode, emit warning but do NOT remove taints
-		logger.Info("Startup taint timeout in External mode, waiting for external controller",
-			"node", node.Name, "timeout", StartupTaintRemovalTimeout)
-
-		if m.recorder != nil {
-			m.recorder.Eventf(pool, nil, corev1.EventTypeWarning, "StartupTaintTimeoutExternal", "HandleStartupTaintTimeout",
-				"Node %s waiting for external controller to remove startup taints (timeout exceeded)", node.Name)
-		}
-		return false, nil
+	// Emit warning event
+	if m.recorder != nil {
+		m.recorder.Eventf(pool, nil, corev1.EventTypeWarning, "StartupTaintTimeout", "ForceRemoveNetworkReadinessTaint",
+			"Node %s network readiness taint removed after timeout (CNI may not be ready)", node.Name)
 	}
 
-	return false, nil
+	nrt := NetworkReadinessTaint()
+	patch := client.MergeFrom(node.DeepCopy())
+	node.Spec.Taints = removeTaintByKeyAndEffect(node.Spec.Taints, nrt.Key, nrt.Effect)
+	if err := m.client.Patch(ctx, node, patch); err != nil {
+		metrics.RecordStartupTaintRemoval(pool.Name, "timeout", "error")
+		return false, fmt.Errorf("failed to remove network readiness taint: %w", err)
+	}
+
+	// Record metrics
+	if !startedAt.IsZero() {
+		metrics.RecordStartupTaintDuration(pool.Name, time.Since(startedAt).Seconds())
+	}
+	metrics.RecordStartupTaintRemoval(pool.Name, "timeout", "success")
+	return true, nil
 }
 
-// removeStartupTaintsWhenNetworkReady removes startup taints when CNI is actually ready.
+// removeNetworkReadinessTaintWhenReady removes the network readiness taint when CNI is ready.
 // For EKS, we check both the NetworkingReady condition AND the aws-node pod status,
 // because the condition may be stale after node restart while the pod status is accurate.
 // For other CNIs (Cilium, Calico), we trust the NetworkUnavailable condition.
-func (m *NodeManager) removeStartupTaintsWhenNetworkReady(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node, startupTaints []corev1.Taint, startedAt time.Time) (bool, error) {
+func (m *NodeManager) removeNetworkReadinessTaintWhenReady(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node, startedAt time.Time) (bool, error) {
 	logger := log.FromContext(ctx)
 
 	checker := NewNetworkReadinessChecker(m.client)
 
 	// First check node conditions (fast, works for all CNIs)
 	if !checker.IsReady(node) {
-		logger.V(1).Info("Network not ready (node condition), waiting to remove startup taints", "node", node.Name)
+		logger.V(1).Info("Network not ready (node condition), waiting to remove network readiness taint", "node", node.Name)
 		return false, nil
 	}
 
@@ -1135,22 +1091,21 @@ func (m *NodeManager) removeStartupTaintsWhenNetworkReady(ctx context.Context, p
 	// aws-node pod is Ready. This is needed because NetworkingReady may be stale
 	// after node restart, but aws-node pod only becomes Ready when IPAMD is listening.
 	if checker.HasNetworkingReadyCondition(node) && !checker.IsAwsNodePodReady(ctx, node.Name) {
-		logger.V(1).Info("Network not ready (aws-node pod not ready), waiting to remove startup taints", "node", node.Name)
+		logger.V(1).Info("Network not ready (aws-node pod not ready), waiting to remove network readiness taint", "node", node.Name)
 		return false, nil
 	}
 
 	reason := checker.GetNetworkConditionReason(node)
 
-	// Network is ready with fresh condition - remove startup taints
-	logger.Info("Network ready, removing startup taints", "node", node.Name, "reason", reason)
+	// Network is ready - remove the network readiness taint
+	logger.Info("Network ready, removing network readiness taint", "node", node.Name, "reason", reason)
 
+	nrt := NetworkReadinessTaint()
 	patch := client.MergeFrom(node.DeepCopy())
-	for _, st := range startupTaints {
-		node.Spec.Taints = removeTaintByKeyAndEffect(node.Spec.Taints, st.Key, st.Effect)
-	}
+	node.Spec.Taints = removeTaintByKeyAndEffect(node.Spec.Taints, nrt.Key, nrt.Effect)
 	if err := m.client.Patch(ctx, node, patch); err != nil {
 		metrics.RecordStartupTaintRemoval(pool.Name, "network_ready", "error")
-		return false, fmt.Errorf("failed to remove startup taints: %w", err)
+		return false, fmt.Errorf("failed to remove network readiness taint: %w", err)
 	}
 
 	// Record metrics
@@ -1161,23 +1116,9 @@ func (m *NodeManager) removeStartupTaintsWhenNetworkReady(ctx context.Context, p
 
 	// Emit event
 	if m.recorder != nil {
-		m.recorder.Eventf(pool, nil, corev1.EventTypeNormal, "StartupTaintsRemoved", "RemoveStartupTaintsWhenNetworkReady",
-			"Removed startup taints from node %s after network ready (%s)", node.Name, reason)
+		m.recorder.Eventf(pool, nil, corev1.EventTypeNormal, "StartupTaintsRemoved", "RemoveNetworkReadinessTaintWhenReady",
+			"Removed network readiness taint from node %s after network ready (%s)", node.Name, reason)
 	}
 
 	return true, nil
-}
-
-// forceRemoveStartupTaints forcibly removes all startup taints from a node.
-func (m *NodeManager) forceRemoveStartupTaints(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node) error {
-	startupTaints := pool.Spec.Template.StartupTaints
-	if len(startupTaints) == 0 {
-		return nil
-	}
-
-	patch := client.MergeFrom(node.DeepCopy())
-	for _, st := range startupTaints {
-		node.Spec.Taints = removeTaintByKeyAndEffect(node.Spec.Taints, st.Key, st.Effect)
-	}
-	return m.client.Patch(ctx, node, patch)
 }

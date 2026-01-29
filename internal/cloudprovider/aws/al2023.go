@@ -70,7 +70,7 @@ func (g *AL2023Generator) writeKubeletConfig(sb *strings.Builder, config *Bootst
 	}
 
 	allLabels := collectLabels(config)
-	allTaints := collectTaints(config)
+	allTaints := collectTaints(config, config.EnableNetworkReadinessTaint)
 
 	// Write flags section if we have any flags
 	hasFlags := len(allLabels) > 0 || len(allTaints) > 0 || (config.Kubelet != nil && len(config.Kubelet.ExtraArgs) > 0)
@@ -110,7 +110,7 @@ func collectLabels(config *BootstrapConfig) []string {
 }
 
 // collectTaints gathers all taints from the bootstrap config into a list of taint strings.
-func collectTaints(config *BootstrapConfig) []string {
+func collectTaints(config *BootstrapConfig, enableNetworkReadinessTaint bool) []string {
 	var taints []string
 	if config.Kubelet != nil {
 		for _, t := range config.Kubelet.NodeTaints {
@@ -120,6 +120,9 @@ func collectTaints(config *BootstrapConfig) []string {
 				taints = append(taints, fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect))
 			}
 		}
+	}
+	if enableNetworkReadinessTaint {
+		taints = append(taints, "stratos.sh/not-ready=true:NoSchedule")
 	}
 	return taints
 }

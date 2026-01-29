@@ -60,7 +60,7 @@ func (g *BottlerocketGenerator) Generate(config *BootstrapConfig) (string, error
 	}
 
 	// Merge taints from all sources
-	mergedTaints := mergeTaints(config.Kubelet, config.TemplateTaints)
+	mergedTaints := mergeTaints(config.Kubelet, config.TemplateTaints, config.EnableNetworkReadinessTaint)
 
 	// Node taints
 	if len(mergedTaints) > 0 {

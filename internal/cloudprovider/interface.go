@@ -26,9 +26,9 @@ import (
 // TemplateConfig holds NodePool template configuration for userData generation.
 // This includes labels and taints that should be applied to nodes via kubelet flags.
 type TemplateConfig struct {
-	Labels        map[string]string
-	Taints        []corev1.Taint // Permanent taints
-	StartupTaints []corev1.Taint // Temporary taints removed when ready
+	Labels                      map[string]string
+	Taints                      []corev1.Taint // Permanent taints
+	EnableNetworkReadinessTaint bool           // Whether to add stratos.sh/not-ready taint
 }
 
 // CloudProvider defines the interface for cloud instance lifecycle operations.

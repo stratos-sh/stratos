@@ -89,13 +89,18 @@ const (
 // Startup taint constants
 const (
 	// StartupTaintRemovalTimeout is how long to wait for CNI readiness before timing out.
-	// After this duration, startup taints are forcibly removed (WhenNetworkReady mode)
-	// or a warning is emitted (External mode).
+	// After this duration, the network readiness taint is forcibly removed.
 	StartupTaintRemovalTimeout = 2 * time.Minute
 
 	// NetworkingReadyCondition is the EKS-specific condition type set by eks-node-monitoring-agent
 	// when the VPC CNI IPAMD is connected and networking is functional.
 	NetworkingReadyCondition corev1.NodeConditionType = "NetworkingReady"
+
+	// TaintKeyNotReady is the hardcoded taint key applied by Stratos during startup.
+	TaintKeyNotReady = "stratos.sh/not-ready"
+
+	// TaintValueNotReady is the value for the network readiness taint.
+	TaintValueNotReady = "true"
 )
 
 // Taints used for Stratos-managed nodes
@@ -103,6 +108,15 @@ const (
 	// TaintKeyStandby is applied to standby nodes with NoExecute effect to evict stale pods
 	TaintKeyStandby = "stratos.sh/standby"
 )
+
+// NetworkReadinessTaint returns the hardcoded network readiness taint.
+func NetworkReadinessTaint() corev1.Taint {
+	return corev1.Taint{
+		Key:    TaintKeyNotReady,
+		Value:  TaintValueNotReady,
+		Effect: corev1.TaintEffectNoSchedule,
+	}
+}
 
 // Tags used on cloud provider instances
 const (

@@ -62,7 +62,7 @@ func (g *AL2Generator) generateBootstrapScript(config *BootstrapConfig) string {
 
 	// Merge labels and taints from all sources
 	mergedLabels := mergeLabels(config.PoolName, config.Kubelet, config.TemplateLabels)
-	mergedTaints := mergeTaints(config.Kubelet, config.TemplateTaints)
+	mergedTaints := mergeTaints(config.Kubelet, config.TemplateTaints, config.EnableNetworkReadinessTaint)
 
 	// Build kubelet extra args
 	var kubeletArgs []string

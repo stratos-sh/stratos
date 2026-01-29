@@ -362,7 +362,7 @@ func createTestNodePoolWithNetworkReady(name string, poolSize, minStandby int32)
 					Kind: "AWSNodeClass",
 					Name: nodeClassName,
 				},
-				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
+				// NetworkReadinessStrategy defaults to Taint
 			},
 			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 		},

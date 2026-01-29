@@ -116,8 +116,8 @@ func (r *NodePoolReconciler) syncNodesWithCloud(ctx context.Context, nodePool *s
 func (r *NodePoolReconciler) processRunningNodesStartupTaints(ctx context.Context, nodePool *stratosv1alpha1.NodePool, provider cloudprovider.CloudProvider) error {
 	logger := log.FromContext(ctx)
 
-	// Skip if no startup taints configured
-	if len(nodePool.Spec.Template.StartupTaints) == 0 {
+	// Skip if network readiness taint is not enabled
+	if !nodePool.Spec.Template.IsNetworkReadinessTaintEnabled() {
 		return nil
 	}
 
