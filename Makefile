@@ -64,6 +64,10 @@ test: ## Run tests
 test-integration: envtest ## Run integration tests
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) ./tests/integration/... -v -tags=integration
 
+.PHONY: test-e2e
+test-e2e: ## Run E2E tests (requires live EKS cluster + AWS credentials)
+	$(GOTEST) ./tests/e2e/... -v -tags=e2e -timeout 20m -count=1
+
 .PHONY: test-localstack
 test-localstack: ## Run LocalStack integration tests (requires Docker)
 	$(GOTEST) ./internal/cloudprovider/aws/... -v -tags=integration -timeout 5m
