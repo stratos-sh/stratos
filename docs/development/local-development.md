@@ -219,15 +219,15 @@ go test -v -tags=integration -run TestNodePoolLifecycle ./tests/integration/...
    metadata:
      name: test
    spec:
+     bootstrapTemplate: AL2023
      instanceType: t3.small
-     ami: ami-0123456789abcdef0
-     subnetIds: ["subnet-12345678"]
-     securityGroupIds: ["sg-12345678"]
-     iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/test
-     userData: |
-       #!/bin/bash
-       echo "test"
-       poweroff
+     subnetSelector:
+       tags:
+         stratos.sh/discovery: test-cluster
+     securityGroupSelector:
+       tags:
+         stratos.sh/discovery: test-cluster
+     role: test-node-role
    ```
 
    ```yaml title="test-pool.yaml"
@@ -244,6 +244,10 @@ go test -v -tags=integration -run TestNodePoolLifecycle ./tests/integration/...
          name: test
        labels:
          stratos.sh/pool: test
+       startupTaints:
+         - key: stratos.sh/not-ready
+           value: "true"
+           effect: NoSchedule
    ```
 
 2. Apply and observe:

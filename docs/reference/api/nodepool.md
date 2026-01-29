@@ -163,20 +163,15 @@ kind: AWSNodeClass
 metadata:
   name: standard-nodes
 spec:
+  bootstrapTemplate: AL2023  # Stratos generates userData automatically
   instanceType: m5.large
-  ami: ami-0123456789abcdef0
-  subnetIds:
-    - subnet-12345678
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-  userData: |
-    #!/bin/bash
-    /etc/eks/bootstrap.sh my-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz; do sleep 5; done
-    sleep 30
-    poweroff
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: node-role
 ```
 
 Then create the NodePool referencing it:
@@ -196,9 +191,19 @@ spec:
     labels:
       stratos.sh/pool: workers
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
+```
+
+Target pods to this pool:
+
+```yaml title="deployment.yaml"
+spec:
+  template:
+    spec:
+      nodeSelector:
+        stratos.sh/pool: workers
 ```
 
 ### Full Configuration
@@ -209,25 +214,16 @@ kind: AWSNodeClass
 metadata:
   name: production-nodes
 spec:
+  bootstrapTemplate: AL2023
   region: us-east-1
   instanceType: m5.large
-  ami: ami-0123456789abcdef0
-  subnetIds:
-    - subnet-12345678
-    - subnet-87654321
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-  userData: |
-    #!/bin/bash
-    set -e
-    /etc/eks/bootstrap.sh my-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do
-      sleep 5
-    done
-    sleep 30
-    poweroff
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: node-role
   blockDeviceMappings:
     - deviceName: /dev/xvda
       volumeSize: 100
@@ -265,7 +261,7 @@ spec:
         value: workers
         effect: NoSchedule
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
     startupTaintRemoval: WhenNetworkReady
@@ -302,6 +298,7 @@ spec:
       name: standard-nodes
     labels:
       stratos.sh/pool: cilium-workers
+      cni: cilium
     startupTaints:
       - key: node.cilium.io/agent-not-ready
         value: "true"
@@ -309,9 +306,16 @@ spec:
     startupTaintRemoval: External  # Cilium removes the taint
 ```
 
+Target pods to Cilium nodes:
+
+```yaml
+nodeSelector:
+  stratos.sh/pool: cilium-workers
+```
+
 ### Bottlerocket with ControllerStop Mode
 
-Bottlerocket uses TOML configuration and doesn't support shell scripts in user data. Use `ControllerStop` mode so Stratos manages the warmup-to-standby transition.
+Bottlerocket uses TOML configuration. Use `bootstrapTemplate: Bottlerocket` and `ControllerStop` mode.
 
 ```yaml title="awsnodeclass-bottlerocket.yaml"
 apiVersion: stratos.sh/v1alpha1
@@ -319,13 +323,15 @@ kind: AWSNodeClass
 metadata:
   name: bottlerocket-nodes
 spec:
+  bootstrapTemplate: Bottlerocket  # Stratos generates TOML config
   instanceType: m5.large
-  ami: ami-bottlerocket-xxxx  # Bottlerocket EKS-optimized AMI
-  subnetIds:
-    - subnet-12345678
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: node-role
   blockDeviceMappings:
     - deviceName: /dev/xvda
       volumeSize: 8
@@ -335,18 +341,6 @@ spec:
       volumeSize: 20
       volumeType: gp3
       encrypted: true
-  # Bottlerocket TOML user data - no shutdown script needed
-  userData: |
-    [settings.kubernetes]
-    cluster-name = "my-cluster"
-    api-server = "https://my-cluster.region.eks.amazonaws.com"
-    cluster-certificate = "base64-encoded-ca-cert"
-
-    [settings.kubernetes.node-taints]
-    "node.eks.amazonaws.com/not-ready" = "true:NoSchedule"
-
-    [settings.kubernetes.node-labels]
-    "stratos.sh/pool" = "bottlerocket-workers"
 ```
 
 ```yaml title="nodepool-bottlerocket.yaml"
@@ -369,10 +363,17 @@ spec:
     labels:
       stratos.sh/pool: bottlerocket-workers
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
     startupTaintRemoval: WhenNetworkReady
+```
+
+Target pods to Bottlerocket nodes:
+
+```yaml
+nodeSelector:
+  stratos.sh/pool: bottlerocket-workers
 ```
 
 ### Multiple NodePools Sharing an AWSNodeClass
@@ -385,21 +386,15 @@ kind: AWSNodeClass
 metadata:
   name: shared-ec2-config
 spec:
+  bootstrapTemplate: AL2023
   instanceType: m5.large
-  ami: ami-0123456789abcdef0
-  subnetIds:
-    - subnet-12345678
-    - subnet-87654321
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-  userData: |
-    #!/bin/bash
-    /etc/eks/bootstrap.sh my-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz; do sleep 5; done
-    sleep 30
-    poweroff
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: node-role
 ---
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
@@ -415,6 +410,10 @@ spec:
     labels:
       stratos.sh/pool: workers-low
       tier: low-priority
+    startupTaints:
+      - key: stratos.sh/not-ready
+        value: "true"
+        effect: NoSchedule
 ---
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
@@ -430,6 +429,22 @@ spec:
     labels:
       stratos.sh/pool: workers-high
       tier: high-priority
+    startupTaints:
+      - key: stratos.sh/not-ready
+        value: "true"
+        effect: NoSchedule
+```
+
+Target pods to specific pools:
+
+```yaml
+# Low priority workloads
+nodeSelector:
+  stratos.sh/pool: workers-low
+
+# High priority workloads
+nodeSelector:
+  stratos.sh/pool: workers-high
 ```
 
 ## Kubectl Commands

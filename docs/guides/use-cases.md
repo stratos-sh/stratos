@@ -31,30 +31,26 @@ Stratos fundamentally changes this in two ways:
 
 ### Example Configuration
 
-```yaml
+```yaml title="awsnodeclass-ci.yaml"
 apiVersion: stratos.sh/v1alpha1
 kind: AWSNodeClass
 metadata:
   name: ci-runners
 spec:
+  bootstrapTemplate: AL2023
   instanceType: m5.2xlarge
-  ami: ami-0123456789abcdef0
-  subnetIds: ["subnet-12345678"]
-  securityGroupIds: ["sg-12345678"]
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/ci-node-role
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: ci-node-role
   blockDeviceMappings:
     - deviceName: /dev/xvda
       volumeSize: 200  # Large disk for Docker/build caches
       volumeType: gp3
       encrypted: true
-  userData: |
-    #!/bin/bash
-    set -e
-    /etc/eks/bootstrap.sh my-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do sleep 5; done
-    sleep 30
-    poweroff
 ---
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
@@ -71,7 +67,7 @@ spec:
       stratos.sh/pool: ci-runners
       node-role.kubernetes.io/ci: ""
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
     startupTaintRemoval: WhenNetworkReady
@@ -82,6 +78,23 @@ spec:
     enabled: true
     emptyNodeTTL: 10m
     drainTimeout: 5m
+```
+
+Target CI pods to this pool:
+
+```yaml title="ci-agent-deployment.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins-agent
+spec:
+  template:
+    spec:
+      nodeSelector:
+        stratos.sh/pool: ci-runners
+      containers:
+        - name: agent
+          image: jenkins/inbound-agent:latest
 ```
 
 ## LLM / AI Model Serving
@@ -110,17 +123,25 @@ You can also use the user data script during warmup to pre-download model weight
 
 ### Example Configuration
 
-```yaml
+```yaml title="awsnodeclass-inference.yaml"
 apiVersion: stratos.sh/v1alpha1
 kind: AWSNodeClass
 metadata:
   name: inference
 spec:
+  bootstrapTemplate: AL2023
   instanceType: g5.2xlarge  # GPU instance
-  ami: ami-0123456789abcdef0  # GPU-optimized AMI
-  subnetIds: ["subnet-12345678"]
-  securityGroupIds: ["sg-12345678"]
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/inference-node-role
+  architecture: x86_64
+  amiSelector:
+    name: "amazon-eks-gpu-node-*"
+    owner: amazon
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: inference-node-role
   blockDeviceMappings:
     - deviceName: /dev/xvda
       volumeSize: 500  # Large disk for model images
@@ -128,14 +149,6 @@ spec:
       iops: 16000
       throughput: 1000
       encrypted: true
-  userData: |
-    #!/bin/bash
-    set -e
-    /etc/eks/bootstrap.sh my-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do sleep 5; done
-    sleep 30
-    poweroff
 ---
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
@@ -151,20 +164,39 @@ spec:
     labels:
       stratos.sh/pool: inference
       node-role.kubernetes.io/inference: ""
+      nvidia.com/gpu: "present"
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
     startupTaintRemoval: WhenNetworkReady
   preWarm:
     timeout: 20m
     timeoutAction: terminate
-    imagesToPull:
-      - "my-registry.com/llama-3:70b"  # Pre-pull the model image during warmup
   scaleDown:
     enabled: true
     emptyNodeTTL: 30m  # Keep nodes longer to avoid re-pulling models
     drainTimeout: 5m
+```
+
+Target inference workloads to this pool:
+
+```yaml title="llm-deployment.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-server
+spec:
+  template:
+    spec:
+      nodeSelector:
+        stratos.sh/pool: inference
+      containers:
+        - name: model
+          image: my-registry.com/llama-3:70b
+          resources:
+            limits:
+              nvidia.com/gpu: 1
 ```
 
 ## Scale-to-Zero Applications
@@ -193,25 +225,21 @@ This works because Stratos has already done all the heavy lifting during warmup.
 
 ### Example Configuration
 
-```yaml
+```yaml title="awsnodeclass-ondemand.yaml"
 apiVersion: stratos.sh/v1alpha1
 kind: AWSNodeClass
 metadata:
   name: on-demand
 spec:
+  bootstrapTemplate: AL2023
   instanceType: m5.large
-  ami: ami-0123456789abcdef0
-  subnetIds: ["subnet-12345678"]
-  securityGroupIds: ["sg-12345678"]
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-  userData: |
-    #!/bin/bash
-    set -e
-    /etc/eks/bootstrap.sh my-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do sleep 5; done
-    sleep 30
-    poweroff
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: node-role
 ---
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
@@ -226,8 +254,9 @@ spec:
       name: on-demand
     labels:
       stratos.sh/pool: on-demand
+      scale-to-zero: enabled
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
     startupTaintRemoval: WhenNetworkReady
@@ -237,7 +266,25 @@ spec:
     drainTimeout: 30s
 ```
 
-With this setup, you can confidently scale services to zero knowing that when traffic arrives, a node will be available in seconds — not minutes.
+Target scale-to-zero services to this pool:
+
+```yaml title="service-deployment.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-service
+spec:
+  replicas: 0  # Scaled to zero by KEDA or manually
+  template:
+    spec:
+      nodeSelector:
+        stratos.sh/pool: on-demand
+      containers:
+        - name: app
+          image: my-app:latest
+```
+
+With this setup, you can confidently scale services to zero knowing that when traffic arrives, a node will be available in seconds rather than minutes.
 
 ## Next Steps
 

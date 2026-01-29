@@ -175,21 +175,20 @@ spec:
 
 To minimize warmup time and achieve the fastest scale-up:
 
-1. **Use minimal user data scripts:**
-   ```bash
-   #!/bin/bash
-   set -e
-   /etc/eks/bootstrap.sh my-cluster \
-     --kubelet-extra-args '--register-with-taints=...'
-   until curl -sf http://localhost:10248/healthz; do sleep 5; done
-   sleep 30
-   poweroff
+1. **Use `bootstrapTemplate` for automatic configuration:**
+   ```yaml
+   spec:
+     bootstrapTemplate: AL2023  # Stratos generates optimal bootstrap script
    ```
 
 2. **Set appropriate timeout:**
    - Measure typical warmup time
    - Add buffer for variability
    - Use `terminate` action for faster recovery from stuck instances
+
+3. **Avoid heavy `customUserData` scripts:**
+   - Only add essential custom scripts
+   - Pre-install software in your AMI instead
 
 ### Image Pre-Pulling
 
@@ -199,27 +198,8 @@ Image pre-pulling is a key factor in Stratos's speed advantage over Karpenter. B
 
 Stratos automatically pre-pulls images for all DaemonSets that will run on nodes in the pool. This happens during the warmup phase, so when the node starts, DaemonSet pods can start immediately without waiting for image pulls.
 
-**Manual Image Pre-Pulling:**
-
-For application images that aren't DaemonSets, you can configure additional images to pre-pull:
-
-```yaml
-spec:
-  preWarm:
-    timeout: 15m
-    imagesToPull:
-      - docker.io/library/nginx:latest
-      - your-registry/app:v1.2.3
-      - gcr.io/your-project/worker:stable
-```
-
-This is particularly useful for:
-- Large application images that take time to pull
-- Images used by frequently-scheduled workloads
-- Images from registries with rate limits
-
 :::tip
-Pre-pulling application images can reduce pod startup time from minutes to seconds, especially for large images or when using registries with rate limits.
+DaemonSet images that match the pool's labels and tolerations are automatically discovered and pre-pulled. You don't need to configure this manually.
 :::
 
 ## Startup Taint Management
@@ -232,7 +212,7 @@ Stratos monitors network conditions and removes taints:
 spec:
   template:
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
     startupTaintRemoval: WhenNetworkReady
@@ -259,8 +239,8 @@ spec:
     startupTaintRemoval: External
 ```
 
-:::warning Important
-The `startupTaints` field **must match** the `--register-with-taints` kubelet argument in your user data script.
+:::note Automatic Taint Registration
+When using `bootstrapTemplate`, Stratos automatically configures kubelet to register with the startup taints defined in your NodePool spec. You don't need to manually coordinate `--register-with-taints` arguments.
 :::
 
 ## Example Configurations

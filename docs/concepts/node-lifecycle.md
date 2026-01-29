@@ -74,23 +74,19 @@ Stratos supports two modes for completing warmup:
 | **SelfStop** (default) | `preWarm.completionMode: SelfStop` | User data script calls `poweroff` when ready |
 | **ControllerStop** | `preWarm.completionMode: ControllerStop` | Stratos stops the instance when node is Ready |
 
-**SelfStop Mode** (Traditional)
+**SelfStop Mode** (Default for AL2/AL2023)
 
-The instance self-stops via a user data script:
+When using `bootstrapTemplate: AL2023` or `bootstrapTemplate: AL2`, Stratos automatically generates a bootstrap script that:
+1. Joins the Kubernetes cluster
+2. Registers with startup taints
+3. Waits for kubelet health
+4. Calls `poweroff` when ready
 
-```bash
-#!/bin/bash
-/etc/eks/bootstrap.sh my-cluster \
-  --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-until curl -sf http://localhost:10248/healthz; do sleep 5; done
-sleep 30
-poweroff
-```
+You don't need to write custom userData scripts. Stratos handles the entire bootstrap process.
 
 Use SelfStop mode with:
-- Amazon Linux 2/2023
-- Ubuntu
-- Any OS that supports shell scripts in user data
+- Amazon Linux 2023 (`bootstrapTemplate: AL2023`)
+- Amazon Linux 2 (`bootstrapTemplate: AL2`)
 
 **ControllerStop Mode**
 

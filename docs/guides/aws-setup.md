@@ -449,21 +449,16 @@ kind: AWSNodeClass
 metadata:
   name: test-nodes
 spec:
+  bootstrapTemplate: AL2023
   region: us-east-1
   instanceType: t3.small
-  ami: ami-0123456789abcdef0  # Your EKS-optimized AMI
-  subnetIds:
-    - subnet-12345678
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::YOUR_ACCOUNT:instance-profile/stratos-node
-  userData: |
-    #!/bin/bash
-    /etc/eks/bootstrap.sh your-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz; do sleep 5; done
-    sleep 30
-    poweroff
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: your-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: your-cluster
+  role: stratos-node-role
   blockDeviceMappings:
     - deviceName: /dev/xvda
       volumeSize: 20
@@ -474,6 +469,10 @@ spec:
 ```bash
 kubectl apply -f awsnodeclass-test.yaml
 ```
+
+:::note Automatic userData Generation
+With `bootstrapTemplate: AL2023`, Stratos automatically generates the complete bootstrap script. You no longer need to provide a custom userData script. The controller uses cluster configuration from Helm values to generate the correct bootstrap commands.
+:::
 
 ### Step 2: Create a Test NodePool
 
@@ -494,7 +493,7 @@ spec:
     labels:
       stratos.sh/pool: test
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
 ```

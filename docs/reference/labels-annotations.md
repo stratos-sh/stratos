@@ -160,13 +160,13 @@ Startup taints block scheduling until CNI is ready:
 spec:
   template:
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
 ```
 
-:::warning Important
-Startup taints **must match** the `--register-with-taints` argument in your user data script.
+:::note Automatic Taint Registration
+When using `bootstrapTemplate`, Stratos automatically configures kubelet to register with the startup taints from your NodePool spec. The taints are coordinated for you.
 :::
 
 ### Standby Taint
