@@ -69,10 +69,15 @@ warmup --> standby --> running --> stopping
 
 ### Installation
 
+Stratos generates node bootstrap scripts automatically using cluster configuration. Provide these values during installation:
+
 ```bash
 helm install stratos oci://ghcr.io/stratos-sh/charts/stratos \
   --namespace stratos-system --create-namespace \
-  --set clusterName=my-cluster
+  --set cluster.name=my-cluster \
+  --set cluster.apiServerEndpoint=https://ABCDEF.gr7.us-east-1.eks.amazonaws.com \
+  --set cluster.certificateAuthority=LS0tLS1CRUdJTi... \
+  --set cluster.cidr=172.20.0.0/16
 ```
 
 ### Create Resources
@@ -85,12 +90,12 @@ kind: AWSNodeClass
 metadata:
   name: workers
 spec:
+  # Bootstrap template - Stratos generates userData automatically
+  bootstrapTemplate: AL2023
+
   instanceType: m5.large
 
   # Dynamic resource selectors - discover resources by tags instead of hardcoding IDs
-  amiSelector:
-    name: "my-eks-ami-*"
-    owner: self
   subnetSelector:
     tags:
       stratos.sh/discovery: my-cluster
@@ -101,13 +106,11 @@ spec:
   # Automatic instance profile management from IAM role name
   role: my-node-role
 
-  userData: |
-    #!/bin/bash
-    /etc/eks/bootstrap.sh my-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz; do sleep 5; done
-    sleep 30
-    poweroff
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 50
+      volumeType: gp3
+      encrypted: true
 ```
 
 > **Note:** You can also use static IDs (`ami`, `subnetIds`, `securityGroupIds`, `iamInstanceProfile`) instead of selectors. See the [Dynamic Resource Selectors guide](https://stratos-sh.github.io/stratos/guides/dynamic-resource-selectors) for details.
@@ -129,9 +132,14 @@ spec:
     labels:
       stratos.sh/pool: workers
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
+    startupTaintRemoval: WhenNetworkReady
+
+  scaleDown:
+    enabled: true
+    emptyNodeTTL: 5m
 ```
 
 **Verify:**
