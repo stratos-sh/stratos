@@ -1,0 +1,32 @@
+# AWSNodeClass using dynamic resource selectors
+# This example discovers subnets and security groups by tags
+# and uses role-based IAM (Stratos manages the instance profile)
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: selectors
+spec:
+  bootstrapTemplate: AL2023
+  instanceType: m5.large
+
+  # Dynamic subnet selection - finds subnets matching these tags
+  # All tag conditions must match (AND semantics)
+  subnetSelector:
+    tags:
+      kubernetes.io/cluster/<YOUR_CLUSTER_NAME>: owned
+      kubernetes.io/role/internal-elb: "1"
+
+  # Dynamic security group selection
+  securityGroupSelector:
+    tags:
+      kubernetes.io/cluster/<YOUR_CLUSTER_NAME>: owned
+
+  # Role-based IAM - Stratos creates and manages the instance profile
+  # Replace with your existing IAM role name
+  role: <YOUR_IAM_ROLE_NAME>
+
+  # EBS configuration
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 50
+      volumeType: gp3

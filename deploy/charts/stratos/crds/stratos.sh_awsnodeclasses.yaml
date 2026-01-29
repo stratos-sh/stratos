@@ -17,6 +17,9 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.bootstrapTemplate
+      name: Template
+      type: string
     - jsonPath: .spec.instanceType
       name: InstanceType
       type: string
@@ -56,14 +59,10 @@ spec:
           spec:
             description: AWSNodeClassSpec defines the desired state of AWSNodeClass
             properties:
-              ami:
-                description: AMI is the Amazon Machine Image ID (mutually exclusive
-                  with amiSelector)
-                pattern: ^ami-[a-z0-9]+$
-                type: string
               amiSelector:
-                description: AMISelector defines criteria for dynamically selecting
-                  an AMI (mutually exclusive with ami)
+                description: |-
+                  AMISelector defines criteria for dynamically selecting an AMI.
+                  If omitted, AMI is auto-discovered based on bootstrapTemplate and cluster version.
                 properties:
                   name:
                     description: Name with wildcard support (e.g., "my-eks-ami-*")
@@ -77,6 +76,18 @@ spec:
                     description: Tags to match (AND semantics)
                     type: object
                 type: object
+              architecture:
+                allOf:
+                - enum:
+                  - x86_64
+                  - arm64
+                - enum:
+                  - x86_64
+                  - arm64
+                default: x86_64
+                description: Architecture determines the CPU architecture for AMI
+                  auto-discovery.
+                type: string
               blockDeviceMappings:
                 description: BlockDeviceMappings defines the EBS volumes
                 items:
@@ -113,6 +124,26 @@ spec:
                   - volumeType
                   type: object
                 type: array
+              bootstrapTemplate:
+                allOf:
+                - enum:
+                  - AL2023
+                  - AL2
+                  - Bottlerocket
+                - enum:
+                  - AL2023
+                  - AL2
+                  - Bottlerocket
+                description: |-
+                  BootstrapTemplate determines the bootstrap format for this node class.
+                  AL2023 uses nodeadm MIME multipart, AL2 uses bootstrap.sh, Bottlerocket uses TOML.
+                type: string
+              customUserData:
+                description: |-
+                  CustomUserData is optional user scripts merged with generated bootstrap.
+                  For AL2023/AL2, this is added as a MIME part after the warmup script.
+                  For Bottlerocket, this TOML is merged with the generated config.
+                type: string
               iamInstanceProfile:
                 description: IAMInstanceProfile is the IAM instance profile ARN or
                   name (mutually exclusive with role)
@@ -120,6 +151,56 @@ spec:
               instanceType:
                 description: InstanceType is the EC2 instance type (e.g., "m5.large")
                 type: string
+              kubelet:
+                description: Kubelet is the kubelet configuration for nodes.
+                properties:
+                  extraArgs:
+                    additionalProperties:
+                      type: string
+                    description: ExtraArgs are additional kubelet arguments.
+                    type: object
+                  maxPods:
+                    description: MaxPods is the maximum number of pods that can be
+                      scheduled on this node.
+                    format: int32
+                    type: integer
+                  nodeLabels:
+                    additionalProperties:
+                      type: string
+                    description: NodeLabels are labels to apply to the node via kubelet.
+                    type: object
+                  nodeTaints:
+                    description: NodeTaints are taints to apply to the node via kubelet.
+                    items:
+                      description: |-
+                        The node this Taint is attached to has the "effect" on
+                        any pod that does not tolerate the Taint.
+                      properties:
+                        effect:
+                          description: |-
+                            Required. The effect of the taint on pods
+                            that do not tolerate the taint.
+                            Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
+                          type: string
+                        key:
+                          description: Required. The taint key to be applied to a
+                            node.
+                          type: string
+                        timeAdded:
+                          description: TimeAdded represents the time at which the
+                            taint was added.
+                          format: date-time
+                          type: string
+                        value:
+                          description: The taint value corresponding to the taint
+                            key.
+                          type: string
+                      required:
+                      - effect
+                      - key
+                      type: object
+                    type: array
+                type: object
               metadataOptions:
                 description: MetadataOptions defines IMDS configuration for launched
                   instances
@@ -201,19 +282,11 @@ spec:
                 description: Tags to apply to instances in addition to Stratos-managed
                   tags
                 type: object
-              userData:
-                description: |-
-                  UserData is the base64-encoded user data script.
-                  This script should join the cluster and self-stop when ready.
-                type: string
             required:
+            - bootstrapTemplate
             - instanceType
             type: object
             x-kubernetes-validations:
-            - message: one of ami or amiSelector is required
-              rule: has(self.ami) || has(self.amiSelector)
-            - message: ami and amiSelector are mutually exclusive
-              rule: '!(has(self.ami) && has(self.amiSelector))'
             - message: one of subnetIds or subnetSelector is required
               rule: has(self.subnetIds) || has(self.subnetSelector)
             - message: subnetIds and subnetSelector are mutually exclusive

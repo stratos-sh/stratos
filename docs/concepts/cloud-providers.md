@@ -16,11 +16,11 @@ Stratos separates concerns between pool management and cloud-specific configurat
 +------------------+       references        +------------------+
 |    NodePool      | ----------------------> |  AWSNodeClass    |
 +------------------+                         +------------------+
-| - poolSize       |                         | - instanceType   |
-| - minStandby     |                         | - ami            |
-| - labels, taints |                         | - subnetIds      |
-| - preWarm config |                         | - securityGroups |
-| - scaleDown      |                         | - userData       |
+| - poolSize       |                         | - bootstrapTemplate |
+| - minStandby     |                         | - instanceType   |
+| - labels, taints |                         | - subnetSelector |
+| - preWarm config |                         | - securityGroupSelector |
+| - scaleDown      |                         | - role           |
 +------------------+                         +------------------+
          |
          | uses
@@ -99,19 +99,18 @@ kind: AWSNodeClass
 metadata:
   name: production-nodes
 spec:
+  # Bootstrap template - Stratos generates userData automatically
+  bootstrapTemplate: AL2023
   region: us-east-1
   instanceType: m5.large
-  ami: ami-0123456789abcdef0
-  subnetIds:
-    - subnet-12345678
-    - subnet-87654321
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-  userData: |
-    #!/bin/bash
-    /etc/eks/bootstrap.sh my-cluster
-    # ... warmup script
+  # Dynamic resource discovery (recommended)
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: node-role  # Stratos manages instance profile
   blockDeviceMappings:
     - deviceName: /dev/xvda
       volumeSize: 50
@@ -166,22 +165,18 @@ kind: AWSNodeClass
 metadata:
   name: standard-nodes
 spec:
+  # Stratos generates bootstrap script based on template
+  bootstrapTemplate: AL2023
   region: us-east-1
   instanceType: m5.large
-  ami: ami-0123456789abcdef0
-  subnetIds:
-    - subnet-12345678
-    - subnet-87654321
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-  userData: |
-    #!/bin/bash
-    /etc/eks/bootstrap.sh my-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz; do sleep 5; done
-    sleep 30
-    poweroff
+  # Use selectors for portable configurations
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: node-role
   blockDeviceMappings:
     - deviceName: /dev/xvda
       volumeSize: 50

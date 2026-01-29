@@ -29,6 +29,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	corev1 "k8s.io/api/core/v1"
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
@@ -37,14 +38,26 @@ import (
 
 // AWSProvider implements the CloudProvider interface for AWS EC2.
 type AWSProvider struct {
-	client      *ec2.Client
-	rateLimiter *RateLimiter
-	region      string
-	subnetIndex uint64 // atomic counter for round-robin subnet selection
+	client        *ec2.Client
+	rateLimiter   *RateLimiter
+	region        string
+	subnetIndex   uint64 // atomic counter for round-robin subnet selection
+	clusterConfig *ClusterConfig
 }
 
-// NewAWSProvider creates a new AWS provider with the specified region.
-func NewAWSProvider(ctx context.Context, region string) (*AWSProvider, error) {
+// ClusterConfig holds the cluster configuration needed for userData generation.
+// This is passed from controller.ClusterConfig at initialization.
+type ClusterConfig struct {
+	Name                 string
+	APIServerEndpoint    string
+	CertificateAuthority string
+	CIDR                 string
+	KubernetesVersion    string
+}
+
+
+// NewAWSProvider creates a new AWS provider with the specified region and cluster config.
+func NewAWSProvider(ctx context.Context, region string, clusterConfig *ClusterConfig) (*AWSProvider, error) {
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
 	)
@@ -53,16 +66,17 @@ func NewAWSProvider(ctx context.Context, region string) (*AWSProvider, error) {
 	}
 
 	return &AWSProvider{
-		client:      ec2.NewFromConfig(cfg),
-		rateLimiter: NewRateLimiter(),
-		region:      region,
+		client:        ec2.NewFromConfig(cfg),
+		rateLimiter:   NewRateLimiter(),
+		region:        region,
+		clusterConfig: clusterConfig,
 	}, nil
 }
 
 // LaunchInstance creates a new EC2 instance using the AWSNodeClass configuration.
 // This method takes the cloud-specific NodeClass directly, handling subnet selection
 // internally using round-robin distribution across the configured subnets.
-func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) (*cloudprovider.Instance, error) {
+func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) (*cloudprovider.Instance, error) {
 	startTime := time.Now()
 	status := "success"
 	defer func() {
@@ -75,21 +89,9 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 	}
 
 	// Read resolved values from status (populated by AWSNodeClass reconciler)
-	if nodeClass.Status.ResolvedAMI == "" {
+	if err := validateNodeClassResolved(nodeClass); err != nil {
 		status = "error"
-		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedAMI is empty", nodeClass.Name)
-	}
-	if len(nodeClass.Status.ResolvedSubnets) == 0 {
-		status = "error"
-		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedSubnets is empty", nodeClass.Name)
-	}
-	if len(nodeClass.Status.ResolvedSecurityGroups) == 0 {
-		status = "error"
-		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedSecurityGroups is empty", nodeClass.Name)
-	}
-	if nodeClass.Status.ResolvedInstanceProfile == "" {
-		status = "error"
-		return nil, fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedInstanceProfile is empty", nodeClass.Name)
+		return nil, err
 	}
 
 	// Select subnet using round-robin from resolved subnets
@@ -163,9 +165,13 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 		input.MetadataOptions = mo
 	}
 
-	if nodeClass.Spec.UserData != "" {
-		// AWS requires user data to be base64 encoded
-		encoded := base64.StdEncoding.EncodeToString([]byte(nodeClass.Spec.UserData))
+	// Generate userData using the bootstrap generator
+	if p.clusterConfig != nil {
+		encoded, err := p.generateEncodedUserData(nodeClass, poolName, templateConfig)
+		if err != nil {
+			status = "error"
+			return nil, err
+		}
 		input.UserData = aws.String(encoded)
 	}
 
@@ -186,6 +192,49 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 
 	inst := result.Instances[0]
 	return p.convertInstance(&inst), nil
+}
+
+// validateNodeClassResolved checks that all required fields have been resolved.
+func validateNodeClassResolved(nodeClass *stratosv1alpha1.AWSNodeClass) error {
+	if nodeClass.Status.ResolvedAMI == "" {
+		return fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedAMI is empty", nodeClass.Name)
+	}
+	if len(nodeClass.Status.ResolvedSubnets) == 0 {
+		return fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedSubnets is empty", nodeClass.Name)
+	}
+	if len(nodeClass.Status.ResolvedSecurityGroups) == 0 {
+		return fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedSecurityGroups is empty", nodeClass.Name)
+	}
+	if nodeClass.Status.ResolvedInstanceProfile == "" {
+		return fmt.Errorf("AWSNodeClass %s has not been resolved: resolvedInstanceProfile is empty", nodeClass.Name)
+	}
+	return nil
+}
+
+// generateEncodedUserData builds and base64-encodes userData from the cluster config and node class.
+func (p *AWSProvider) generateEncodedUserData(nodeClass *stratosv1alpha1.AWSNodeClass, poolName string, templateConfig *cloudprovider.TemplateConfig) (string, error) {
+	bootstrapConfig := &BootstrapConfig{
+		ClusterName:       p.clusterConfig.Name,
+		ClusterEndpoint:   p.clusterConfig.APIServerEndpoint,
+		ClusterCA:         p.clusterConfig.CertificateAuthority,
+		ClusterCIDR:       p.clusterConfig.CIDR,
+		PoolName:          poolName,
+		BootstrapTemplate: nodeClass.Spec.BootstrapTemplate,
+		Kubelet:           nodeClass.Spec.Kubelet,
+		CustomUserData:    nodeClass.Spec.CustomUserData,
+	}
+
+	if templateConfig != nil {
+		bootstrapConfig.TemplateLabels = templateConfig.Labels
+		bootstrapConfig.TemplateTaints = mergeTemplateTaints(templateConfig.Taints, templateConfig.StartupTaints)
+	}
+
+	userData, err := GenerateUserData(bootstrapConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate userData: %w", err)
+	}
+
+	return base64.StdEncoding.EncodeToString([]byte(userData)), nil
 }
 
 // StartInstance starts a stopped EC2 instance.
@@ -434,6 +483,33 @@ func (p *AWSProvider) convertState(state *types.InstanceState) cloudprovider.Ins
 	default:
 		return cloudprovider.InstanceStateUnknown
 	}
+}
+
+// mergeTemplateTaints merges regular taints and startup taints, with startup taints taking precedence.
+func mergeTemplateTaints(taints, startupTaints []corev1.Taint) []corev1.Taint {
+	if len(taints) == 0 && len(startupTaints) == 0 {
+		return nil
+	}
+
+	taintMap := make(map[string]corev1.Taint)
+
+	// Regular taints first (lower priority)
+	for _, t := range taints {
+		key := fmt.Sprintf("%s:%s", t.Key, t.Effect)
+		taintMap[key] = t
+	}
+
+	// Startup taints override (higher priority)
+	for _, t := range startupTaints {
+		key := fmt.Sprintf("%s:%s", t.Key, t.Effect)
+		taintMap[key] = t
+	}
+
+	result := make([]corev1.Taint, 0, len(taintMap))
+	for _, t := range taintMap {
+		result = append(result, t)
+	}
+	return result
 }
 
 // handleError converts AWS errors to cloudprovider errors.

@@ -36,7 +36,7 @@ import (
 // NodeLauncher defines the interface for launching instances with cloud-specific NodeClass.
 // This interface is implemented by cloud-specific providers (AWSProvider, FakeProvider).
 type NodeLauncher interface {
-	LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) (*cloudprovider.Instance, error)
+	LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) (*cloudprovider.Instance, error)
 }
 
 // NodeManager handles the lifecycle of Stratos-managed nodes.
@@ -63,9 +63,16 @@ func NewNodeManager(c client.Client, recorder events.EventRecorder, provider clo
 func (m *NodeManager) LaunchNode(ctx context.Context, pool *stratosv1alpha1.NodePool, nodeClass *stratosv1alpha1.AWSNodeClass, launcher NodeLauncher) (*corev1.Node, error) {
 	logger := log.FromContext(ctx)
 
+	// Build template config from NodePool spec
+	templateConfig := &cloudprovider.TemplateConfig{
+		Labels:        pool.Spec.Template.Labels,
+		Taints:        pool.Spec.Template.Taints,
+		StartupTaints: pool.Spec.Template.StartupTaints,
+	}
+
 	// Launch the instance using the cloud-specific provider
 	logger.Info("Launching instance", "pool", pool.Name, "nodeClass", nodeClass.Name, "instanceType", nodeClass.Spec.InstanceType)
-	instance, err := launcher.LaunchInstance(ctx, nodeClass, pool.Name, m.clusterName)
+	instance, err := launcher.LaunchInstance(ctx, nodeClass, pool.Name, m.clusterName, templateConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch instance: %w", err)
 	}
@@ -117,9 +124,11 @@ func (m *NodeManager) WaitForNodeJoin(ctx context.Context, pool *stratosv1alpha1
 	return nil, fmt.Errorf("timeout waiting for node %s to join", instanceID)
 }
 
-// LabelNode applies Stratos labels to a node.
+// LabelNode applies Stratos labels and template labels to a node.
 // If the node is entering warmup state, it is also cordoned to prevent scheduling.
-func (m *NodeManager) LabelNode(ctx context.Context, node *corev1.Node, poolName, instanceID string, state NodeState) error {
+// Template labels from the NodePool spec are applied to the node, skipping any
+// labels with the stratos.sh/ prefix to prevent conflicts with system labels.
+func (m *NodeManager) LabelNode(ctx context.Context, node *corev1.Node, poolName, instanceID string, state NodeState, templateLabels map[string]string) error {
 	logger := log.FromContext(ctx)
 
 	// Create a copy for patching
@@ -135,6 +144,13 @@ func (m *NodeManager) LabelNode(ctx context.Context, node *corev1.Node, poolName
 	node.Labels[LabelState] = string(state)
 	node.Labels[LabelInstanceID] = instanceID
 	node.Labels[LabelStateSince] = fmt.Sprintf("%d", time.Now().Unix())
+
+	// Apply template labels (skip stratos.sh/ prefix to prevent conflicts)
+	for k, v := range templateLabels {
+		if !strings.HasPrefix(k, "stratos.sh/") {
+			node.Labels[k] = v
+		}
+	}
 
 	// Ensure annotations map exists
 	if node.Annotations == nil {
@@ -199,14 +215,14 @@ func (m *NodeManager) MonitorWarmup(ctx context.Context, pool *stratosv1alpha1.N
 
 	switch state {
 	case cloudprovider.InstanceStateStopped:
-		// Instance has self-stopped - transition to standby
-		logger.Info("Instance self-stopped, transitioning to standby", "node", node.Name)
+		// Instance stopped - transition to standby
+		logger.Info("Instance stopped, transitioning to standby", "node", node.Name)
 
 		// Record warmup completion
 		startTime := parseUnixTimestamp(node.Labels[LabelStateSince])
 		if !startTime.IsZero() {
 			duration := time.Since(startTime).Seconds()
-			metrics.RecordWarmupDuration(pool.Name, "self_stop", duration)
+			metrics.RecordWarmupDuration(pool.Name, "controller_stop", duration)
 		}
 
 		// Prepare node for standby (cordon + taint + re-add startup taints)
@@ -242,24 +258,21 @@ func (m *NodeManager) MonitorWarmup(ctx context.Context, pool *stratosv1alpha1.N
 		}
 
 	case cloudprovider.InstanceStateRunning:
-		// Instance still running - behavior depends on completion mode
+		// Instance still running - check readiness and stop when ready (ControllerStop behavior)
 		startTime := parseUnixTimestamp(node.Labels[LabelStateSince])
 		if startTime.IsZero() {
 			startTime = time.Now()
 		}
 
-		// Check timeout first (applies to both modes)
+		// Check timeout first
 		timeout := pool.Spec.PreWarm.GetTimeout().Duration
 		if time.Since(startTime) > timeout {
 			logger.Info("Warmup timeout exceeded", "node", node.Name, "timeout", timeout)
 			return m.handleWarmupTimeout(ctx, pool, node, instanceID)
 		}
 
-		// In ControllerStop mode, check if node is ready and stop it
-		if pool.Spec.PreWarm.GetCompletionMode() == stratosv1alpha1.WarmupCompletionModeControllerStop {
-			return m.handleControllerStopWarmup(ctx, pool, node, instanceID, startTime)
-		}
-		// In SelfStop mode, just wait for instance to self-stop (no action needed)
+		// Check if node is ready and stop it (always ControllerStop behavior)
+		return m.handleControllerStopWarmup(ctx, pool, node, instanceID, startTime)
 
 	case cloudprovider.InstanceStateTerminated:
 		// Instance was terminated - clean up node
@@ -314,15 +327,14 @@ func (m *NodeManager) handleWarmupTimeout(ctx context.Context, pool *stratosv1al
 	return nil
 }
 
-// handleControllerStopWarmup handles warmup in ControllerStop mode.
+// handleControllerStopWarmup handles warmup completion.
 // It checks if the node is ready and stops it when conditions are met.
 func (m *NodeManager) handleControllerStopWarmup(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node, instanceID string, startTime time.Time) error {
 	logger := log.FromContext(ctx)
 
 	// Check if node is Ready
 	if !IsNodeReady(node) {
-		logger.V(1).Info("Node not ready, waiting for warmup to complete",
-			"node", node.Name, "mode", "ControllerStop")
+		logger.V(1).Info("Node not ready, waiting for warmup to complete", "node", node.Name)
 		return nil
 	}
 
@@ -330,21 +342,18 @@ func (m *NodeManager) handleControllerStopWarmup(ctx context.Context, pool *stra
 	if pool.Spec.Template.StartupTaintRemoval == stratosv1alpha1.StartupTaintRemovalWhenNetworkReady {
 		checker := NewNetworkReadinessChecker(m.client)
 		if !checker.IsReady(node) {
-			logger.V(1).Info("Node ready but network not ready, waiting",
-				"node", node.Name, "mode", "ControllerStop")
+			logger.V(1).Info("Node ready but network not ready, waiting", "node", node.Name)
 			return nil
 		}
 		// For EKS, also verify aws-node pod is Ready
 		if checker.HasNetworkingReadyCondition(node) && !checker.IsAwsNodePodReady(ctx, node.Name) {
-			logger.V(1).Info("Node ready but aws-node pod not ready, waiting",
-				"node", node.Name, "mode", "ControllerStop")
+			logger.V(1).Info("Node ready but aws-node pod not ready, waiting", "node", node.Name)
 			return nil
 		}
 	}
 
 	// Node is ready (and network ready if required) - stop the instance
-	logger.Info("Node ready, stopping instance in ControllerStop mode",
-		"node", node.Name, "instanceID", instanceID)
+	logger.Info("Node ready, stopping instance", "node", node.Name, "instanceID", instanceID)
 
 	// Stop the instance
 	if err := m.cloudProvider.StopInstance(ctx, instanceID, false); err != nil {
@@ -374,7 +383,7 @@ func (m *NodeManager) handleControllerStopWarmup(ctx context.Context, pool *stra
 	// Record event
 	if m.recorder != nil {
 		m.recorder.Eventf(pool, nil, corev1.EventTypeNormal, "WarmupCompleted", "HandleControllerStopWarmup",
-			"Node %s completed warmup (ControllerStop mode) and is now standby", node.Name)
+			"Node %s completed warmup and is now standby", node.Name)
 	}
 
 	// Set warmup completed annotation
@@ -613,7 +622,7 @@ func (m *NodeManager) MonitorCloudWarmup(ctx context.Context, pool *stratosv1alp
 	logger := log.FromContext(ctx)
 
 	instanceID := instance.ID
-	logger.V(1).Info("Monitoring cloud warmup instance", "instanceID", instanceID, "cloudState", instance.State)
+	// logger.V(1).Info("Monitoring cloud warmup instance", "instanceID", instanceID, "cloudState", instance.State)
 
 	// Check if K8s node exists for this instance
 	node, err := m.FindNodeByInstanceID(ctx, instanceID)
@@ -659,7 +668,7 @@ func (m *NodeManager) MonitorCloudWarmup(ctx context.Context, pool *stratosv1alp
 		// If K8s node exists but isn't tracked by warmup workflow, label it
 		if node != nil && node.Labels[LabelState] == "" {
 			logger.Info("Labeling unlabeled K8s node as warmup", "instanceID", instanceID, "node", node.Name)
-			if err := m.LabelNode(ctx, node, pool.Name, instanceID, NodeStateWarmup); err != nil {
+			if err := m.LabelNode(ctx, node, pool.Name, instanceID, NodeStateWarmup, pool.Spec.Template.Labels); err != nil {
 				return fmt.Errorf("failed to label warmup node: %w", err)
 			}
 		}
@@ -778,6 +787,13 @@ func (m *NodeManager) adoptAndTransitionToStandby(ctx context.Context, pool *str
 	node.Labels[LabelState] = string(NodeStateStandby)
 	node.Labels[LabelInstanceID] = instanceID
 	node.Labels[LabelStateSince] = fmt.Sprintf("%d", time.Now().Unix())
+
+	// Apply template labels (skip stratos.sh/ prefix to prevent conflicts)
+	for k, v := range pool.Spec.Template.Labels {
+		if !strings.HasPrefix(k, "stratos.sh/") {
+			node.Labels[k] = v
+		}
+	}
 
 	// Ensure annotations map exists
 	if node.Annotations == nil {

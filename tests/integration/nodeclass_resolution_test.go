@@ -45,7 +45,7 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 				Spec: stratosv1alpha1.AWSNodeClassSpec{
 					Region:             "us-east-1",
 					InstanceType:       "m5.large",
-					AMI:                "ami-12345678",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 					SubnetIDs:          []string{"subnet-aaa", "subnet-bbb"},
 					SecurityGroupIDs:   []string{"sg-xxx"},
 					IAMInstanceProfile: "arn:aws:iam::123456789012:instance-profile/test-profile",
@@ -55,6 +55,8 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Wait for AWSNodeClass reconciler to resolve and set status
+			// Note: With AMI auto-discovery, when no amiSelector is set, the FakeResolver
+			// returns "ami-fake-12345" for the auto-generated selector
 			Eventually(func() string {
 				updated := &stratosv1alpha1.AWSNodeClass{}
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: nc.Name}, updated)
@@ -62,14 +64,14 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 					return ""
 				}
 				return updated.Status.ResolvedAMI
-			}, timeout, interval).Should(Equal("ami-12345678"))
+			}, timeout, interval).Should(Equal("ami-fake-12345"))
 
 			// Verify all resolved status fields
 			updated := &stratosv1alpha1.AWSNodeClass{}
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: nc.Name}, updated)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(updated.Status.ResolvedAMI).To(Equal("ami-12345678"))
+			Expect(updated.Status.ResolvedAMI).To(Equal("ami-fake-12345"))
 			Expect(updated.Status.ResolvedSubnets).To(HaveLen(2))
 			Expect(updated.Status.ResolvedSubnets[0].ID).To(Equal("subnet-aaa"))
 			Expect(updated.Status.ResolvedSubnets[1].ID).To(Equal("subnet-bbb"))
@@ -92,8 +94,9 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 					Name: "selector-test",
 				},
 				Spec: stratosv1alpha1.AWSNodeClassSpec{
-					Region:       "us-east-1",
-					InstanceType: "m5.large",
+					Region:            "us-east-1",
+					InstanceType:      "m5.large",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 					AMISelector: &stratosv1alpha1.AMISelector{
 						Tags: map[string]string{"env": "test"},
 					},
@@ -154,7 +157,7 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 				Spec: stratosv1alpha1.AWSNodeClassSpec{
 					Region:       "us-east-1",
 					InstanceType: "m5.large",
-					AMI:          "ami-12345678",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 					SubnetSelector: &stratosv1alpha1.SubnetSelector{
 						Tags: map[string]string{"nonexistent": "tag"},
 					},
@@ -209,8 +212,9 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 					Name: "transient-fail-test",
 				},
 				Spec: stratosv1alpha1.AWSNodeClassSpec{
-					Region:       "us-east-1",
-					InstanceType: "m5.large",
+					Region:            "us-east-1",
+					InstanceType:      "m5.large",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 					AMISelector: &stratosv1alpha1.AMISelector{
 						Tags: map[string]string{"env": "test"},
 					},
@@ -274,7 +278,7 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 				Spec: stratosv1alpha1.AWSNodeClassSpec{
 					Region:       "us-east-1",
 					InstanceType: "m5.large",
-					AMI:          "ami-12345678",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 					SubnetIDs:    []string{"subnet-aaa"},
 					SecurityGroupSelector: &stratosv1alpha1.SecurityGroupSelector{
 						Tags: map[string]string{"missing": "tag"},
@@ -340,7 +344,7 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 				Spec: stratosv1alpha1.AWSNodeClassSpec{
 					Region:       "us-east-1",
 					InstanceType: "m5.large",
-					AMI:          "ami-12345678",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 					SubnetIDs:    []string{"subnet-aaa"},
 					SecurityGroupIDs: []string{"sg-xxx"},
 					Role:         "test-node-role",
@@ -381,7 +385,7 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 				Spec: stratosv1alpha1.AWSNodeClassSpec{
 					Region:           "us-east-1",
 					InstanceType:     "m5.large",
-					AMI:              "ami-12345678",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 					SubnetIDs:        []string{"subnet-aaa"},
 					SecurityGroupIDs: []string{"sg-xxx"},
 					Role:             "test-role",
@@ -430,6 +434,154 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 		})
 	})
 
+	Context("AMI auto-discovery", func() {
+		It("should auto-discover AMI when amiSelector is omitted and K8s version is available", func() {
+			// The FakeResolver returns "ami-fake-12345" for any selector
+			nc := &stratosv1alpha1.AWSNodeClass{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "ami-autodiscovery-test",
+				},
+				Spec: stratosv1alpha1.AWSNodeClassSpec{
+					Region:            "us-east-1",
+					InstanceType:      "m5.large",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
+					Architecture:      stratosv1alpha1.ArchitectureX86_64,
+					// Note: amiSelector is NOT set - should auto-discover
+					SubnetIDs:          []string{"subnet-aaa"},
+					SecurityGroupIDs:   []string{"sg-xxx"},
+					IAMInstanceProfile: "test-profile",
+				},
+			}
+			err := k8sClient.Create(ctx, nc)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait for AMI to be resolved via auto-discovery
+			Eventually(func() string {
+				updated := &stratosv1alpha1.AWSNodeClass{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: nc.Name}, updated)
+				if err != nil {
+					return ""
+				}
+				return updated.Status.ResolvedAMI
+			}, timeout, interval).Should(Equal("ami-fake-12345"))
+
+			// Verify the AMIReady condition is True
+			updated := &stratosv1alpha1.AWSNodeClass{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: nc.Name}, updated)
+			Expect(err).NotTo(HaveOccurred())
+			expectConditionTrue(updated, stratosv1alpha1.AWSNodeClassConditionTypeAMIReady)
+		})
+
+		It("should use ARM64 AMI pattern when architecture is arm64", func() {
+			nc := &stratosv1alpha1.AWSNodeClass{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "ami-arm64-test",
+				},
+				Spec: stratosv1alpha1.AWSNodeClassSpec{
+					Region:            "us-east-1",
+					InstanceType:      "m6g.large",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
+					Architecture:      stratosv1alpha1.ArchitectureARM64,
+					// Note: amiSelector is NOT set - should auto-discover with arm64
+					SubnetIDs:          []string{"subnet-aaa"},
+					SecurityGroupIDs:   []string{"sg-xxx"},
+					IAMInstanceProfile: "test-profile",
+				},
+			}
+			err := k8sClient.Create(ctx, nc)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait for AMI to be resolved
+			Eventually(func() string {
+				updated := &stratosv1alpha1.AWSNodeClass{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: nc.Name}, updated)
+				if err != nil {
+					return ""
+				}
+				return updated.Status.ResolvedAMI
+			}, timeout, interval).Should(Equal("ami-fake-12345"))
+
+			// Verify the AMIReady condition is True
+			updated := &stratosv1alpha1.AWSNodeClass{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: nc.Name}, updated)
+			Expect(err).NotTo(HaveOccurred())
+			expectConditionTrue(updated, stratosv1alpha1.AWSNodeClassConditionTypeAMIReady)
+		})
+
+		It("should auto-discover Bottlerocket AMI when bootstrapTemplate is Bottlerocket", func() {
+			nc := &stratosv1alpha1.AWSNodeClass{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "ami-bottlerocket-test",
+				},
+				Spec: stratosv1alpha1.AWSNodeClassSpec{
+					Region:            "us-east-1",
+					InstanceType:      "m5.large",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateBottlerocket,
+					// Note: amiSelector is NOT set - should auto-discover Bottlerocket AMI
+					SubnetIDs:          []string{"subnet-aaa"},
+					SecurityGroupIDs:   []string{"sg-xxx"},
+					IAMInstanceProfile: "test-profile",
+				},
+			}
+			err := k8sClient.Create(ctx, nc)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait for AMI to be resolved
+			Eventually(func() string {
+				updated := &stratosv1alpha1.AWSNodeClass{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: nc.Name}, updated)
+				if err != nil {
+					return ""
+				}
+				return updated.Status.ResolvedAMI
+			}, timeout, interval).Should(Equal("ami-fake-12345"))
+
+			// Verify the AMIReady condition is True
+			updated := &stratosv1alpha1.AWSNodeClass{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: nc.Name}, updated)
+			Expect(err).NotTo(HaveOccurred())
+			expectConditionTrue(updated, stratosv1alpha1.AWSNodeClassConditionTypeAMIReady)
+		})
+
+		It("should prefer explicit amiSelector over auto-discovery", func() {
+			nc := &stratosv1alpha1.AWSNodeClass{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "ami-explicit-selector-test",
+				},
+				Spec: stratosv1alpha1.AWSNodeClassSpec{
+					Region:            "us-east-1",
+					InstanceType:      "m5.large",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
+					AMISelector: &stratosv1alpha1.AMISelector{
+						Name:  "my-custom-ami-*",
+						Owner: "self",
+					},
+					SubnetIDs:          []string{"subnet-aaa"},
+					SecurityGroupIDs:   []string{"sg-xxx"},
+					IAMInstanceProfile: "test-profile",
+				},
+			}
+			err := k8sClient.Create(ctx, nc)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait for AMI to be resolved using explicit selector
+			Eventually(func() string {
+				updated := &stratosv1alpha1.AWSNodeClass{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: nc.Name}, updated)
+				if err != nil {
+					return ""
+				}
+				return updated.Status.ResolvedAMI
+			}, timeout, interval).Should(Equal("ami-fake-12345"))
+
+			// Verify the AMIReady condition is True
+			updated := &stratosv1alpha1.AWSNodeClass{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: nc.Name}, updated)
+			Expect(err).NotTo(HaveOccurred())
+			expectConditionTrue(updated, stratosv1alpha1.AWSNodeClassConditionTypeAMIReady)
+		})
+	})
+
 	// CEL validation tests - these test admission-time validation.
 	// Note: envtest may not enforce CEL validation rules depending on the version
 	// of the API server. These tests verify the behavior when CEL is enforced.
@@ -442,7 +594,7 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 				Spec: stratosv1alpha1.AWSNodeClassSpec{
 					Region:       "us-east-1",
 					InstanceType: "m5.large",
-					AMI:          "ami-12345678",
+					BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 					AMISelector: &stratosv1alpha1.AMISelector{
 						Tags: map[string]string{"env": "test"},
 					},
@@ -462,29 +614,9 @@ var _ = Describe("AWSNodeClass Resolution", func() {
 			}
 		})
 
-		It("should reject neither ami nor amiSelector set", func() {
-			nc := &stratosv1alpha1.AWSNodeClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "cel-neither-ami-test",
-				},
-				Spec: stratosv1alpha1.AWSNodeClassSpec{
-					Region:             "us-east-1",
-					InstanceType:       "m5.large",
-					SubnetIDs:          []string{"subnet-aaa"},
-					SecurityGroupIDs:   []string{"sg-xxx"},
-					IAMInstanceProfile: "test-profile",
-				},
-			}
-			err := k8sClient.Create(ctx, nc)
-			// CEL validation should reject this - if envtest supports CEL
-			if err != nil {
-				Expect(err.Error()).To(ContainSubstring("one of ami or amiSelector is required"))
-			} else {
-				// If envtest doesn't enforce CEL, clean up and skip
-				_ = k8sClient.Delete(ctx, nc)
-				Skip("envtest does not enforce CEL validation rules")
-			}
-		})
+		// NOTE: The "neither ami nor amiSelector" CEL validation was removed
+		// because we now support AMI auto-discovery. When amiSelector is omitted,
+		// Stratos automatically derives the selector from bootstrapTemplate + architecture.
 	})
 })
 

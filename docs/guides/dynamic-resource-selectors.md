@@ -149,6 +149,8 @@ kind: AWSNodeClass
 metadata:
   name: dynamic-standard
 spec:
+  # Bootstrap template - Stratos generates userData automatically
+  bootstrapTemplate: AL2023
   instanceType: m5.large
 
   # Discover the newest matching AMI
@@ -185,15 +187,11 @@ spec:
 
   tags:
     Environment: production
-
-  userData: |
-    #!/bin/bash
-    /etc/eks/bootstrap.sh my-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz; do sleep 5; done
-    sleep 30
-    poweroff
 ```
+
+:::note No Custom userData Required
+With `bootstrapTemplate: AL2023`, Stratos generates the complete bootstrap script automatically using cluster configuration from Helm values. You only need to provide `customUserData` if you have additional setup scripts to run.
+:::
 
 Reference it from a NodePool as usual:
 
@@ -211,10 +209,24 @@ spec:
       name: dynamic-standard
     labels:
       stratos.sh/pool: workers
+      workload-type: general
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
+```
+
+Target pods to this pool using `nodeSelector`:
+
+```yaml title="deployment.yaml"
+apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      nodeSelector:
+        stratos.sh/pool: workers
+      # ... containers
 ```
 
 ## Tagging Your AWS Resources

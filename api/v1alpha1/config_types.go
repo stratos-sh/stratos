@@ -41,9 +41,7 @@ type ScaleDownConfig struct {
 
 // PreWarmConfig configures the pre-warming lifecycle
 type PreWarmConfig struct {
-	// Timeout is how long to wait for warmup to complete.
-	// In SelfStop mode, this is how long to wait for the instance to self-stop.
-	// In ControllerStop mode, this is how long to wait for the node to become Ready.
+	// Timeout is how long to wait for warmup to complete (for node to become Ready).
 	// Default: 10 minutes
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
@@ -53,14 +51,6 @@ type PreWarmConfig struct {
 	// +kubebuilder:default=stop
 	// +optional
 	TimeoutAction *TimeoutAction `json:"timeoutAction,omitempty"`
-
-	// CompletionMode controls how warmup completes:
-	// - SelfStop (default): Instance self-stops via userdata script
-	// - ControllerStop: Stratos stops instance when node is Ready
-	// +kubebuilder:validation:Enum=SelfStop;ControllerStop
-	// +kubebuilder:default=SelfStop
-	// +optional
-	CompletionMode *WarmupCompletionMode `json:"completionMode,omitempty"`
 }
 
 // TimeoutAction defines what happens when pre-warming times out
@@ -75,17 +65,6 @@ const (
 	TimeoutActionTerminate TimeoutAction = "terminate"
 )
 
-// WarmupCompletionMode defines how warmup completes
-// +kubebuilder:validation:Enum=SelfStop;ControllerStop
-type WarmupCompletionMode string
-
-const (
-	// WarmupCompletionModeSelfStop means the instance self-stops via userdata script (default, current behavior)
-	WarmupCompletionModeSelfStop WarmupCompletionMode = "SelfStop"
-
-	// WarmupCompletionModeControllerStop means Stratos stops the instance when the node is Ready
-	WarmupCompletionModeControllerStop WarmupCompletionMode = "ControllerStop"
-)
 
 // GetEnabled returns whether scale-down is enabled (default: true)
 func (c *ScaleDownConfig) GetEnabled() bool {
@@ -127,10 +106,3 @@ func (c *PreWarmConfig) GetTimeoutAction() TimeoutAction {
 	return *c.TimeoutAction
 }
 
-// GetCompletionMode returns the warmup completion mode (default: SelfStop)
-func (c *PreWarmConfig) GetCompletionMode() WarmupCompletionMode {
-	if c == nil || c.CompletionMode == nil {
-		return WarmupCompletionModeSelfStop
-	}
-	return *c.CompletionMode
-}

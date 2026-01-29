@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -51,6 +52,52 @@ type SecurityGroupSelector struct {
 	// Name with wildcard support
 	// +optional
 	Name string `json:"name,omitempty"`
+}
+
+// BootstrapTemplate defines the bootstrap format for the AMI family.
+// +kubebuilder:validation:Enum=AL2023;AL2;Bottlerocket
+type BootstrapTemplate string
+
+const (
+	// BootstrapTemplateAL2023 uses nodeadm MIME multipart format
+	BootstrapTemplateAL2023 BootstrapTemplate = "AL2023"
+
+	// BootstrapTemplateAL2 uses bootstrap.sh MIME multipart format
+	BootstrapTemplateAL2 BootstrapTemplate = "AL2"
+
+	// BootstrapTemplateBottlerocket uses TOML configuration format
+	BootstrapTemplateBottlerocket BootstrapTemplate = "Bottlerocket"
+)
+
+// Architecture defines the CPU architecture for AMI selection.
+// +kubebuilder:validation:Enum=x86_64;arm64
+type Architecture string
+
+const (
+	// ArchitectureX86_64 is the x86_64 architecture
+	ArchitectureX86_64 Architecture = "x86_64"
+
+	// ArchitectureARM64 is the arm64 architecture
+	ArchitectureARM64 Architecture = "arm64"
+)
+
+// KubeletConfig defines kubelet configuration for nodes.
+type KubeletConfig struct {
+	// MaxPods is the maximum number of pods that can be scheduled on this node.
+	// +optional
+	MaxPods *int32 `json:"maxPods,omitempty"`
+
+	// NodeLabels are labels to apply to the node via kubelet.
+	// +optional
+	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
+
+	// NodeTaints are taints to apply to the node via kubelet.
+	// +optional
+	NodeTaints []corev1.Taint `json:"nodeTaints,omitempty"`
+
+	// ExtraArgs are additional kubelet arguments.
+	// +optional
+	ExtraArgs map[string]string `json:"extraArgs,omitempty"`
 }
 
 // MetadataOptions defines IMDS configuration for launched instances.
@@ -94,8 +141,6 @@ type ResolvedSecurityGroup struct {
 }
 
 // AWSNodeClassSpec defines the desired state of AWSNodeClass
-// +kubebuilder:validation:XValidation:rule="has(self.ami) || has(self.amiSelector)",message="one of ami or amiSelector is required"
-// +kubebuilder:validation:XValidation:rule="!(has(self.ami) && has(self.amiSelector))",message="ami and amiSelector are mutually exclusive"
 // +kubebuilder:validation:XValidation:rule="has(self.subnetIds) || has(self.subnetSelector)",message="one of subnetIds or subnetSelector is required"
 // +kubebuilder:validation:XValidation:rule="!(has(self.subnetIds) && has(self.subnetSelector))",message="subnetIds and subnetSelector are mutually exclusive"
 // +kubebuilder:validation:XValidation:rule="has(self.securityGroupIds) || has(self.securityGroupSelector)",message="one of securityGroupIds or securityGroupSelector is required"
@@ -103,6 +148,12 @@ type ResolvedSecurityGroup struct {
 // +kubebuilder:validation:XValidation:rule="has(self.iamInstanceProfile) || has(self.role)",message="one of iamInstanceProfile or role is required"
 // +kubebuilder:validation:XValidation:rule="!(has(self.iamInstanceProfile) && has(self.role))",message="role and iamInstanceProfile are mutually exclusive"
 type AWSNodeClassSpec struct {
+	// BootstrapTemplate determines the bootstrap format for this node class.
+	// AL2023 uses nodeadm MIME multipart, AL2 uses bootstrap.sh, Bottlerocket uses TOML.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=AL2023;AL2;Bottlerocket
+	BootstrapTemplate BootstrapTemplate `json:"bootstrapTemplate"`
+
 	// Region is the AWS region (e.g., "us-east-1")
 	// Defaults to the controller's region if not specified.
 	// +optional
@@ -112,12 +163,14 @@ type AWSNodeClassSpec struct {
 	// +kubebuilder:validation:Required
 	InstanceType string `json:"instanceType"`
 
-	// AMI is the Amazon Machine Image ID (mutually exclusive with amiSelector)
+	// Architecture determines the CPU architecture for AMI auto-discovery.
+	// +kubebuilder:validation:Enum=x86_64;arm64
+	// +kubebuilder:default=x86_64
 	// +optional
-	// +kubebuilder:validation:Pattern=`^ami-[a-z0-9]+$`
-	AMI string `json:"ami,omitempty"`
+	Architecture Architecture `json:"architecture,omitempty"`
 
-	// AMISelector defines criteria for dynamically selecting an AMI (mutually exclusive with ami)
+	// AMISelector defines criteria for dynamically selecting an AMI.
+	// If omitted, AMI is auto-discovered based on bootstrapTemplate and cluster version.
 	// +optional
 	AMISelector *AMISelector `json:"amiSelector,omitempty"`
 
@@ -152,10 +205,15 @@ type AWSNodeClassSpec struct {
 	// +optional
 	MetadataOptions *MetadataOptions `json:"metadataOptions,omitempty"`
 
-	// UserData is the base64-encoded user data script.
-	// This script should join the cluster and self-stop when ready.
+	// Kubelet is the kubelet configuration for nodes.
 	// +optional
-	UserData string `json:"userData,omitempty"`
+	Kubelet *KubeletConfig `json:"kubelet,omitempty"`
+
+	// CustomUserData is optional user scripts merged with generated bootstrap.
+	// For AL2023/AL2, this is added as a MIME part after the warmup script.
+	// For Bottlerocket, this TOML is merged with the generated config.
+	// +optional
+	CustomUserData string `json:"customUserData,omitempty"`
 
 	// BlockDeviceMappings defines the EBS volumes
 	// +optional
@@ -221,6 +279,7 @@ type AWSNodeClassStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=awsnc
+// +kubebuilder:printcolumn:name="Template",type=string,JSONPath=`.spec.bootstrapTemplate`
 // +kubebuilder:printcolumn:name="InstanceType",type=string,JSONPath=`.spec.instanceType`
 // +kubebuilder:printcolumn:name="AMI",type=string,JSONPath=`.status.resolvedAMI`
 // +kubebuilder:printcolumn:name="NodePools",type=integer,JSONPath=`.status.nodePoolCount`

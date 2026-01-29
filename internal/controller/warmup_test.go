@@ -41,8 +41,8 @@ func testNodeClass() *stratosv1alpha1.AWSNodeClass {
 			Name: "test-class",
 		},
 		Spec: stratosv1alpha1.AWSNodeClassSpec{
+			BootstrapTemplate:  stratosv1alpha1.BootstrapTemplateAL2023,
 			InstanceType:       "m5.large",
-			AMI:                "ami-12345678",
 			SubnetIDs:          []string{"subnet-1"},
 			SecurityGroupIDs:   []string{"sg-1"},
 			IAMInstanceProfile: "test-profile",
@@ -108,7 +108,7 @@ func TestIsNodeReady(t *testing.T) {
 	}
 }
 
-func TestMonitorWarmup_SelfStop_InstanceStopped(t *testing.T) {
+func TestMonitorWarmup_InstanceStopped(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -131,7 +131,7 @@ func TestMonitorWarmup_SelfStop_InstanceStopped(t *testing.T) {
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	// Manually add an instance in stopped state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster", nil)
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateStopped)
 
 	// Update node to match instance ID
@@ -143,9 +143,7 @@ func TestMonitorWarmup_SelfStop_InstanceStopped(t *testing.T) {
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				// Default: SelfStop mode
-			},
+			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 		},
 	}
 
@@ -165,7 +163,7 @@ func TestMonitorWarmup_SelfStop_InstanceStopped(t *testing.T) {
 	}
 }
 
-func TestMonitorWarmup_ControllerStop_NodeNotReady(t *testing.T) {
+func TestMonitorWarmup_NodeNotReady(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -194,7 +192,7 @@ func TestMonitorWarmup_ControllerStop_NodeNotReady(t *testing.T) {
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	// Create instance in running state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster", nil)
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Update node to match instance ID
@@ -203,13 +201,10 @@ func TestMonitorWarmup_ControllerStop_NodeNotReady(t *testing.T) {
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
-	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				CompletionMode: &controllerStop,
-			},
+			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 		},
 	}
 
@@ -235,7 +230,7 @@ func TestMonitorWarmup_ControllerStop_NodeNotReady(t *testing.T) {
 	}
 }
 
-func TestMonitorWarmup_ControllerStop_NodeReady(t *testing.T) {
+func TestMonitorWarmup_NodeReady_StopsInstance(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -271,7 +266,7 @@ func TestMonitorWarmup_ControllerStop_NodeReady(t *testing.T) {
 	}
 
 	// Create instance in running state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster", nil)
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Update node to match instance ID
@@ -280,13 +275,10 @@ func TestMonitorWarmup_ControllerStop_NodeReady(t *testing.T) {
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
-	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				CompletionMode: &controllerStop,
-			},
+			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 		},
 	}
 
@@ -298,7 +290,7 @@ func TestMonitorWarmup_ControllerStop_NodeReady(t *testing.T) {
 
 	// Verify StopInstance was called
 	if !stopCalled {
-		t.Error("StopInstance should have been called when node is ready in ControllerStop mode")
+		t.Error("StopInstance should have been called when node is ready")
 	}
 
 	// Verify node transitioned to standby
@@ -311,7 +303,7 @@ func TestMonitorWarmup_ControllerStop_NodeReady(t *testing.T) {
 	}
 }
 
-func TestMonitorWarmup_ControllerStop_WaitsForNetworkReady(t *testing.T) {
+func TestMonitorWarmup_WaitsForNetworkReady(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -348,7 +340,7 @@ func TestMonitorWarmup_ControllerStop_WaitsForNetworkReady(t *testing.T) {
 	}
 
 	// Create instance in running state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster", nil)
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Update node to match instance ID
@@ -357,13 +349,10 @@ func TestMonitorWarmup_ControllerStop_WaitsForNetworkReady(t *testing.T) {
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
-	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				CompletionMode: &controllerStop,
-			},
+			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 			Template: stratosv1alpha1.NodeTemplate{
 				// WhenNetworkReady is the default
 				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
@@ -392,7 +381,7 @@ func TestMonitorWarmup_ControllerStop_WaitsForNetworkReady(t *testing.T) {
 	}
 }
 
-func TestMonitorWarmup_ControllerStop_NetworkReady(t *testing.T) {
+func TestMonitorWarmup_NetworkReady_StopsInstance(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -429,7 +418,7 @@ func TestMonitorWarmup_ControllerStop_NetworkReady(t *testing.T) {
 	}
 
 	// Create instance in running state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster", nil)
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Update node to match instance ID
@@ -438,13 +427,10 @@ func TestMonitorWarmup_ControllerStop_NetworkReady(t *testing.T) {
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
-	controllerStop := stratosv1alpha1.WarmupCompletionModeControllerStop
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				CompletionMode: &controllerStop,
-			},
+			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 			Template: stratosv1alpha1.NodeTemplate{
 				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
 			},
@@ -472,6 +458,297 @@ func TestMonitorWarmup_ControllerStop_NetworkReady(t *testing.T) {
 	}
 }
 
+// TestLabelNode_AppliesTemplateLabels tests that LabelNode applies template labels to the node.
+func TestLabelNode_AppliesTemplateLabels(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = stratosv1alpha1.AddToScheme(scheme)
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-node",
+			Labels:      map[string]string{},
+			Annotations: map[string]string{},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	recorder := events.NewFakeRecorder(10)
+	fakeProvider := fakeprovider.NewFakeProvider()
+
+	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
+
+	templateLabels := map[string]string{
+		"workload": "general",
+		"env":      "production",
+	}
+
+	ctx := context.Background()
+	err := mgr.LabelNode(ctx, node, "test-pool", "i-123", NodeStateWarmup, templateLabels)
+	if err != nil {
+		t.Fatalf("LabelNode() error = %v", err)
+	}
+
+	updatedNode := &corev1.Node{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode); err != nil {
+		t.Fatalf("Failed to get updated node: %v", err)
+	}
+
+	// Verify Stratos labels
+	if updatedNode.Labels[LabelPool] != "test-pool" {
+		t.Errorf("LabelPool = %q, want %q", updatedNode.Labels[LabelPool], "test-pool")
+	}
+	if updatedNode.Labels[LabelState] != string(NodeStateWarmup) {
+		t.Errorf("LabelState = %q, want %q", updatedNode.Labels[LabelState], string(NodeStateWarmup))
+	}
+
+	// Verify template labels
+	if updatedNode.Labels["workload"] != "general" {
+		t.Errorf("Template label 'workload' = %q, want %q", updatedNode.Labels["workload"], "general")
+	}
+	if updatedNode.Labels["env"] != "production" {
+		t.Errorf("Template label 'env' = %q, want %q", updatedNode.Labels["env"], "production")
+	}
+}
+
+// TestLabelNode_SkipsStratosPrefix tests that template labels with stratos.sh/ prefix are ignored.
+func TestLabelNode_SkipsStratosPrefix(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = stratosv1alpha1.AddToScheme(scheme)
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-node",
+			Labels:      map[string]string{},
+			Annotations: map[string]string{},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	recorder := events.NewFakeRecorder(10)
+	fakeProvider := fakeprovider.NewFakeProvider()
+
+	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
+
+	templateLabels := map[string]string{
+		"workload":                "general",
+		"stratos.sh/should-skip":  "true",
+		"stratos.sh/another-skip": "also-true",
+	}
+
+	ctx := context.Background()
+	err := mgr.LabelNode(ctx, node, "test-pool", "i-123", NodeStateWarmup, templateLabels)
+	if err != nil {
+		t.Fatalf("LabelNode() error = %v", err)
+	}
+
+	updatedNode := &corev1.Node{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode); err != nil {
+		t.Fatalf("Failed to get updated node: %v", err)
+	}
+
+	// Verify the non-stratos template label was applied
+	if updatedNode.Labels["workload"] != "general" {
+		t.Errorf("Template label 'workload' = %q, want %q", updatedNode.Labels["workload"], "general")
+	}
+
+	// Verify stratos.sh/ prefixed template labels were NOT applied
+	if _, exists := updatedNode.Labels["stratos.sh/should-skip"]; exists {
+		t.Error("stratos.sh/should-skip label should NOT be set from template labels")
+	}
+	if _, exists := updatedNode.Labels["stratos.sh/another-skip"]; exists {
+		t.Error("stratos.sh/another-skip label should NOT be set from template labels")
+	}
+
+	// Verify system stratos labels are still correctly set
+	if updatedNode.Labels[LabelPool] != "test-pool" {
+		t.Errorf("LabelPool = %q, want %q", updatedNode.Labels[LabelPool], "test-pool")
+	}
+}
+
+// TestAdoptAndTransitionToStandby_AppliesTemplateLabels tests that adopt applies template labels.
+func TestAdoptAndTransitionToStandby_AppliesTemplateLabels(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = stratosv1alpha1.AddToScheme(scheme)
+
+	fakeProvider := fakeprovider.NewFakeProvider()
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster", nil)
+	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateStopped)
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-node",
+			Labels:      map[string]string{},
+			Annotations: map[string]string{},
+		},
+		Spec: corev1.NodeSpec{
+			ProviderID: fmt.Sprintf("aws:///us-east-1a/%s", instance.ID),
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	recorder := events.NewFakeRecorder(10)
+
+	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
+
+	pool := &stratosv1alpha1.NodePool{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
+		Spec: stratosv1alpha1.NodePoolSpec{
+			Template: stratosv1alpha1.NodeTemplate{
+				Labels: map[string]string{
+					"workload":               "general",
+					"team":                   "platform",
+					"stratos.sh/should-skip": "true",
+				},
+			},
+		},
+	}
+
+	ctx := context.Background()
+	err := mgr.adoptAndTransitionToStandby(ctx, pool, node, instance.ID)
+	if err != nil {
+		t.Fatalf("adoptAndTransitionToStandby() error = %v", err)
+	}
+
+	updatedNode := &corev1.Node{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode); err != nil {
+		t.Fatalf("Failed to get updated node: %v", err)
+	}
+
+	// Verify Stratos labels
+	if updatedNode.Labels[LabelState] != string(NodeStateStandby) {
+		t.Errorf("LabelState = %q, want %q", updatedNode.Labels[LabelState], string(NodeStateStandby))
+	}
+
+	// Verify template labels
+	if updatedNode.Labels["workload"] != "general" {
+		t.Errorf("Template label 'workload' = %q, want %q", updatedNode.Labels["workload"], "general")
+	}
+	if updatedNode.Labels["team"] != "platform" {
+		t.Errorf("Template label 'team' = %q, want %q", updatedNode.Labels["team"], "platform")
+	}
+
+	// Verify stratos.sh/ prefixed template labels were NOT applied
+	if _, exists := updatedNode.Labels["stratos.sh/should-skip"]; exists {
+		t.Error("stratos.sh/should-skip label should NOT be set from template labels")
+	}
+}
+
+// TestEnsureTemplateLabels_FixesMissingLabels tests that ensureTemplateLabels patches
+// nodes that are missing template labels.
+func TestEnsureTemplateLabels_FixesMissingLabels(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = stratosv1alpha1.AddToScheme(scheme)
+
+	// Node without template labels
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-node",
+			Labels: map[string]string{
+				LabelPool:  "test-pool",
+				LabelState: string(NodeStateStandby),
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+
+	reconciler := &NodePoolReconciler{
+		Client: fakeClient,
+	}
+
+	nodePool := &stratosv1alpha1.NodePool{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
+		Spec: stratosv1alpha1.NodePoolSpec{
+			Template: stratosv1alpha1.NodeTemplate{
+				Labels: map[string]string{
+					"workload": "general",
+					"env":      "staging",
+				},
+			},
+		},
+	}
+
+	ctx := context.Background()
+	err := reconciler.ensureTemplateLabels(ctx, nodePool)
+	if err != nil {
+		t.Fatalf("ensureTemplateLabels() error = %v", err)
+	}
+
+	updatedNode := &corev1.Node{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode); err != nil {
+		t.Fatalf("Failed to get updated node: %v", err)
+	}
+
+	if updatedNode.Labels["workload"] != "general" {
+		t.Errorf("Template label 'workload' = %q, want %q", updatedNode.Labels["workload"], "general")
+	}
+	if updatedNode.Labels["env"] != "staging" {
+		t.Errorf("Template label 'env' = %q, want %q", updatedNode.Labels["env"], "staging")
+	}
+}
+
+// TestEnsureTemplateLabels_NoOpWhenPresent tests that ensureTemplateLabels does nothing
+// when all template labels are already correctly set.
+func TestEnsureTemplateLabels_NoOpWhenPresent(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = stratosv1alpha1.AddToScheme(scheme)
+
+	// Node already has all template labels
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-node",
+			Labels: map[string]string{
+				LabelPool:  "test-pool",
+				LabelState: string(NodeStateRunning),
+				"workload": "general",
+				"env":      "production",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+
+	reconciler := &NodePoolReconciler{
+		Client: fakeClient,
+	}
+
+	nodePool := &stratosv1alpha1.NodePool{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
+		Spec: stratosv1alpha1.NodePoolSpec{
+			Template: stratosv1alpha1.NodeTemplate{
+				Labels: map[string]string{
+					"workload": "general",
+					"env":      "production",
+				},
+			},
+		},
+	}
+
+	ctx := context.Background()
+	err := reconciler.ensureTemplateLabels(ctx, nodePool)
+	if err != nil {
+		t.Fatalf("ensureTemplateLabels() error = %v", err)
+	}
+
+	// Verify labels remain unchanged
+	updatedNode := &corev1.Node{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode); err != nil {
+		t.Fatalf("Failed to get updated node: %v", err)
+	}
+
+	if updatedNode.Labels["workload"] != "general" {
+		t.Errorf("Template label 'workload' = %q, want %q", updatedNode.Labels["workload"], "general")
+	}
+	if updatedNode.Labels["env"] != "production" {
+		t.Errorf("Template label 'env' = %q, want %q", updatedNode.Labels["env"], "production")
+	}
+}
+
 // TestMonitorCloudWarmup_PoolOnlyLabel_LabelsNode tests that a node with only LabelPool set
 // (Bottlerocket scenario where user data sets pool label) gets fully labeled by the controller.
 func TestMonitorCloudWarmup_PoolOnlyLabel_LabelsNode(t *testing.T) {
@@ -481,7 +758,7 @@ func TestMonitorCloudWarmup_PoolOnlyLabel_LabelsNode(t *testing.T) {
 
 	// Create instance first
 	fakeProvider := fakeprovider.NewFakeProvider()
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster", nil)
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Node with ONLY LabelPool set (mimics Bottlerocket user data behavior)
@@ -510,7 +787,13 @@ func TestMonitorCloudWarmup_PoolOnlyLabel_LabelsNode(t *testing.T) {
 
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
-		Spec:       stratosv1alpha1.NodePoolSpec{},
+		Spec: stratosv1alpha1.NodePoolSpec{
+			Template: stratosv1alpha1.NodeTemplate{
+				Labels: map[string]string{
+					"workload": "general",
+				},
+			},
+		},
 	}
 
 	ctx := context.Background()
@@ -536,6 +819,10 @@ func TestMonitorCloudWarmup_PoolOnlyLabel_LabelsNode(t *testing.T) {
 	if updatedNode.Labels[LabelStateSince] == "" {
 		t.Error("Node LabelStateSince should be set")
 	}
+	// Verify template labels were applied
+	if updatedNode.Labels["workload"] != "general" {
+		t.Errorf("Template label 'workload' = %q, want %q", updatedNode.Labels["workload"], "general")
+	}
 }
 
 // TestMonitorCloudWarmup_NoLabels_LabelsNode tests backward compatibility - a node with no
@@ -547,7 +834,7 @@ func TestMonitorCloudWarmup_NoLabels_LabelsNode(t *testing.T) {
 
 	// Create instance first
 	fakeProvider := fakeprovider.NewFakeProvider()
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster", nil)
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	// Node with NO Stratos labels
@@ -614,7 +901,7 @@ func TestMonitorCloudWarmup_PoolOnlyLabel_InstanceStopped_AdoptsToStandby(t *tes
 
 	// Create instance in stopped state
 	fakeProvider := fakeprovider.NewFakeProvider()
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster", nil)
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateStopped)
 
 	// Node with ONLY LabelPool set
@@ -692,7 +979,7 @@ func TestMonitorCloudWarmup_FullyLabeled_NoChange(t *testing.T) {
 
 	// Create instance
 	fakeProvider := fakeprovider.NewFakeProvider()
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
+	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster", nil)
 	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
 
 	originalStateSince := fmt.Sprintf("%d", time.Now().Add(-5*time.Minute).Unix())
@@ -752,80 +1039,3 @@ func TestMonitorCloudWarmup_FullyLabeled_NoChange(t *testing.T) {
 	}
 }
 
-func TestMonitorWarmup_SelfStop_BackwardCompatibility(t *testing.T) {
-	// Test that when CompletionMode is not specified, SelfStop behavior is used
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	_ = stratosv1alpha1.AddToScheme(scheme)
-
-	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-node",
-			Labels: map[string]string{
-				LabelPool:       "test-pool",
-				LabelState:      string(NodeStateWarmup),
-				LabelInstanceID: "i-1234567890",
-				LabelStateSince: fmt.Sprintf("%d", time.Now().Unix()),
-			},
-			Annotations: map[string]string{},
-		},
-		Status: corev1.NodeStatus{
-			Conditions: []corev1.NodeCondition{
-				// Node IS ready
-				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
-			},
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := events.NewFakeRecorder(10)
-	fakeProvider := fakeprovider.NewFakeProvider()
-
-	// Track if StopInstance was called
-	var stopCalled bool
-	fakeProvider.StopHook = func(ctx context.Context, instanceID string, force bool) error {
-		stopCalled = true
-		return nil
-	}
-
-	// Create instance in running state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
-	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
-
-	// Update node to match instance ID
-	node.Labels[LabelInstanceID] = instance.ID
-	_ = fakeClient.Update(context.Background(), node)
-
-	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
-
-	// Pool with NO CompletionMode set - should use SelfStop (default)
-	pool := &stratosv1alpha1.NodePool{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
-		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				// CompletionMode not set - defaults to SelfStop
-			},
-		},
-	}
-
-	ctx := context.Background()
-	err := mgr.MonitorWarmup(ctx, pool, node)
-	if err != nil {
-		t.Errorf("MonitorWarmup() error = %v", err)
-	}
-
-	// In SelfStop mode, StopInstance should NOT be called even when node is ready
-	// (we wait for instance to self-stop via userdata)
-	if stopCalled {
-		t.Error("StopInstance should NOT have been called in SelfStop mode (default)")
-	}
-
-	// Node should still be in warmup state (waiting for self-stop)
-	updatedNode := &corev1.Node{}
-	if err := fakeClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode); err != nil {
-		t.Fatalf("Failed to get updated node: %v", err)
-	}
-	if updatedNode.Labels[LabelState] != string(NodeStateWarmup) {
-		t.Errorf("Node state = %s, want warmup", updatedNode.Labels[LabelState])
-	}
-}

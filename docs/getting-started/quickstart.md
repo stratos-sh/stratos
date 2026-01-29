@@ -22,7 +22,7 @@ Before creating a NodePool, ensure you have:
 
 Stratos separates AWS-specific configuration from pool management:
 
-- **AWSNodeClass**: Defines EC2 instance configuration (instance type, AMI, networking, IAM, user data)
+- **AWSNodeClass**: Defines EC2 instance configuration (instance type, AMI family, networking, IAM)
 - **NodePool**: Defines pool sizing, scaling behavior, and node template (labels, taints)
 
 You create an AWSNodeClass first, then create a NodePool that references it.
@@ -32,60 +32,65 @@ You create an AWSNodeClass first, then create a NodePool that references it.
 |    NodePool      | ----------------------> |  AWSNodeClass    |
 +------------------+                         +------------------+
 | - poolSize: 10   |                         | - instanceType   |
-| - minStandby: 3  |                         | - ami            |
-| - labels, taints |                         | - subnetIds      |
-+------------------+                         | - userData       |
+| - minStandby: 3  |                         | - bootstrapTemplate |
+| - labels, taints |                         | - subnetSelector |
++------------------+                         | - role           |
                                              +------------------+
 ```
 
-## Step 1: Prepare the User Data Script
+### Simplified Bootstrap
 
-The user data script runs during the warmup phase. It must:
+Stratos automatically generates the node bootstrap script (userData) based on the `bootstrapTemplate` field:
 
-1. Join the Kubernetes cluster
-2. Register with startup taints
-3. Wait for the node to be healthy
-4. Self-stop (poweroff) when ready
+| Template | AMI Family | Bootstrap Format |
+|----------|-----------|------------------|
+| `AL2023` | Amazon Linux 2023 | nodeadm MIME multipart |
+| `AL2` | Amazon Linux 2 | bootstrap.sh MIME multipart |
+| `Bottlerocket` | Bottlerocket | TOML configuration |
 
-:::warning Important
-The startup taint in `--register-with-taints` **must match** the `startupTaints` field in the NodePool spec. Mismatched taints will cause scheduling issues.
+The controller uses cluster configuration (endpoint, CA, CIDR) from Helm values to generate the complete bootstrap script. You no longer need to write custom userData scripts.
+
+## Step 1: Configure Helm Values for Bootstrap
+
+Stratos automatically generates the node bootstrap script using cluster configuration from Helm values. Make sure your Helm installation includes the required cluster settings:
+
+```bash
+helm install stratos oci://ghcr.io/stratos-sh/charts/stratos \
+  --namespace stratos-system --create-namespace \
+  --set cluster.name=my-cluster \
+  --set cluster.apiServerEndpoint=https://ABCDEF.gr7.us-east-1.eks.amazonaws.com \
+  --set cluster.certificateAuthority=LS0tLS1CRUdJTi... \
+  --set cluster.cidr=172.20.0.0/16
+```
+
+:::tip Getting Cluster Configuration
+Retrieve your EKS cluster's configuration:
+
+```bash
+# Get cluster name
+CLUSTER_NAME=my-cluster
+
+# Get API server endpoint
+aws eks describe-cluster --name $CLUSTER_NAME \
+  --query "cluster.endpoint" --output text
+
+# Get CA certificate (already base64 encoded)
+aws eks describe-cluster --name $CLUSTER_NAME \
+  --query "cluster.certificateAuthority.data" --output text
+
+# Get service CIDR
+aws eks describe-cluster --name $CLUSTER_NAME \
+  --query "cluster.kubernetesNetworkConfig.serviceIpv4Cidr" --output text
+```
 :::
 
-Example for EKS:
+:::note Automatic Bootstrap Generation
+With the cluster configuration provided, Stratos generates the complete userData script for each AMI family:
+- **AL2023**: Uses nodeadm MIME multipart format
+- **AL2**: Uses bootstrap.sh MIME multipart format
+- **Bottlerocket**: Uses TOML configuration
 
-```bash title="user-data.sh"
-#!/bin/bash
-set -e
-
-# Join the EKS cluster with a startup taint
-# The taint prevents pod scheduling until CNI is ready
-/etc/eks/bootstrap.sh my-cluster \
-  --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-
-# Wait for kubelet to be healthy
-until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do
-  sleep 5
-done
-
-# Give time for node to fully register
-sleep 30
-
-# Note: Stratos automatically pre-pulls DaemonSet images during warmup.
-# You can configure additional images via preWarm.imagesToPull in the NodePool spec.
-
-# Signal warmup complete by stopping the instance
-poweroff
-```
-
-:::tip Using Bottlerocket?
-Bottlerocket uses TOML configuration and doesn't support shell scripts. Use **ControllerStop** completion mode instead:
-
-```yaml
-preWarm:
-  completionMode: ControllerStop
-```
-
-In this mode, Stratos stops the instance when the node becomes Ready, eliminating the need for a `poweroff` script. See [Bottlerocket Setup](../guides/bottlerocket.md) for details.
+You no longer need to write custom bootstrap scripts with `poweroff` commands.
 :::
 
 ## Step 2: Create the AWSNodeClass
@@ -98,25 +103,24 @@ kind: AWSNodeClass
 metadata:
   name: workers
 spec:
+  # Bootstrap template determines the userData format
+  # Stratos generates the bootstrap script automatically
+  bootstrapTemplate: AL2023
+
   region: us-east-1
   instanceType: m5.large
-  ami: ami-0123456789abcdef0  # Your EKS-optimized AMI
-  subnetIds:
-    - subnet-12345678
-    - subnet-87654321
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
 
-  # User data script that joins cluster and self-stops
-  userData: |
-    #!/bin/bash
-    set -e
-    /etc/eks/bootstrap.sh my-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz >/dev/null 2>&1; do sleep 5; done
-    sleep 30
-    poweroff
+  # Use selectors for dynamic resource discovery (recommended)
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  # Stratos manages the instance profile automatically
+  role: eks-node-role
 
   blockDeviceMappings:
     - deviceName: /dev/xvda
@@ -128,6 +132,19 @@ spec:
     Environment: production
     ManagedBy: stratos
 ```
+
+:::note Static IDs Alternative
+If you prefer static IDs instead of selectors:
+
+```yaml
+subnetIds:
+  - subnet-12345678
+  - subnet-87654321
+securityGroupIds:
+  - sg-12345678
+iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
+```
+:::
 
 Apply the AWSNodeClass:
 
@@ -166,15 +183,15 @@ spec:
       kind: AWSNodeClass
       name: workers
 
-    # Labels applied to managed nodes
+    # Labels applied to managed nodes - use these with nodeSelector to target the pool
     labels:
       stratos.sh/pool: workers
       node-role.kubernetes.io/worker: ""
+      workload-type: general       # Custom label for pod targeting
 
-    # Startup taints - MUST match --register-with-taints in userData
-    # Stratos removes these when the CNI is ready
+    # Startup taints - Stratos removes these when the CNI is ready
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
 
@@ -249,7 +266,7 @@ workers   10         3            3         0         True    5m
 
 ## Step 5: Test Scale-Up
 
-Create a deployment that requests resources:
+Create a deployment that targets the NodePool using `nodeSelector`:
 
 ```yaml title="test-workload.yaml"
 apiVersion: apps/v1
@@ -266,6 +283,9 @@ spec:
       labels:
         app: test
     spec:
+      # Target the Stratos NodePool by label
+      nodeSelector:
+        stratos.sh/pool: workers
       containers:
         - name: nginx
           image: nginx:latest
@@ -274,6 +294,28 @@ spec:
               cpu: "500m"
               memory: "512Mi"
 ```
+
+:::tip Targeting Strategies
+Use one of these approaches to schedule pods on Stratos-managed nodes:
+
+**nodeSelector** (simplest):
+```yaml
+nodeSelector:
+  stratos.sh/pool: workers
+```
+
+**nodeAffinity** (more flexible):
+```yaml
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: stratos.sh/pool
+              operator: In
+              values: [workers, ci-runners]
+```
+:::
 
 ```bash
 kubectl apply -f test-workload.yaml
@@ -332,16 +374,16 @@ kubectl get nodepool workers -o jsonpath='{.spec.template.nodeClassRef}'
 
 ### Nodes Stuck in Warmup
 
-Check the user data script output:
+Check the instance console output:
 
 ```bash
 aws ec2 get-console-output --instance-id <instance-id>
 ```
 
 Common issues:
-- User data script failing
-- Missing `poweroff` command
 - Network issues preventing cluster join
+- Incorrect cluster configuration in Helm values
+- IAM role missing required permissions
 
 ### Scale-Up Not Triggering
 

@@ -19,7 +19,17 @@ package cloudprovider
 
 import (
 	"context"
+
+	corev1 "k8s.io/api/core/v1"
 )
+
+// TemplateConfig holds NodePool template configuration for userData generation.
+// This includes labels and taints that should be applied to nodes via kubelet flags.
+type TemplateConfig struct {
+	Labels        map[string]string
+	Taints        []corev1.Taint // Permanent taints
+	StartupTaints []corev1.Taint // Temporary taints removed when ready
+}
 
 // CloudProvider defines the interface for cloud instance lifecycle operations.
 // Implementations must be thread-safe for concurrent use.

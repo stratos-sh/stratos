@@ -1,0 +1,22 @@
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: al2023-basic
+spec:
+  poolSize: 3
+  minStandby: 2
+  scaleDown:
+    enabled: true
+    emptyNodeTTL: 1m
+    drainTimeout: 1m
+  template:
+    labels:
+      workload: general
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: al2023-basic
+    startupTaintRemoval: WhenNetworkReady
+    startupTaints:
+      - effect: NoSchedule
+        key: node.eks.amazonaws.com/not-ready
+        value: "true"

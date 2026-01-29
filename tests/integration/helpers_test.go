@@ -44,7 +44,7 @@ func testAWSNodeClass(name string) *stratosv1alpha1.AWSNodeClass {
 		Spec: stratosv1alpha1.AWSNodeClassSpec{
 			Region:             "us-east-1",
 			InstanceType:       "m5.large",
-			AMI:                "ami-12345678",
+			BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
 			SubnetIDs:          []string{"subnet-12345678"},
 			SecurityGroupIDs:   []string{"sg-12345678"},
 			IAMInstanceProfile: "test-profile",
@@ -346,7 +346,7 @@ func setFakeInstanceState(instanceID string, state cloudprovider.InstanceState) 
 // launchFakeInstance launches a fake instance and returns its ID.
 func launchFakeInstance(poolName string) string {
 	nodeClass := testAWSNodeClass(poolName + "-test-class")
-	instance, err := fakeProvider.LaunchInstance(ctx, nodeClass, poolName, testClusterName)
+	instance, err := fakeProvider.LaunchInstance(ctx, nodeClass, poolName, testClusterName, nil)
 	Expect(err).NotTo(HaveOccurred())
 	return instance.ID
 }

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-nomatch-test
+spec:
+  nodeSelector:
+    workload: nonexistent-pool-label
+  containers:
+  - name: nginx
+    image: nginx:1.14.2

@@ -71,5 +71,38 @@ Controller image
 Cluster name - required value
 */}}
 {{- define "stratos.clusterName" -}}
-{{- required "clusterName is required. Set it with --set clusterName=<your-cluster-name>" .Values.clusterName }}
+{{- required "cluster.name is required. Set it with --set cluster.name=<your-cluster-name>" .Values.cluster.name }}
+{{- end }}
+
+{{/*
+Cluster API server endpoint - required value for AWS provider
+*/}}
+{{- define "stratos.clusterEndpoint" -}}
+{{- if eq .Values.cloudProvider "aws" }}
+{{- required "cluster.apiServerEndpoint is required for AWS provider" .Values.cluster.apiServerEndpoint }}
+{{- else }}
+{{- .Values.cluster.apiServerEndpoint }}
+{{- end }}
+{{- end }}
+
+{{/*
+Cluster CA - required value for AWS provider
+*/}}
+{{- define "stratos.clusterCA" -}}
+{{- if eq .Values.cloudProvider "aws" }}
+{{- required "cluster.certificateAuthority is required for AWS provider" .Values.cluster.certificateAuthority }}
+{{- else }}
+{{- .Values.cluster.certificateAuthority }}
+{{- end }}
+{{- end }}
+
+{{/*
+Cluster CIDR - required value for AWS provider
+*/}}
+{{- define "stratos.clusterCIDR" -}}
+{{- if eq .Values.cloudProvider "aws" }}
+{{- required "cluster.cidr is required for AWS provider" .Values.cluster.cidr }}
+{{- else }}
+{{- .Values.cluster.cidr }}
+{{- end }}
 {{- end }}

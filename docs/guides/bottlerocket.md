@@ -43,18 +43,20 @@ kind: AWSNodeClass
 metadata:
   name: bottlerocket-nodes
 spec:
+  # Use Bottlerocket bootstrap template - Stratos generates TOML automatically
+  bootstrapTemplate: Bottlerocket
   region: us-east-1
   instanceType: m5.large
+  architecture: x86_64
 
-  # Bottlerocket EKS-optimized AMI
-  # aws ssm get-parameter --name /aws/service/bottlerocket/aws-k8s-1.34/x86_64/latest/image_id
-  ami: ami-0123456789abcdef0
-
-  subnetIds:
-    - subnet-12345678
-  securityGroupIds:
-    - sg-12345678
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
+  # Use selectors for dynamic discovery (recommended)
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: node-role
 
   # Bottlerocket has two volumes: root (small) and data
   blockDeviceMappings:
@@ -70,21 +72,19 @@ spec:
   tags:
     Environment: production
     OS: bottlerocket
-
-  # Bottlerocket TOML configuration
-  # No shutdown script - use ControllerStop mode in NodePool
-  userData: |
-    [settings.kubernetes]
-    cluster-name = "my-cluster"
-    api-server = "https://ABCDEF1234567890.gr7.us-east-1.eks.amazonaws.com"
-    cluster-certificate = "LS0tLS1CRUdJTi..."
-
-    [settings.kubernetes.node-taints]
-    "node.eks.amazonaws.com/not-ready" = "true:NoSchedule"
-
-    [settings.kubernetes.node-labels]
-    "stratos.sh/pool" = "bottlerocket-workers"
 ```
+
+:::note Automatic TOML Generation
+With `bootstrapTemplate: Bottlerocket`, Stratos automatically generates the Bottlerocket TOML configuration using cluster settings from Helm values. You no longer need to provide manual userData with cluster-name, api-server, and cluster-certificate.
+
+If you need additional Bottlerocket settings, use `customUserData`:
+
+```yaml
+customUserData: |
+  [settings.host-containers.admin]
+  enabled = true
+```
+:::
 
 ### Step 2: Create the NodePool
 
@@ -111,12 +111,32 @@ spec:
       name: bottlerocket-nodes
     labels:
       stratos.sh/pool: bottlerocket-workers
+      os: bottlerocket
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
     # Wait for CNI to be ready before considering warmup complete
     startupTaintRemoval: WhenNetworkReady
+```
+
+### Step 3: Target Pods to Bottlerocket Nodes
+
+Use `nodeSelector` to schedule pods on Bottlerocket nodes:
+
+```yaml title="deployment.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  template:
+    spec:
+      nodeSelector:
+        stratos.sh/pool: bottlerocket-workers
+      containers:
+        - name: app
+          image: my-app:latest
 ```
 
 ### Apply the Resources
@@ -133,46 +153,40 @@ kubectl apply -f nodepool-bottlerocket.yaml
 The AWSNodeClass must exist before creating the NodePool. If the NodePool references a non-existent AWSNodeClass, it will be marked as Degraded with reason `NodeClassNotFound`.
 :::
 
-### User Data (TOML Format)
+### Custom Bottlerocket Settings
 
-Bottlerocket user data must be TOML. Here's a complete example:
+If you need to customize Bottlerocket beyond the default configuration, use `customUserData` in your AWSNodeClass. This TOML is merged with the auto-generated configuration:
 
-```toml title="bottlerocket-userdata.toml"
-[settings.kubernetes]
-# Required: Cluster configuration
-cluster-name = "my-cluster"
-api-server = "https://ABCDEF1234567890.gr7.us-east-1.eks.amazonaws.com"
-cluster-certificate = "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURCVENDQWUyZ0F..."
+```yaml title="awsnodeclass-bottlerocket-custom.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: bottlerocket-custom
+spec:
+  bootstrapTemplate: Bottlerocket
+  instanceType: m5.large
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: node-role
 
-# Optional: Custom kubelet settings for faster status updates
-# [settings.kubernetes.kubelet]
-# node-status-update-frequency = "4s"
+  # Additional Bottlerocket settings (merged with generated config)
+  customUserData: |
+    [settings.host-containers.admin]
+    enabled = true
 
-# Register with startup taint to prevent scheduling until CNI is ready
-[settings.kubernetes.node-taints]
-"node.eks.amazonaws.com/not-ready" = "true:NoSchedule"
-
-# Pool label for Stratos management
-[settings.kubernetes.node-labels]
-"stratos.sh/pool" = "bottlerocket-workers"
-
-# Optional: Additional labels
-# "node-role.kubernetes.io/worker" = ""
-# "environment" = "production"
+    [settings.kubernetes.kubelet]
+    node-status-update-frequency = "4s"
 ```
 
-:::tip Getting Cluster Configuration
-Retrieve your cluster's API server and certificate:
-
-```bash
-# Get API server endpoint
-aws eks describe-cluster --name my-cluster \
-  --query "cluster.endpoint" --output text
-
-# Get cluster certificate (already base64 encoded)
-aws eks describe-cluster --name my-cluster \
-  --query "cluster.certificateAuthority.data" --output text
-```
+:::note Automatic Configuration
+The following settings are automatically generated by Stratos and should **not** be included in `customUserData`:
+- `[settings.kubernetes]` cluster-name, api-server, cluster-certificate
+- `[settings.kubernetes.node-taints]` (from NodePool startupTaints)
+- `[settings.kubernetes.node-labels]` (from NodePool labels)
 :::
 
 ## How ControllerStop Mode Works
@@ -320,24 +334,22 @@ kubectl get nodepool bottlerocket-workers -o jsonpath='{.spec.template.nodeClass
 
 Ensure the `name` in `nodeClassRef` exactly matches the AWSNodeClass name.
 
-### User Data Not Applied
+### Custom Settings Not Applied
 
-Bottlerocket user data must be valid TOML. Common issues:
+If your `customUserData` settings aren't taking effect:
 
-- Missing quotes around values
-- Invalid TOML syntax
-- Wrong cluster certificate (must be base64-encoded)
+1. Ensure valid TOML syntax:
+   ```bash
+   # Using a TOML validator
+   cat userdata.toml | tomlq .
+   ```
 
-Validate TOML syntax:
-```bash
-# Using a TOML validator
-cat userdata.toml | tomlq .
-```
+2. Check Bottlerocket console output:
+   ```bash
+   aws ec2 get-console-output --instance-id i-0123456789abcdef0
+   ```
 
-Check Bottlerocket console output:
-```bash
-aws ec2 get-console-output --instance-id i-0123456789abcdef0
-```
+3. Verify the settings aren't conflicting with auto-generated ones
 
 ### Timeout Before Ready
 
@@ -361,11 +373,15 @@ If warmup times out before the node is ready:
 
 | Aspect | SelfStop (Default) | ControllerStop |
 |--------|-------------------|----------------|
-| User data | Bash script with `poweroff` | TOML configuration only |
-| OS support | Amazon Linux, Ubuntu | All OS including Bottlerocket |
-| Warmup completion | Instance self-stops | Controller stops instance |
-| Complexity | Script must be correct | No script needed |
+| Bootstrap format | Shell scripts (AL2/AL2023) | Any format including TOML |
+| OS support | Amazon Linux 2/2023, Ubuntu | All OS including Bottlerocket |
+| Warmup completion | Instance self-stops after bootstrap | Controller stops instance when node Ready |
+| Configuration | Automatic with `bootstrapTemplate` | Automatic with `bootstrapTemplate` |
 | Visibility | Less observable | Controller logs stop action |
+
+:::tip Recommended for Bottlerocket
+Always use `ControllerStop` mode with Bottlerocket since Bottlerocket cannot execute shutdown scripts from userData.
+:::
 
 ## Next Steps
 

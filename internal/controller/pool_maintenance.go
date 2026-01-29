@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -399,6 +400,62 @@ func (r *NodePoolReconciler) replenishStandby(ctx context.Context, nodePool *str
 			"launched", launched)
 		r.recordEvent(nodePool, corev1.EventTypeNormal, "Replenishing",
 			fmt.Sprintf("Launched %d nodes to maintain minStandby", launched))
+	}
+
+	return nil
+}
+
+// ensureTemplateLabels ensures all nodes in the pool have the template labels
+// defined in spec.template.labels. This is a safety net that patches any node
+// missing or having stale template labels. It is a no-op when all labels match
+// (no API calls made in steady state).
+func (r *NodePoolReconciler) ensureTemplateLabels(ctx context.Context, nodePool *stratosv1alpha1.NodePool) error {
+	logger := log.FromContext(ctx)
+
+	templateLabels := nodePool.Spec.Template.Labels
+	if len(templateLabels) == 0 {
+		return nil
+	}
+
+	nodes, err := r.getNodesForPool(ctx, nodePool.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get nodes for pool: %w", err)
+	}
+
+	for i := range nodes {
+		node := &nodes[i]
+
+		// Check if any template labels are missing or have wrong values
+		needsPatch := false
+		for k, v := range templateLabels {
+			if strings.HasPrefix(k, "stratos.sh/") {
+				continue // Skip system labels
+			}
+			if node.Labels[k] != v {
+				needsPatch = true
+				break
+			}
+		}
+
+		if !needsPatch {
+			continue
+		}
+
+		// Patch the node with missing template labels
+		patch := client.MergeFrom(node.DeepCopy())
+		if node.Labels == nil {
+			node.Labels = make(map[string]string)
+		}
+		for k, v := range templateLabels {
+			if !strings.HasPrefix(k, "stratos.sh/") {
+				node.Labels[k] = v
+			}
+		}
+		if err := r.Patch(ctx, node, patch); err != nil {
+			logger.Error(err, "Failed to patch template labels on node", "node", node.Name)
+			continue
+		}
+		logger.Info("Patched missing template labels on node", "node", node.Name)
 	}
 
 	return nil

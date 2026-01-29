@@ -1,0 +1,17 @@
+# NodePool using the Bottlerocket basic nodeclass
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: bottlerocket-basic
+spec:
+  # Pool configuration
+  poolSize: 5
+  minStandby: 2
+
+  # Node template
+  template:
+    labels:
+      workload: general
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: bottlerocket-basic

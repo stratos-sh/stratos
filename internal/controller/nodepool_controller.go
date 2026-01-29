@@ -61,6 +61,7 @@ type NodePoolReconciler struct {
 	Recorder      events.EventRecorder
 	ClusterName   string
 	CloudProvider string
+	ClusterConfig *ClusterConfig
 
 	// cloudProvidersMu protects cloudProviders map from concurrent access
 	cloudProvidersMu sync.RWMutex
@@ -245,13 +246,13 @@ func (r *NodePoolReconciler) reconcileNodePool(ctx context.Context, nodePool *st
 
 	// PRIORITY: Check for scale-up need FIRST (fast path for unschedulable pods)
 	// This ensures scale-up happens immediately without waiting for monitoring operations.
-	scaleUpNeeded, err := r.calculateScaleUpNeeded(ctx, nodePool)
+	scaleUpNeeded, unassignedPods, err := r.calculateScaleUpNeeded(ctx, nodePool)
 	if err != nil {
 		logger.Error(err, "Failed to calculate scale-up need")
 	} else if scaleUpNeeded > 0 {
 		// Scale-up is urgent - do it immediately and requeue quickly
-		if err := r.scaleUp(ctx, nodePool, scaleUpNeeded); err != nil {
-			logger.Error(err, "Failed to scale up")
+		if scaleErr := r.scaleUp(ctx, nodePool, scaleUpNeeded, unassignedPods); scaleErr != nil {
+			logger.Error(scaleErr, "Failed to scale up")
 		}
 		// Requeue quickly to handle any remaining pods and update status
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
@@ -260,24 +261,34 @@ func (r *NodePoolReconciler) reconcileNodePool(ctx context.Context, nodePool *st
 	// No urgent scale-up needed - run monitoring operations synchronously
 	// These can take time but won't block the scale-up critical path
 	if provider != nil {
-		if err := r.syncNodesWithCloud(ctx, nodePool, provider); err != nil {
-			logger.Error(err, "Failed to sync nodes with cloud provider")
+		if syncErr := r.syncNodesWithCloud(ctx, nodePool, provider); syncErr != nil {
+			logger.Error(syncErr, "Failed to sync nodes with cloud provider")
 		}
-		if err := r.monitorCloudWarmupInstances(ctx, nodePool, provider); err != nil {
-			logger.Error(err, "Failed to monitor cloud warmup instances")
+		if warmupErr := r.monitorCloudWarmupInstances(ctx, nodePool, provider); warmupErr != nil {
+			logger.Error(warmupErr, "Failed to monitor cloud warmup instances")
 		}
-		if err := r.monitorWarmupNodes(ctx, nodePool, provider); err != nil {
-			logger.Error(err, "Failed to monitor warmup nodes")
+		if monErr := r.monitorWarmupNodes(ctx, nodePool, provider); monErr != nil {
+			logger.Error(monErr, "Failed to monitor warmup nodes")
 		}
 		// Process startup taint removal for running nodes
-		if err := r.processRunningNodesStartupTaints(ctx, nodePool, provider); err != nil {
-			logger.Error(err, "Failed to process startup taints for running nodes")
+		if taintErr := r.processRunningNodesStartupTaints(ctx, nodePool, provider); taintErr != nil {
+			logger.Error(taintErr, "Failed to process startup taints for running nodes")
 		}
 	}
 
+	// Ensure template labels are applied to all pool nodes (safety net)
+	if labelErr := r.ensureTemplateLabels(ctx, nodePool); labelErr != nil {
+		logger.Error(labelErr, "Failed to ensure template labels")
+	}
+
 	// Clean up stale scale-up annotations (nodes that became Ready or past TTL)
-	if err := r.clearStaleScaleUpAnnotations(ctx, nodePool.Name); err != nil {
-		logger.Error(err, "Failed to clear stale scale-up annotations")
+	if annotErr := r.clearStaleScaleUpAnnotations(ctx, nodePool.Name); annotErr != nil {
+		logger.Error(annotErr, "Failed to clear stale scale-up annotations")
+	}
+
+	// Clean up resolved/stale pod assignments
+	if assignErr := r.cleanupPodAssignments(ctx, nodePool); assignErr != nil {
+		logger.Error(assignErr, "Failed to cleanup pod assignments")
 	}
 
 	// Count nodes by state
@@ -515,7 +526,19 @@ func (r *NodePoolReconciler) ensureCloudProvider(nodePool *stratosv1alpha1.NodeP
 			if nodeClass.Spec.Region != "" {
 				region = nodeClass.Spec.Region
 			}
-			provider, err = aws.NewAWSProvider(context.Background(), region)
+
+			// Convert controller.ClusterConfig to aws.ClusterConfig
+			var awsClusterConfig *aws.ClusterConfig
+			if r.ClusterConfig != nil {
+				awsClusterConfig = &aws.ClusterConfig{
+					Name:                 r.ClusterConfig.Name,
+					APIServerEndpoint:    r.ClusterConfig.APIServerEndpoint,
+					CertificateAuthority: r.ClusterConfig.CertificateAuthority,
+					CIDR:                 r.ClusterConfig.CIDR,
+					KubernetesVersion:    r.ClusterConfig.KubernetesVersion,
+				}
+			}
+			provider, err = aws.NewAWSProvider(context.Background(), region, awsClusterConfig)
 			if err != nil {
 				return fmt.Errorf("failed to create AWS provider: %w", err)
 			}
@@ -770,16 +793,14 @@ func (r *NodePoolReconciler) getInUseCondition(refCount int) metav1.Condition {
 
 // getValidCondition returns the Valid condition based on spec validation.
 func (r *NodePoolReconciler) getValidCondition(nodeClass *stratosv1alpha1.AWSNodeClass) metav1.Condition {
-	// Validate AMI format if static AMI is specified
-	if nodeClass.Spec.AMI != "" {
-		if len(nodeClass.Spec.AMI) <= 4 || nodeClass.Spec.AMI[:4] != "ami-" {
-			return metav1.Condition{
-				Type:               stratosv1alpha1.AWSNodeClassConditionTypeValid,
-				Status:             metav1.ConditionFalse,
-				Reason:             stratosv1alpha1.AWSNodeClassReasonInvalidAMI,
-				Message:            "AMI must start with 'ami-' and include an ID",
-				LastTransitionTime: metav1.Now(),
-			}
+	// Validate bootstrapTemplate is set (required field)
+	if nodeClass.Spec.BootstrapTemplate == "" {
+		return metav1.Condition{
+			Type:               stratosv1alpha1.AWSNodeClassConditionTypeValid,
+			Status:             metav1.ConditionFalse,
+			Reason:             "MissingBootstrapTemplate",
+			Message:            "bootstrapTemplate is required",
+			LastTransitionTime: metav1.Now(),
 		}
 	}
 

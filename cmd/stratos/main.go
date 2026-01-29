@@ -37,6 +37,7 @@ import (
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 	"github.com/stratos-sh/stratos/internal/cloudprovider/aws"
+	"github.com/stratos-sh/stratos/internal/config"
 	"github.com/stratos-sh/stratos/internal/controller"
 	// Import metrics package to register metrics
 	_ "github.com/stratos-sh/stratos/internal/metrics"
@@ -58,23 +59,33 @@ func init() {
 }
 
 func main() {
+	// Load configuration from environment variables first (including .env file)
+	cfg := config.LoadFromEnv()
+
+	// Define CLI flags with env-loaded defaults (CLI flags take precedence)
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
 	var syncPeriod time.Duration
 	var clusterName string
+	var clusterEndpoint string
+	var clusterCA string
+	var clusterCIDR string
 	var cloudProvider string
 	var gracefulShutdownTimeout time.Duration
 
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
+	flag.StringVar(&metricsAddr, "metrics-bind-address", cfg.MetricsBindAddress, "The address the metric endpoint binds to.")
+	flag.StringVar(&probeAddr, "health-probe-bind-address", cfg.HealthProbeBindAddress, "The address the probe endpoint binds to.")
+	flag.BoolVar(&enableLeaderElection, "leader-elect", cfg.LeaderElect,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.DurationVar(&syncPeriod, "sync-period", 30*time.Second, "The minimum interval at which watched resources are reconciled.")
-	flag.StringVar(&clusterName, "cluster-name", "", "The name of the Kubernetes cluster (required for cloud provider tagging).")
-	flag.StringVar(&cloudProvider, "cloud-provider", "aws", "The cloud provider to use (aws, fake).")
-	flag.DurationVar(&gracefulShutdownTimeout, "graceful-shutdown-timeout", 30*time.Second, "The timeout for graceful shutdown of the manager.")
+	flag.DurationVar(&syncPeriod, "sync-period", cfg.SyncPeriod, "The minimum interval at which watched resources are reconciled.")
+	flag.StringVar(&clusterName, "cluster-name", cfg.ClusterName, "The name of the Kubernetes cluster (required for cloud provider tagging).")
+	flag.StringVar(&clusterEndpoint, "cluster-endpoint", cfg.ClusterEndpoint, "The Kubernetes API server endpoint (e.g., https://...).")
+	flag.StringVar(&clusterCA, "cluster-ca", cfg.ClusterCA, "Base64-encoded CA certificate for the Kubernetes API server.")
+	flag.StringVar(&clusterCIDR, "cluster-cidr", cfg.ClusterCIDR, "The cluster service CIDR (e.g., 172.20.0.0/16).")
+	flag.StringVar(&cloudProvider, "cloud-provider", cfg.CloudProvider, "The cloud provider to use (aws, fake).")
+	flag.DurationVar(&gracefulShutdownTimeout, "graceful-shutdown-timeout", cfg.GracefulShutdownTimeout, "The timeout for graceful shutdown of the manager.")
 
 	opts := zap.Options{
 		Development: true,
@@ -90,12 +101,42 @@ func main() {
 		"buildDate", buildDate,
 	)
 
-	if clusterName == "" {
-		clusterName = os.Getenv("CLUSTER_NAME")
-	}
+	// Apply default cluster name if not set via flag or env
 	if clusterName == "" {
 		setupLog.Info("Warning: cluster-name not set, using 'default'")
 		clusterName = "default"
+	}
+
+	// Build and validate cluster config (only for AWS provider which needs userData generation)
+	var clusterConfig *controller.ClusterConfig
+	if cloudProvider == "aws" {
+		// Detect Kubernetes version for AMI auto-discovery
+		k8sVersion, err := controller.DetectKubernetesVersion(context.Background())
+		if err != nil {
+			setupLog.Error(err, "failed to detect Kubernetes version (AMI auto-discovery will be unavailable)")
+			// Don't fail startup - version detection is optional for AMI auto-discovery
+			k8sVersion = ""
+		} else {
+			setupLog.Info("detected Kubernetes version", "version", k8sVersion)
+		}
+
+		clusterConfig = &controller.ClusterConfig{
+			Name:                 clusterName,
+			APIServerEndpoint:    clusterEndpoint,
+			CertificateAuthority: clusterCA,
+			CIDR:                 clusterCIDR,
+			KubernetesVersion:    k8sVersion,
+		}
+		if err := clusterConfig.Validate(); err != nil {
+			setupLog.Error(err, "invalid cluster configuration")
+			os.Exit(1)
+		}
+		setupLog.Info("cluster config validated",
+			"name", clusterName,
+			"endpoint", clusterEndpoint,
+			"cidr", clusterCIDR,
+			"k8sVersion", k8sVersion,
+		)
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -119,6 +160,7 @@ func main() {
 		Scheme:        mgr.GetScheme(),
 		ClusterName:   clusterName,
 		CloudProvider: cloudProvider,
+		ClusterConfig: clusterConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodePool")
 		os.Exit(1)
@@ -136,9 +178,10 @@ func main() {
 		resolver := aws.NewAWSResolver(ec2Client, iamClient, aws.NewRateLimiter())
 
 		if err = (&aws.AWSNodeClassReconciler{
-			Client:      mgr.GetClient(),
-			Resolver:    resolver,
-			ClusterName: clusterName,
+			Client:            mgr.GetClient(),
+			Resolver:          resolver,
+			ClusterName:       clusterName,
+			KubernetesVersion: clusterConfig.KubernetesVersion,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "AWSNodeClass")
 			os.Exit(1)

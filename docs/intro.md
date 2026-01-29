@@ -65,7 +65,8 @@ See the [Use Cases](./guides/use-cases.md) guide for detailed configurations.
 
 - **Instant capacity**: Start pre-warmed nodes in ~20 seconds
 - **Warm caches**: Nodes retain Docker layers, build caches, downloaded models, and local state across restarts
-- **Pre-pulled images**: DaemonSet images pulled automatically during warmup; configure additional images via `preWarm.imagesToPull`
+- **Pre-pulled images**: DaemonSet images pulled automatically during warmup
+- **Simplified configuration**: Stratos generates node bootstrap scripts automatically based on your AMI family (AL2023, AL2, Bottlerocket)
 - **Cost-efficient**: Stopped instances only incur EBS storage costs
 - **CNI-aware**: Handles startup taints for VPC CNI, Cilium, and Calico
 - **Kubernetes-native**: Declarative NodePool and AWSNodeClass CRDs
@@ -89,18 +90,15 @@ kind: AWSNodeClass
 metadata:
   name: workers
 spec:
+  bootstrapTemplate: AL2023   # Stratos generates userData automatically
   instanceType: m5.large
-  ami: ami-0123456789abcdef0
-  subnetIds: ["subnet-12345678"]
-  securityGroupIds: ["sg-12345678"]
-  iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/node-role
-  userData: |
-    #!/bin/bash
-    /etc/eks/bootstrap.sh my-cluster \
-      --kubelet-extra-args '--register-with-taints=node.eks.amazonaws.com/not-ready=true:NoSchedule'
-    until curl -sf http://localhost:10248/healthz; do sleep 5; done
-    sleep 30
-    poweroff
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: my-eks-node-role      # Stratos manages instance profile
 ```
 
 ```yaml title="nodepool.yaml"
@@ -117,8 +115,9 @@ spec:
       name: workers
     labels:
       stratos.sh/pool: workers
+      workload-type: general    # Custom label for targeting
     startupTaints:
-      - key: node.eks.amazonaws.com/not-ready
+      - key: stratos.sh/not-ready
         value: "true"
         effect: NoSchedule
 ```
@@ -128,7 +127,33 @@ kubectl apply -f awsnodeclass.yaml
 kubectl apply -f nodepool.yaml
 ```
 
-### 3. Watch Nodes Scale
+### 3. Target Pods to Your NodePool
+
+Use `nodeSelector` or `nodeAffinity` to schedule pods on Stratos-managed nodes:
+
+```yaml title="deployment.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      nodeSelector:
+        stratos.sh/pool: workers      # Target the NodePool by label
+      containers:
+        - name: app
+          image: my-app:latest
+```
+
+### 4. Watch Nodes Scale
 
 ```bash
 kubectl get nodes -l stratos.sh/pool=workers -w

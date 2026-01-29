@@ -47,8 +47,16 @@ spec:
               containerPort: 8081
               protocol: TCP
           env:
-            - name: CLUSTER_NAME
+            # Cluster configuration via STRATOS_ prefixed env vars
+            # (legacy CLUSTER_* vars also supported for backward compatibility)
+            - name: STRATOS_CLUSTER_NAME
               value: {{ include "stratos.clusterName" . | quote }}
+            - name: STRATOS_CLUSTER_ENDPOINT
+              value: {{ include "stratos.clusterEndpoint" . | quote }}
+            - name: STRATOS_CLUSTER_CA
+              value: {{ include "stratos.clusterCA" . | quote }}
+            - name: STRATOS_CLUSTER_CIDR
+              value: {{ include "stratos.clusterCIDR" . | quote }}
             {{- range .Values.extraEnv }}
             - {{- toYaml . | nindent 14 }}
             {{- end }}
@@ -69,7 +77,7 @@ spec:
               path: /readyz
               port: 8081
             initialDelaySeconds: 5
-            periodSeconds: 10
+            periodSeconds: 1
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       terminationGracePeriodSeconds: 30

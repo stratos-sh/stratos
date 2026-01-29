@@ -1,0 +1,40 @@
+# Production-ready AWSNodeClass with security best practices
+# This example demonstrates recommended settings for production workloads
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: production
+spec:
+  bootstrapTemplate: AL2023
+  instanceType: m5.xlarge
+
+  # Dynamic resource discovery
+  subnetSelector:
+    tags:
+      kubernetes.io/cluster/<YOUR_CLUSTER_NAME>: owned
+      kubernetes.io/role/internal-elb: "1"
+
+  securityGroupSelector:
+    tags:
+      kubernetes.io/cluster/<YOUR_CLUSTER_NAME>: owned
+
+  # Role-based IAM
+  role: <YOUR_IAM_ROLE_NAME>
+
+  # IMDSv2 required for improved security
+  metadataOptions:
+    httpTokens: required
+    httpPutResponseHopLimit: 2
+
+  # Encrypted EBS volumes
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 100
+      volumeType: gp3
+      encrypted: true
+
+  # Custom instance tags for cost allocation and identification
+  tags:
+    Environment: production
+    Team: <YOUR_TEAM>
+    CostCenter: <YOUR_COST_CENTER>

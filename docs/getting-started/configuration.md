@@ -144,14 +144,54 @@ Prometheus metrics are exposed at `:8080/metrics`. See [Monitoring](../guides/mo
 
 ## Environment Variables
 
+All CLI flags can be configured via environment variables using the `STRATOS_` prefix. The controller supports loading environment variables from a `.env` file in the working directory.
+
+**Precedence:** CLI flags > STRATOS_ env vars > legacy env vars > defaults
+
+### Controller Variables
+
+| Environment Variable | Corresponding Flag | Legacy Alias | Default |
+|---------------------|-------------------|--------------|---------|
+| `STRATOS_CLUSTER_NAME` | `--cluster-name` | `CLUSTER_NAME` | - |
+| `STRATOS_CLUSTER_ENDPOINT` | `--cluster-endpoint` | `CLUSTER_ENDPOINT` | - |
+| `STRATOS_CLUSTER_CA` | `--cluster-ca` | `CLUSTER_CA` | - |
+| `STRATOS_CLUSTER_CIDR` | `--cluster-cidr` | `CLUSTER_CIDR` | - |
+| `STRATOS_CLOUD_PROVIDER` | `--cloud-provider` | - | `aws` |
+| `STRATOS_SYNC_PERIOD` | `--sync-period` | - | `30s` |
+| `STRATOS_LEADER_ELECT` | `--leader-elect` | - | `false` |
+| `STRATOS_METRICS_BIND_ADDRESS` | `--metrics-bind-address` | - | `:8080` |
+| `STRATOS_HEALTH_PROBE_BIND_ADDRESS` | `--health-probe-bind-address` | - | `:8081` |
+| `STRATOS_GRACEFUL_SHUTDOWN_TIMEOUT` | `--graceful-shutdown-timeout` | - | `30s` |
+
+### AWS Variables
+
 | Variable | Description |
 |----------|-------------|
-| `CLUSTER_NAME` | Alternative to `--cluster-name` flag |
 | `AWS_REGION` | Default AWS region (can be overridden per NodePool) |
 | `AWS_ACCESS_KEY_ID` | AWS access key (prefer IRSA instead) |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key (prefer IRSA instead) |
 
-Environment variables can be passed via the `extraEnv` Helm value.
+Environment variables can be passed via the `extraEnv` Helm value:
+
+```yaml
+extraEnv:
+  - name: STRATOS_SYNC_PERIOD
+    value: "60s"
+  - name: STRATOS_CLOUD_PROVIDER
+    value: "fake"
+```
+
+### Using .env Files
+
+For local development, create a `.env` file in the working directory:
+
+```bash title=".env"
+STRATOS_CLUSTER_NAME=dev-cluster
+STRATOS_CLOUD_PROVIDER=fake
+STRATOS_SYNC_PERIOD=60s
+```
+
+The controller automatically loads this file at startup. See `.env.example` in the repository for a complete template.
 
 ## Next Steps
 

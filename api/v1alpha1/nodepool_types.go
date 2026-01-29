@@ -121,6 +121,22 @@ type NodeTemplate struct {
 	NodeClassRef NodeClassRef `json:"nodeClassRef"`
 }
 
+// PodAssignment tracks the mapping of an unschedulable pod to a node being started for it.
+// Used to prevent duplicate scale-ups when a node is starting but the pod hasn't been scheduled yet.
+type PodAssignment struct {
+	// PodName is the name of the pending pod
+	PodName string `json:"podName"`
+
+	// PodNamespace is the namespace of the pending pod
+	PodNamespace string `json:"podNamespace"`
+
+	// NodeName is the name of the node started for this pod
+	NodeName string `json:"nodeName"`
+
+	// AssignedAt is when this assignment was created
+	AssignedAt metav1.Time `json:"assignedAt"`
+}
+
 // NodePoolStatus defines the observed state of NodePool
 type NodePoolStatus struct {
 	// Conditions represent the latest available observations
@@ -146,6 +162,11 @@ type NodePoolStatus struct {
 	// Total is the total node count (warmup + standby + running)
 	// +optional
 	Total int32 `json:"total,omitempty"`
+
+	// PodAssignments tracks pending pods assigned to starting nodes.
+	// Prevents duplicate scale-ups during the window between node start and pod scheduling.
+	// +optional
+	PodAssignments []PodAssignment `json:"podAssignments,omitempty"`
 
 	// LastReconcileTime is when the pool was last reconciled
 	// +optional

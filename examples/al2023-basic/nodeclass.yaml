@@ -1,0 +1,27 @@
+# Minimal AL2023 AWSNodeClass example
+# This example uses static IDs - replace placeholder values with your actual AWS resources
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: al2023-basic
+spec:
+  # AL2023 uses nodeadm for bootstrap configuration
+  bootstrapTemplate: AL2023
+
+  # Instance configuration
+  instanceType: m5.large
+
+  # Network configuration (replace with your VPC resources)
+  subnetIds:
+    - <YOUR_SUBNET_ID>
+  securityGroupIds:
+    - <YOUR_SECURITY_GROUP_ID>
+
+  # IAM configuration (replace with your IAM instance profile)
+  role: <YOUR_IAM_ROLE_NAME>
+
+  # EBS configuration
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 50
+      volumeType: gp3

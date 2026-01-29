@@ -28,8 +28,11 @@ kind: AWSNodeClass
 metadata:
   name: <nodeclass-name>
 spec:
+  # Bootstrap template for userData generation (required)
+  bootstrapTemplate: <string>  # AL2023, AL2, or Bottlerocket
   region: <string>
   instanceType: <string>
+  architecture: <string>
   # AMI: use one of ami or amiSelector
   ami: <string>
   amiSelector: <AMISelector>
@@ -44,7 +47,8 @@ spec:
   role: <string>
   # IMDS configuration
   metadataOptions: <MetadataOptions>
-  userData: <string>
+  # Custom scripts to merge with generated bootstrap (optional)
+  customUserData: <string>
   blockDeviceMappings: <[]BlockDeviceMapping>
   tags: <map[string]string>
 status:
@@ -62,7 +66,16 @@ status:
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `bootstrapTemplate` | string | Bootstrap template for userData generation: `AL2023`, `AL2`, or `Bottlerocket`. Stratos generates the complete bootstrap script using cluster configuration from Helm values. |
 | `instanceType` | string | EC2 instance type (e.g., `m5.large`, `c5.xlarge`, `m8g.large`). |
+
+### Bootstrap Templates
+
+| Template | AMI Family | Bootstrap Format | Warmup Mode |
+|----------|-----------|------------------|-------------|
+| `AL2023` | Amazon Linux 2023 | nodeadm MIME multipart | SelfStop |
+| `AL2` | Amazon Linux 2 | bootstrap.sh MIME multipart | SelfStop |
+| `Bottlerocket` | Bottlerocket | TOML configuration | ControllerStop |
 
 ### AMI Configuration (one required)
 
@@ -105,8 +118,9 @@ Exactly one of `iamInstanceProfile` or `role` must be specified.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `region` | string | Controller region | AWS region for launching instances (e.g., `us-east-1`). |
+| `architecture` | string | `x86_64` | Instance architecture: `x86_64` or `arm64`. Used for AMI selection when using `amiSelector`. |
 | `metadataOptions` | [MetadataOptions](#metadataoptions) | EC2 defaults | IMDS configuration for launched instances. |
-| `userData` | string | - | User data script. For AL2/AL2023, a shell script. For Bottlerocket, TOML configuration. Not base64 encoded -- Stratos handles encoding. |
+| `customUserData` | string | - | Additional scripts/config to merge with generated bootstrap. For AL2/AL2023, shell scripts. For Bottlerocket, additional TOML settings. |
 | `blockDeviceMappings` | [][BlockDeviceMapping](#block-device-mapping) | - | EBS volume configuration. |
 | `tags` | map[string]string | - | Additional tags to apply to instances. Stratos management tags are added automatically. |
 
@@ -314,6 +328,7 @@ kind: AWSNodeClass
 metadata:
   name: static-nodes
 spec:
+  bootstrapTemplate: AL2023
   instanceType: m5.large
   ami: ami-0123456789abcdef0
   subnetIds:
@@ -324,7 +339,7 @@ spec:
   iamInstanceProfile: arn:aws:iam::123456789012:instance-profile/eks-node-role
 ```
 
-### Dynamic Selectors
+### Dynamic Selectors (Recommended)
 
 ```yaml title="awsnodeclass-selectors.yaml"
 apiVersion: stratos.sh/v1alpha1
@@ -332,6 +347,7 @@ kind: AWSNodeClass
 metadata:
   name: dynamic-nodes
 spec:
+  bootstrapTemplate: AL2023
   instanceType: m5.large
 
   amiSelector:
@@ -369,6 +385,7 @@ kind: AWSNodeClass
 metadata:
   name: mixed-nodes
 spec:
+  bootstrapTemplate: AL2023
   instanceType: m5.large
   ami: ami-0123456789abcdef0
 
@@ -391,7 +408,10 @@ kind: AWSNodeClass
 metadata:
   name: bottlerocket-dynamic
 spec:
+  # Stratos generates Bottlerocket TOML configuration automatically
+  bootstrapTemplate: Bottlerocket
   instanceType: m5.large
+  architecture: x86_64
 
   amiSelector:
     name: "bottlerocket-aws-k8s-*-x86_64-*"
@@ -421,17 +441,10 @@ spec:
       volumeType: gp3
       encrypted: true
 
-  userData: |
-    [settings.kubernetes]
-    cluster-name = "my-cluster"
-    api-server = "https://ABCDEF.gr7.us-east-1.eks.amazonaws.com"
-    cluster-certificate = "LS0tLS1CRUdJTi..."
-
-    [settings.kubernetes.node-taints]
-    "node.eks.amazonaws.com/not-ready" = "true:NoSchedule"
-
-    [settings.kubernetes.node-labels]
-    "stratos.sh/pool" = "bottlerocket-workers"
+  # Optional: Additional Bottlerocket settings
+  customUserData: |
+    [settings.host-containers.admin]
+    enabled = true
 ```
 
 ## Finding AMI IDs
