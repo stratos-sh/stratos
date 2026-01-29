@@ -124,6 +124,10 @@ ps aux | grep -E "main.*--cluster-name" | grep -v grep
 
 The controller process appears as `main --cluster-name=...` in the process list, not as `stratos`.
 
+## Code Generation
+
+Never edit `zz_generated.deepcopy.go` directly. After changing CRD types in `api/v1alpha1/`, run `make generate` (deepcopy) and `make manifests` (CRD YAML).
+
 ## Linting
 
 golangci-lint configured with: errcheck, gosimple, govet (shadow, nilness), ineffassign, staticcheck, unused, gosec, gocyclo (min: 15), misspell. Test files excluded from gocyclo, errcheck, gosec.

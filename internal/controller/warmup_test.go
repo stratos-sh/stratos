@@ -473,7 +473,7 @@ func TestLabelNode_AppliesTemplateLabels(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
@@ -526,7 +526,7 @@ func TestLabelNode_SkipsStratosPrefix(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	fakeProvider := fakeprovider.NewFakeProvider()
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
@@ -589,7 +589,7 @@ func TestAdoptAndTransitionToStandby_AppliesTemplateLabels(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 
 	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
 
@@ -1039,81 +1039,3 @@ func TestMonitorCloudWarmup_FullyLabeled_NoChange(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
-func TestMonitorWarmup_SelfStop_BackwardCompatibility(t *testing.T) {
-	// Test that when CompletionMode is not specified, SelfStop behavior is used
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	_ = stratosv1alpha1.AddToScheme(scheme)
-
-	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-node",
-			Labels: map[string]string{
-				LabelPool:       "test-pool",
-				LabelState:      string(NodeStateWarmup),
-				LabelInstanceID: "i-1234567890",
-				LabelStateSince: fmt.Sprintf("%d", time.Now().Unix()),
-			},
-			Annotations: map[string]string{},
-		},
-		Status: corev1.NodeStatus{
-			Conditions: []corev1.NodeCondition{
-				// Node IS ready
-				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
-			},
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := events.NewFakeRecorder(10)
-	fakeProvider := fakeprovider.NewFakeProvider()
-
-	// Track if StopInstance was called
-	var stopCalled bool
-	fakeProvider.StopHook = func(ctx context.Context, instanceID string, force bool) error {
-		stopCalled = true
-		return nil
-	}
-
-	// Create instance in running state
-	instance, _ := fakeProvider.LaunchInstance(context.Background(), testNodeClass(), "test-pool", "test-cluster")
-	fakeProvider.SetInstanceState(instance.ID, cloudprovider.InstanceStateRunning)
-
-	// Update node to match instance ID
-	node.Labels[LabelInstanceID] = instance.ID
-	_ = fakeClient.Update(context.Background(), node)
-
-	mgr := NewNodeManager(fakeClient, recorder, fakeProvider, "test-cluster")
-
-	// Pool with NO CompletionMode set - should use SelfStop (default)
-	pool := &stratosv1alpha1.NodePool{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
-		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{
-				// CompletionMode not set - defaults to SelfStop
-			},
-		},
-	}
-
-	ctx := context.Background()
-	err := mgr.MonitorWarmup(ctx, pool, node)
-	if err != nil {
-		t.Errorf("MonitorWarmup() error = %v", err)
-	}
-
-	// In SelfStop mode, StopInstance should NOT be called even when node is ready
-	// (we wait for instance to self-stop via userdata)
-	if stopCalled {
-		t.Error("StopInstance should NOT have been called in SelfStop mode (default)")
-	}
-
-	// Node should still be in warmup state (waiting for self-stop)
-	updatedNode := &corev1.Node{}
-	if err := fakeClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode); err != nil {
-		t.Fatalf("Failed to get updated node: %v", err)
-	}
-	if updatedNode.Labels[LabelState] != string(NodeStateWarmup) {
-		t.Errorf("Node state = %s, want warmup", updatedNode.Labels[LabelState])
-	}
-}
