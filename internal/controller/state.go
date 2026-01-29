@@ -80,6 +80,10 @@ const (
 	// ScaleUpStartedTTL is how long to consider a node as "starting" for in-flight tracking.
 	// After this duration, the annotation is considered stale and will be ignored/cleared.
 	ScaleUpStartedTTL = 60 * time.Second
+
+	// PodAssignmentTTL is the maximum duration a pod assignment remains valid.
+	// After this period, the assignment is considered stale and will be cleaned up.
+	PodAssignmentTTL = 10 * time.Minute
 )
 
 // Startup taint constants

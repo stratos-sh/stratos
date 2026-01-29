@@ -36,7 +36,7 @@ import (
 // NodeLauncher defines the interface for launching instances with cloud-specific NodeClass.
 // This interface is implemented by cloud-specific providers (AWSProvider, FakeProvider).
 type NodeLauncher interface {
-	LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) (*cloudprovider.Instance, error)
+	LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) (*cloudprovider.Instance, error)
 }
 
 // NodeManager handles the lifecycle of Stratos-managed nodes.
@@ -63,9 +63,16 @@ func NewNodeManager(c client.Client, recorder events.EventRecorder, provider clo
 func (m *NodeManager) LaunchNode(ctx context.Context, pool *stratosv1alpha1.NodePool, nodeClass *stratosv1alpha1.AWSNodeClass, launcher NodeLauncher) (*corev1.Node, error) {
 	logger := log.FromContext(ctx)
 
+	// Build template config from NodePool spec
+	templateConfig := &cloudprovider.TemplateConfig{
+		Labels:        pool.Spec.Template.Labels,
+		Taints:        pool.Spec.Template.Taints,
+		StartupTaints: pool.Spec.Template.StartupTaints,
+	}
+
 	// Launch the instance using the cloud-specific provider
 	logger.Info("Launching instance", "pool", pool.Name, "nodeClass", nodeClass.Name, "instanceType", nodeClass.Spec.InstanceType)
-	instance, err := launcher.LaunchInstance(ctx, nodeClass, pool.Name, m.clusterName)
+	instance, err := launcher.LaunchInstance(ctx, nodeClass, pool.Name, m.clusterName, templateConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch instance: %w", err)
 	}
@@ -117,9 +124,11 @@ func (m *NodeManager) WaitForNodeJoin(ctx context.Context, pool *stratosv1alpha1
 	return nil, fmt.Errorf("timeout waiting for node %s to join", instanceID)
 }
 
-// LabelNode applies Stratos labels to a node.
+// LabelNode applies Stratos labels and template labels to a node.
 // If the node is entering warmup state, it is also cordoned to prevent scheduling.
-func (m *NodeManager) LabelNode(ctx context.Context, node *corev1.Node, poolName, instanceID string, state NodeState) error {
+// Template labels from the NodePool spec are applied to the node, skipping any
+// labels with the stratos.sh/ prefix to prevent conflicts with system labels.
+func (m *NodeManager) LabelNode(ctx context.Context, node *corev1.Node, poolName, instanceID string, state NodeState, templateLabels map[string]string) error {
 	logger := log.FromContext(ctx)
 
 	// Create a copy for patching
@@ -135,6 +144,13 @@ func (m *NodeManager) LabelNode(ctx context.Context, node *corev1.Node, poolName
 	node.Labels[LabelState] = string(state)
 	node.Labels[LabelInstanceID] = instanceID
 	node.Labels[LabelStateSince] = fmt.Sprintf("%d", time.Now().Unix())
+
+	// Apply template labels (skip stratos.sh/ prefix to prevent conflicts)
+	for k, v := range templateLabels {
+		if !strings.HasPrefix(k, "stratos.sh/") {
+			node.Labels[k] = v
+		}
+	}
 
 	// Ensure annotations map exists
 	if node.Annotations == nil {
@@ -652,7 +668,7 @@ func (m *NodeManager) MonitorCloudWarmup(ctx context.Context, pool *stratosv1alp
 		// If K8s node exists but isn't tracked by warmup workflow, label it
 		if node != nil && node.Labels[LabelState] == "" {
 			logger.Info("Labeling unlabeled K8s node as warmup", "instanceID", instanceID, "node", node.Name)
-			if err := m.LabelNode(ctx, node, pool.Name, instanceID, NodeStateWarmup); err != nil {
+			if err := m.LabelNode(ctx, node, pool.Name, instanceID, NodeStateWarmup, pool.Spec.Template.Labels); err != nil {
 				return fmt.Errorf("failed to label warmup node: %w", err)
 			}
 		}
@@ -771,6 +787,13 @@ func (m *NodeManager) adoptAndTransitionToStandby(ctx context.Context, pool *str
 	node.Labels[LabelState] = string(NodeStateStandby)
 	node.Labels[LabelInstanceID] = instanceID
 	node.Labels[LabelStateSince] = fmt.Sprintf("%d", time.Now().Unix())
+
+	// Apply template labels (skip stratos.sh/ prefix to prevent conflicts)
+	for k, v := range pool.Spec.Template.Labels {
+		if !strings.HasPrefix(k, "stratos.sh/") {
+			node.Labels[k] = v
+		}
+	}
 
 	// Ensure annotations map exists
 	if node.Annotations == nil {

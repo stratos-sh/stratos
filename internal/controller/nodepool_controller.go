@@ -246,12 +246,12 @@ func (r *NodePoolReconciler) reconcileNodePool(ctx context.Context, nodePool *st
 
 	// PRIORITY: Check for scale-up need FIRST (fast path for unschedulable pods)
 	// This ensures scale-up happens immediately without waiting for monitoring operations.
-	scaleUpNeeded, err := r.calculateScaleUpNeeded(ctx, nodePool)
+	scaleUpNeeded, unassignedPods, err := r.calculateScaleUpNeeded(ctx, nodePool)
 	if err != nil {
 		logger.Error(err, "Failed to calculate scale-up need")
 	} else if scaleUpNeeded > 0 {
 		// Scale-up is urgent - do it immediately and requeue quickly
-		if err := r.scaleUp(ctx, nodePool, scaleUpNeeded); err != nil {
+		if err := r.scaleUp(ctx, nodePool, scaleUpNeeded, unassignedPods); err != nil {
 			logger.Error(err, "Failed to scale up")
 		}
 		// Requeue quickly to handle any remaining pods and update status
@@ -276,9 +276,19 @@ func (r *NodePoolReconciler) reconcileNodePool(ctx context.Context, nodePool *st
 		}
 	}
 
+	// Ensure template labels are applied to all pool nodes (safety net)
+	if err := r.ensureTemplateLabels(ctx, nodePool); err != nil {
+		logger.Error(err, "Failed to ensure template labels")
+	}
+
 	// Clean up stale scale-up annotations (nodes that became Ready or past TTL)
 	if err := r.clearStaleScaleUpAnnotations(ctx, nodePool.Name); err != nil {
 		logger.Error(err, "Failed to clear stale scale-up annotations")
+	}
+
+	// Clean up resolved/stale pod assignments
+	if err := r.cleanupPodAssignments(ctx, nodePool); err != nil {
+		logger.Error(err, "Failed to cleanup pod assignments")
 	}
 
 	// Count nodes by state
