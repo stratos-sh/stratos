@@ -346,7 +346,7 @@ func setFakeInstanceState(instanceID string, state cloudprovider.InstanceState) 
 // launchFakeInstance launches a fake instance and returns its ID.
 func launchFakeInstance(poolName string) string {
 	nodeClass := testAWSNodeClass(poolName + "-test-class")
-	instance, err := fakeProvider.LaunchInstance(ctx, nodeClass, poolName, testClusterName)
+	instance, err := fakeProvider.LaunchInstance(ctx, nodeClass, poolName, testClusterName, nil)
 	Expect(err).NotTo(HaveOccurred())
 	return instance.ID
 }

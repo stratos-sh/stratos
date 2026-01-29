@@ -94,18 +94,8 @@ func TestAL2023Generator_Generate(t *testing.T) {
 		t.Fatalf("Generate() error = %v", err)
 	}
 
-	// Verify MIME structure
-	if !strings.Contains(userData, "MIME-Version: 1.0") {
-		t.Error("missing MIME-Version header")
-	}
-	if !strings.Contains(userData, "Content-Type: multipart/mixed") {
-		t.Error("missing multipart/mixed content type")
-	}
-
-	// Verify nodeadm configuration
-	if !strings.Contains(userData, "Content-Type: application/node.eks.aws") {
-		t.Error("missing nodeadm content type")
-	}
+	// AL2023 now outputs plain NodeConfig YAML (no MIME wrapper)
+	// nodeadm-config.service reads this directly from IMDS
 	if !strings.Contains(userData, "apiVersion: node.eks.aws/v1alpha1") {
 		t.Error("missing nodeadm apiVersion")
 	}
@@ -118,29 +108,19 @@ func TestAL2023Generator_Generate(t *testing.T) {
 	if !strings.Contains(userData, "apiServerEndpoint: https://api.example.com") {
 		t.Error("missing API server endpoint")
 	}
+	if !strings.Contains(userData, "certificateAuthority: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t") {
+		t.Error("missing cluster CA")
+	}
+	if !strings.Contains(userData, "cidr: 172.20.0.0/16") {
+		t.Error("missing cluster CIDR")
+	}
 	if !strings.Contains(userData, "stratos.sh/pool=test-pool") {
 		t.Error("missing pool label")
 	}
 
-	// Verify warmup script
-	if !strings.Contains(userData, "stratos-warmup.sh") {
-		t.Error("missing warmup script")
-	}
-	if !strings.Contains(userData, "Stratos warmup script") {
-		t.Error("missing warmup script content")
-	}
-
-	// Verify NO actual poweroff command in warmup (just comments explaining why)
-	lines := strings.Split(userData, "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		// Skip comment lines
-		if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
-			continue
-		}
-		if strings.Contains(trimmed, "poweroff") || strings.Contains(trimmed, "shutdown") {
-			t.Error("warmup script should NOT contain actual poweroff/shutdown command")
-		}
+	// Verify it does NOT have MIME headers (plain YAML format)
+	if strings.Contains(userData, "MIME-Version") {
+		t.Error("should NOT have MIME headers in plain NodeConfig format")
 	}
 }
 
@@ -188,7 +168,8 @@ func TestAL2023Generator_WithKubeletConfig(t *testing.T) {
 	}
 }
 
-func TestAL2023Generator_WithCustomUserData(t *testing.T) {
+func TestAL2023Generator_MergedLabels(t *testing.T) {
+	// Test that pool label and custom labels are merged into a single --node-labels flag
 	config := &BootstrapConfig{
 		ClusterName:       "test-cluster",
 		ClusterEndpoint:   "https://api.example.com",
@@ -196,7 +177,12 @@ func TestAL2023Generator_WithCustomUserData(t *testing.T) {
 		ClusterCIDR:       "172.20.0.0/16",
 		PoolName:          "test-pool",
 		BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
-		CustomUserData:    "#!/bin/bash\necho 'Hello from custom script'",
+		Kubelet: &stratosv1alpha1.KubeletConfig{
+			NodeLabels: map[string]string{
+				"team":        "platform",
+				"environment": "production",
+			},
+		},
 	}
 
 	gen := &AL2023Generator{}
@@ -205,12 +191,59 @@ func TestAL2023Generator_WithCustomUserData(t *testing.T) {
 		t.Fatalf("Generate() error = %v", err)
 	}
 
-	// Verify custom userData is included
-	if !strings.Contains(userData, "custom-userdata.sh") {
-		t.Error("missing custom userdata filename")
+	// Count occurrences of --node-labels - there should be exactly ONE
+	count := strings.Count(userData, "--node-labels=")
+	if count != 1 {
+		t.Errorf("expected exactly 1 --node-labels flag, got %d", count)
 	}
-	if !strings.Contains(userData, "Hello from custom script") {
-		t.Error("missing custom userdata content")
+
+	// Verify all labels are present in the single flag
+	// Labels should be sorted alphabetically
+	if !strings.Contains(userData, "environment=production") {
+		t.Error("missing environment label")
+	}
+	if !strings.Contains(userData, "stratos.sh/pool=test-pool") {
+		t.Error("missing pool label")
+	}
+	if !strings.Contains(userData, "team=platform") {
+		t.Error("missing team label")
+	}
+
+	// Verify labels are comma-separated in a single flag
+	// Due to sorting: environment=production,stratos.sh/pool=test-pool,team=platform
+	expectedLabelLine := `"--node-labels=environment=production,stratos.sh/pool=test-pool,team=platform"`
+	if !strings.Contains(userData, expectedLabelLine) {
+		t.Errorf("labels not properly merged and sorted, expected %s in:\n%s", expectedLabelLine, userData)
+	}
+}
+
+func TestAL2023Generator_PoolNameOnly(t *testing.T) {
+	// Test that pool name alone generates the label correctly
+	config := &BootstrapConfig{
+		ClusterName:       "test-cluster",
+		ClusterEndpoint:   "https://api.example.com",
+		ClusterCA:         "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t",
+		ClusterCIDR:       "172.20.0.0/16",
+		PoolName:          "my-pool",
+		BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
+		// No Kubelet config
+	}
+
+	gen := &AL2023Generator{}
+	userData, err := gen.Generate(config)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Should have exactly one --node-labels flag with just the pool label
+	if !strings.Contains(userData, `"--node-labels=stratos.sh/pool=my-pool"`) {
+		t.Error("missing or incorrect pool label flag")
+	}
+
+	// Only one --node-labels flag
+	count := strings.Count(userData, "--node-labels=")
+	if count != 1 {
+		t.Errorf("expected exactly 1 --node-labels flag, got %d", count)
 	}
 }
 
@@ -450,9 +483,9 @@ func TestWarmupScript_Content(t *testing.T) {
 		t.Error("warmup script should check kubelet health")
 	}
 
-	// Verify EBS initialization
-	if !strings.Contains(script, "Initializing EBS") {
-		t.Error("warmup script should initialize EBS")
+	// Verify warmup completion message
+	if !strings.Contains(script, "Warmup script completed") {
+		t.Error("warmup script should have completion message")
 	}
 
 	// Verify NO actual poweroff command (just comments explaining why)
@@ -493,9 +526,12 @@ func TestGenerateUserData_Convenience(t *testing.T) {
 		t.Error("GenerateUserData() returned empty string")
 	}
 
-	// Verify it's AL2023 format
-	if !strings.Contains(userData, "application/node.eks.aws") {
-		t.Error("expected AL2023 format")
+	// Verify it's AL2023 format (plain NodeConfig YAML)
+	if !strings.Contains(userData, "apiVersion: node.eks.aws/v1alpha1") {
+		t.Error("expected AL2023 format with nodeadm apiVersion")
+	}
+	if !strings.Contains(userData, "kind: NodeConfig") {
+		t.Error("expected AL2023 format with NodeConfig kind")
 	}
 }
 
