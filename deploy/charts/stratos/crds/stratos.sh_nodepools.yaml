@@ -200,6 +200,17 @@ spec:
                       type: string
                     description: Labels to apply to nodes
                     type: object
+                  networkReadinessStrategy:
+                    default: Taint
+                    description: |-
+                      NetworkReadinessStrategy controls how Stratos handles network readiness.
+                      "Taint" adds a stratos.sh/not-ready=true:NoSchedule taint to kubelet and
+                      removes it when the CNI is ready. "None" disables network readiness management.
+                      Default: Taint.
+                    enum:
+                    - Taint
+                    - None
+                    type: string
                   nodeClassRef:
                     description: |-
                       NodeClassRef references the cloud-specific NodeClass that defines
@@ -218,51 +229,6 @@ spec:
                     - kind
                     - name
                     type: object
-                  startupTaintRemoval:
-                    default: WhenNetworkReady
-                    description: |-
-                      StartupTaintRemoval determines how startup taints are removed:
-                      - WhenNetworkReady (default): Stratos removes taints when network conditions indicate CNI is ready
-                      - External: Stratos waits for taints to be removed by CNI plugin or external controller
-                    enum:
-                    - WhenNetworkReady
-                    - External
-                    type: string
-                  startupTaints:
-                    description: |-
-                      StartupTaints are taints applied during node startup that block pod scheduling
-                      until the node is fully ready. These should match the taints configured in
-                      kubelet --register-with-taints. Stratos will remove these taints based on
-                      the StartupTaintRemoval mode.
-                    items:
-                      description: |-
-                        The node this Taint is attached to has the "effect" on
-                        any pod that does not tolerate the Taint.
-                      properties:
-                        effect:
-                          description: |-
-                            Required. The effect of the taint on pods
-                            that do not tolerate the taint.
-                            Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
-                          type: string
-                        key:
-                          description: Required. The taint key to be applied to a
-                            node.
-                          type: string
-                        timeAdded:
-                          description: TimeAdded represents the time at which the
-                            taint was added.
-                          format: date-time
-                          type: string
-                        value:
-                          description: The taint value corresponding to the taint
-                            key.
-                          type: string
-                      required:
-                      - effect
-                      - key
-                      type: object
-                    type: array
                   taints:
                     description: Taints to apply to nodes (permanent taints for workload
                       isolation)

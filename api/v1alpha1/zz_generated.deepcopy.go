@@ -442,12 +442,10 @@ func (in *NodeTemplate) DeepCopyInto(out *NodeTemplate) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.StartupTaints != nil {
-		in, out := &in.StartupTaints, &out.StartupTaints
-		*out = make([]v1.Taint, len(*in))
-		for i := range *in {
-			(*in)[i].DeepCopyInto(&(*out)[i])
-		}
+	if in.NetworkReadinessStrategy != nil {
+		in, out := &in.NetworkReadinessStrategy, &out.NetworkReadinessStrategy
+		*out = new(NetworkReadinessStrategy)
+		**out = **in
 	}
 	out.NodeClassRef = in.NodeClassRef
 }

@@ -49,18 +49,18 @@ func TestHasTaintWithKeyAndEffect(t *testing.T) {
 		{
 			name: "taint exists with matching key and effect",
 			taints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
+				{Key: TaintKeyNotReady, Value: TaintValueNotReady, Effect: corev1.TaintEffectNoSchedule},
 			},
-			key:    "node.eks.amazonaws.com/not-ready",
+			key:    TaintKeyNotReady,
 			effect: corev1.TaintEffectNoSchedule,
 			want:   true,
 		},
 		{
 			name: "taint exists with matching key but different effect",
 			taints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoExecute},
+				{Key: TaintKeyNotReady, Value: TaintValueNotReady, Effect: corev1.TaintEffectNoExecute},
 			},
-			key:    "node.eks.amazonaws.com/not-ready",
+			key:    TaintKeyNotReady,
 			effect: corev1.TaintEffectNoSchedule,
 			want:   false,
 		},
@@ -69,7 +69,7 @@ func TestHasTaintWithKeyAndEffect(t *testing.T) {
 			taints: []corev1.Taint{
 				{Key: "other-key", Value: "true", Effect: corev1.TaintEffectNoSchedule},
 			},
-			key:    "node.eks.amazonaws.com/not-ready",
+			key:    TaintKeyNotReady,
 			effect: corev1.TaintEffectNoSchedule,
 			want:   false,
 		},
@@ -77,9 +77,9 @@ func TestHasTaintWithKeyAndEffect(t *testing.T) {
 			name: "multiple taints, one matches",
 			taints: []corev1.Taint{
 				{Key: "other-key", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
+				{Key: TaintKeyNotReady, Value: TaintValueNotReady, Effect: corev1.TaintEffectNoSchedule},
 			},
-			key:    "node.eks.amazonaws.com/not-ready",
+			key:    TaintKeyNotReady,
 			effect: corev1.TaintEffectNoSchedule,
 			want:   true,
 		},
@@ -115,9 +115,9 @@ func TestRemoveTaintByKeyAndEffect(t *testing.T) {
 		{
 			name: "remove existing taint",
 			taints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
+				{Key: TaintKeyNotReady, Value: TaintValueNotReady, Effect: corev1.TaintEffectNoSchedule},
 			},
-			key:      "node.eks.amazonaws.com/not-ready",
+			key:      TaintKeyNotReady,
 			effect:   corev1.TaintEffectNoSchedule,
 			wantLen:  0,
 			wantKeys: nil,
@@ -125,21 +125,21 @@ func TestRemoveTaintByKeyAndEffect(t *testing.T) {
 		{
 			name: "taint not found (different effect)",
 			taints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoExecute},
+				{Key: TaintKeyNotReady, Value: TaintValueNotReady, Effect: corev1.TaintEffectNoExecute},
 			},
-			key:      "node.eks.amazonaws.com/not-ready",
+			key:      TaintKeyNotReady,
 			effect:   corev1.TaintEffectNoSchedule,
 			wantLen:  1,
-			wantKeys: []string{"node.eks.amazonaws.com/not-ready"},
+			wantKeys: []string{TaintKeyNotReady},
 		},
 		{
 			name: "remove one of multiple taints",
 			taints: []corev1.Taint{
 				{Key: "other-taint", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
+				{Key: TaintKeyNotReady, Value: TaintValueNotReady, Effect: corev1.TaintEffectNoSchedule},
 				{Key: "third-taint", Value: "true", Effect: corev1.TaintEffectNoExecute},
 			},
-			key:      "node.eks.amazonaws.com/not-ready",
+			key:      TaintKeyNotReady,
 			effect:   corev1.TaintEffectNoSchedule,
 			wantLen:  2,
 			wantKeys: []string{"other-taint", "third-taint"},
@@ -156,77 +156,6 @@ func TestRemoveTaintByKeyAndEffect(t *testing.T) {
 				if got[i].Key != key {
 					t.Errorf("removeTaintByKeyAndEffect() taint[%d].Key = %q, want %q", i, got[i].Key, key)
 				}
-			}
-		})
-	}
-}
-
-func TestNodeManager_NodeHasStartupTaints(t *testing.T) {
-	mgr := &NodeManager{}
-
-	tests := []struct {
-		name          string
-		nodeTaints    []corev1.Taint
-		startupTaints []corev1.Taint
-		want          bool
-	}{
-		{
-			name:          "no node taints, no startup taints",
-			nodeTaints:    nil,
-			startupTaints: nil,
-			want:          false,
-		},
-		{
-			name:       "no node taints, has startup taints configured",
-			nodeTaints: nil,
-			startupTaints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
-			want: false,
-		},
-		{
-			name: "node has startup taint",
-			nodeTaints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
-			startupTaints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
-			want: true,
-		},
-		{
-			name: "node has different taint",
-			nodeTaints: []corev1.Taint{
-				{Key: "other-taint", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
-			startupTaints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
-			want: false,
-		},
-		{
-			name: "node has multiple startup taints",
-			nodeTaints: []corev1.Taint{
-				{Key: "other-taint", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
-			startupTaints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
-			want: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			node := &corev1.Node{
-				Spec: corev1.NodeSpec{
-					Taints: tt.nodeTaints,
-				},
-			}
-			got := mgr.nodeHasStartupTaints(node, tt.startupTaints)
-			if got != tt.want {
-				t.Errorf("nodeHasStartupTaints() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -292,7 +221,7 @@ func TestNodeManager_CheckStartupTaintTimeout(t *testing.T) {
 	}
 }
 
-func TestNodeManager_ProcessStartupTaints_NoStartupTaints(t *testing.T) {
+func TestNodeManager_ProcessStartupTaints_Disabled(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -301,11 +230,12 @@ func TestNodeManager_ProcessStartupTaints_NoStartupTaints(t *testing.T) {
 	recorder := events.NewFakeRecorder(10)
 	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
 
+	none := stratosv1alpha1.NetworkReadinessStrategyNone
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
 			Template: stratosv1alpha1.NodeTemplate{
-				StartupTaints: nil, // No startup taints configured
+				NetworkReadinessStrategy: &none,
 			},
 		},
 	}
@@ -320,7 +250,7 @@ func TestNodeManager_ProcessStartupTaints_NoStartupTaints(t *testing.T) {
 		t.Errorf("ProcessStartupTaints() error = %v", err)
 	}
 	if removed {
-		t.Error("ProcessStartupTaints() should return false when no startup taints configured (nothing to remove)")
+		t.Error("ProcessStartupTaints() should return false when network readiness taint is disabled")
 	}
 }
 
@@ -342,14 +272,11 @@ func TestNodeManager_ProcessStartupTaints_AlreadyRemoved(t *testing.T) {
 	recorder := events.NewFakeRecorder(10)
 	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
 
+	// NetworkReadinessStrategy defaults to Taint (nil)
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			Template: stratosv1alpha1.NodeTemplate{
-				StartupTaints: []corev1.Taint{
-					{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-				},
-			},
+			Template: stratosv1alpha1.NodeTemplate{},
 		},
 	}
 
@@ -359,15 +286,16 @@ func TestNodeManager_ProcessStartupTaints_AlreadyRemoved(t *testing.T) {
 		t.Errorf("ProcessStartupTaints() error = %v", err)
 	}
 	if removed {
-		t.Error("ProcessStartupTaints() should return false when taints already removed (nothing to do)")
+		t.Error("ProcessStartupTaints() should return false when taint already removed (nothing to do)")
 	}
 }
 
-func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkNotReady(t *testing.T) {
+func TestNodeManager_ProcessStartupTaints_NetworkNotReady(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
 
+	nrt := NetworkReadinessTaint()
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-node",
@@ -376,9 +304,7 @@ func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkNotReady(t *te
 			},
 		},
 		Spec: corev1.NodeSpec{
-			Taints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
+			Taints: []corev1.Taint{nrt},
 		},
 		Status: corev1.NodeStatus{
 			Conditions: []corev1.NodeCondition{
@@ -395,12 +321,7 @@ func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkNotReady(t *te
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			Template: stratosv1alpha1.NodeTemplate{
-				StartupTaints: []corev1.Taint{
-					{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-				},
-				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
-			},
+			Template: stratosv1alpha1.NodeTemplate{},
 		},
 	}
 
@@ -414,7 +335,7 @@ func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkNotReady(t *te
 	}
 }
 
-func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkReady(t *testing.T) {
+func TestNodeManager_ProcessStartupTaints_NetworkReady(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -423,6 +344,7 @@ func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkReady(t *testi
 	nodeStartTime := time.Now().Add(-45 * time.Second)
 	networkReadyTime := time.Now().Add(-40 * time.Second) // After node start
 
+	nrt := NetworkReadinessTaint()
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-node",
@@ -431,9 +353,7 @@ func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkReady(t *testi
 			},
 		},
 		Spec: corev1.NodeSpec{
-			Taints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
+			Taints: []corev1.Taint{nrt},
 		},
 		Status: corev1.NodeStatus{
 			Conditions: []corev1.NodeCondition{
@@ -451,12 +371,7 @@ func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkReady(t *testi
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			Template: stratosv1alpha1.NodeTemplate{
-				StartupTaints: []corev1.Taint{
-					{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-				},
-				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
-			},
+			Template: stratosv1alpha1.NodeTemplate{},
 		},
 	}
 
@@ -466,7 +381,7 @@ func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkReady(t *testi
 		t.Errorf("ProcessStartupTaints() error = %v", err)
 	}
 	if !removed {
-		t.Error("ProcessStartupTaints() should return true when network ready and condition delay passed")
+		t.Error("ProcessStartupTaints() should return true when network ready")
 	}
 
 	// Verify the taint was removed
@@ -474,76 +389,18 @@ func TestNodeManager_ProcessStartupTaints_WhenNetworkReady_NetworkReady(t *testi
 	if err := fakeClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode); err != nil {
 		t.Fatalf("Failed to get updated node: %v", err)
 	}
-	if hasTaintWithKeyAndEffect(updatedNode.Spec.Taints, "node.eks.amazonaws.com/not-ready", corev1.TaintEffectNoSchedule) {
-		t.Error("Startup taint should have been removed from node")
+	if hasTaintWithKeyAndEffect(updatedNode.Spec.Taints, TaintKeyNotReady, corev1.TaintEffectNoSchedule) {
+		t.Error("Network readiness taint should have been removed from node")
 	}
 }
 
-func TestNodeManager_ProcessStartupTaints_ExternalMode(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	_ = stratosv1alpha1.AddToScheme(scheme)
-
-	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-node",
-			Annotations: map[string]string{
-				AnnotationLastStarted: time.Now().Format(time.RFC3339),
-			},
-		},
-		Spec: corev1.NodeSpec{
-			Taints: []corev1.Taint{
-				{Key: "node.cilium.io/agent-not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
-		},
-		Status: corev1.NodeStatus{
-			Conditions: []corev1.NodeCondition{
-				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
-			},
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := events.NewFakeRecorder(10)
-	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
-
-	pool := &stratosv1alpha1.NodePool{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
-		Spec: stratosv1alpha1.NodePoolSpec{
-			Template: stratosv1alpha1.NodeTemplate{
-				StartupTaints: []corev1.Taint{
-					{Key: "node.cilium.io/agent-not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-				},
-				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalExternal,
-			},
-		},
-	}
-
-	ctx := context.Background()
-	removed, err := mgr.ProcessStartupTaints(ctx, pool, node)
-	if err != nil {
-		t.Errorf("ProcessStartupTaints() error = %v", err)
-	}
-	if removed {
-		t.Error("ProcessStartupTaints() should return false in External mode (Stratos doesn't remove)")
-	}
-
-	// Verify the taint was NOT removed
-	updatedNode := &corev1.Node{}
-	if err := fakeClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode); err != nil {
-		t.Fatalf("Failed to get updated node: %v", err)
-	}
-	if !hasTaintWithKeyAndEffect(updatedNode.Spec.Taints, "node.cilium.io/agent-not-ready", corev1.TaintEffectNoSchedule) {
-		t.Error("Startup taint should NOT have been removed in External mode")
-	}
-}
-
-func TestNodeManager_ProcessStartupTaints_Timeout_WhenNetworkReady(t *testing.T) {
+func TestNodeManager_ProcessStartupTaints_Timeout(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
 
 	// Node started more than StartupTaintRemovalTimeout ago
+	nrt := NetworkReadinessTaint()
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-node",
@@ -552,9 +409,7 @@ func TestNodeManager_ProcessStartupTaints_Timeout_WhenNetworkReady(t *testing.T)
 			},
 		},
 		Spec: corev1.NodeSpec{
-			Taints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
+			Taints: []corev1.Taint{nrt},
 		},
 		Status: corev1.NodeStatus{
 			Conditions: []corev1.NodeCondition{
@@ -571,12 +426,7 @@ func TestNodeManager_ProcessStartupTaints_Timeout_WhenNetworkReady(t *testing.T)
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			Template: stratosv1alpha1.NodeTemplate{
-				StartupTaints: []corev1.Taint{
-					{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-				},
-				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
-			},
+			Template: stratosv1alpha1.NodeTemplate{},
 		},
 	}
 
@@ -594,72 +444,12 @@ func TestNodeManager_ProcessStartupTaints_Timeout_WhenNetworkReady(t *testing.T)
 	if err := fakeClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode); err != nil {
 		t.Fatalf("Failed to get updated node: %v", err)
 	}
-	if hasTaintWithKeyAndEffect(updatedNode.Spec.Taints, "node.eks.amazonaws.com/not-ready", corev1.TaintEffectNoSchedule) {
-		t.Error("Startup taint should have been removed on timeout")
+	if hasTaintWithKeyAndEffect(updatedNode.Spec.Taints, TaintKeyNotReady, corev1.TaintEffectNoSchedule) {
+		t.Error("Network readiness taint should have been removed on timeout")
 	}
 }
 
-func TestNodeManager_ProcessStartupTaints_Timeout_External(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	_ = stratosv1alpha1.AddToScheme(scheme)
-
-	// Node started more than StartupTaintRemovalTimeout ago
-	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-node",
-			Annotations: map[string]string{
-				AnnotationLastStarted: time.Now().Add(-3 * time.Minute).Format(time.RFC3339),
-			},
-		},
-		Spec: corev1.NodeSpec{
-			Taints: []corev1.Taint{
-				{Key: "node.cilium.io/agent-not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
-		},
-		Status: corev1.NodeStatus{
-			Conditions: []corev1.NodeCondition{
-				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
-			},
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := events.NewFakeRecorder(10)
-	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
-
-	pool := &stratosv1alpha1.NodePool{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
-		Spec: stratosv1alpha1.NodePoolSpec{
-			Template: stratosv1alpha1.NodeTemplate{
-				StartupTaints: []corev1.Taint{
-					{Key: "node.cilium.io/agent-not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-				},
-				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalExternal,
-			},
-		},
-	}
-
-	ctx := context.Background()
-	removed, err := mgr.ProcessStartupTaints(ctx, pool, node)
-	if err != nil {
-		t.Errorf("ProcessStartupTaints() error = %v", err)
-	}
-	if removed {
-		t.Error("ProcessStartupTaints() should return false on timeout in External mode (no force remove)")
-	}
-
-	// Verify the taint was NOT removed (External mode doesn't force remove)
-	updatedNode := &corev1.Node{}
-	if err := fakeClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode); err != nil {
-		t.Fatalf("Failed to get updated node: %v", err)
-	}
-	if !hasTaintWithKeyAndEffect(updatedNode.Spec.Taints, "node.cilium.io/agent-not-ready", corev1.TaintEffectNoSchedule) {
-		t.Error("Startup taint should NOT have been removed in External mode even on timeout")
-	}
-}
-
-func TestNodeManager_ProcessStartupTaints_DefaultMode(t *testing.T) {
+func TestNodeManager_ProcessStartupTaints_DefaultEnabled(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
@@ -668,6 +458,7 @@ func TestNodeManager_ProcessStartupTaints_DefaultMode(t *testing.T) {
 	nodeStartTime := time.Now().Add(-45 * time.Second)
 	networkReadyTime := time.Now().Add(-40 * time.Second) // After node start
 
+	nrt := NetworkReadinessTaint()
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-node",
@@ -676,9 +467,7 @@ func TestNodeManager_ProcessStartupTaints_DefaultMode(t *testing.T) {
 			},
 		},
 		Spec: corev1.NodeSpec{
-			Taints: []corev1.Taint{
-				{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-			},
+			Taints: []corev1.Taint{nrt},
 		},
 		Status: corev1.NodeStatus{
 			Conditions: []corev1.NodeCondition{
@@ -693,14 +482,12 @@ func TestNodeManager_ProcessStartupTaints_DefaultMode(t *testing.T) {
 	recorder := events.NewFakeRecorder(10)
 	mgr := NewNodeManager(fakeClient, recorder, nil, "test-cluster")
 
+	// NetworkReadinessStrategy is nil - should default to Taint (enabled)
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
 			Template: stratosv1alpha1.NodeTemplate{
-				StartupTaints: []corev1.Taint{
-					{Key: "node.eks.amazonaws.com/not-ready", Value: "true", Effect: corev1.TaintEffectNoSchedule},
-				},
-				// StartupTaintRemoval not set - should default to WhenNetworkReady
+				// NetworkReadinessStrategy not set - defaults to Taint
 			},
 		},
 	}
@@ -711,6 +498,45 @@ func TestNodeManager_ProcessStartupTaints_DefaultMode(t *testing.T) {
 		t.Errorf("ProcessStartupTaints() error = %v", err)
 	}
 	if !removed {
-		t.Error("ProcessStartupTaints() should use WhenNetworkReady as default mode")
+		t.Error("ProcessStartupTaints() should enable network readiness taint by default (nil = true)")
+	}
+}
+
+func TestNetworkReadinessTaint(t *testing.T) {
+	nrt := NetworkReadinessTaint()
+	if nrt.Key != TaintKeyNotReady {
+		t.Errorf("NetworkReadinessTaint().Key = %q, want %q", nrt.Key, TaintKeyNotReady)
+	}
+	if nrt.Value != TaintValueNotReady {
+		t.Errorf("NetworkReadinessTaint().Value = %q, want %q", nrt.Value, TaintValueNotReady)
+	}
+	if nrt.Effect != corev1.TaintEffectNoSchedule {
+		t.Errorf("NetworkReadinessTaint().Effect = %q, want %q", nrt.Effect, corev1.TaintEffectNoSchedule)
+	}
+}
+
+func TestIsNetworkReadinessTaintEnabled(t *testing.T) {
+	taint := stratosv1alpha1.NetworkReadinessStrategyTaint
+	none := stratosv1alpha1.NetworkReadinessStrategyNone
+
+	tests := []struct {
+		name string
+		val  *stratosv1alpha1.NetworkReadinessStrategy
+		want bool
+	}{
+		{"nil defaults to true", nil, true},
+		{"Taint strategy", &taint, true},
+		{"None strategy", &none, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpl := &stratosv1alpha1.NodeTemplate{
+				NetworkReadinessStrategy: tt.val,
+			}
+			if got := tmpl.IsNetworkReadinessTaintEnabled(); got != tt.want {
+				t.Errorf("IsNetworkReadinessTaintEnabled() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

@@ -51,8 +51,11 @@ type BootstrapConfig struct {
 	// TemplateLabels are labels from NodePool.Spec.Template.Labels
 	TemplateLabels map[string]string
 
-	// TemplateTaints are taints from NodePool.Spec.Template (Taints + StartupTaints merged)
+	// TemplateTaints are permanent taints from NodePool.Spec.Template.Taints
 	TemplateTaints []corev1.Taint
+
+	// EnableNetworkReadinessTaint adds stratos.sh/not-ready=true:NoSchedule to kubelet taints
+	EnableNetworkReadinessTaint bool
 
 	// CustomUserData is optional user scripts to merge with generated bootstrap
 	CustomUserData string
@@ -114,9 +117,9 @@ func mergeLabels(poolName string, kubelet *stratosv1alpha1.KubeletConfig, templa
 }
 
 // mergeTaints merges taints from multiple sources with proper precedence.
-// Precedence (highest wins): template taints (including startup taints) > nodeClass taints
+// Precedence (highest wins): network readiness taint > template taints > nodeClass taints
 // Taints are deduplicated by key+effect.
-func mergeTaints(kubelet *stratosv1alpha1.KubeletConfig, templateTaints []corev1.Taint) []corev1.Taint {
+func mergeTaints(kubelet *stratosv1alpha1.KubeletConfig, templateTaints []corev1.Taint, enableNetworkReadinessTaint bool) []corev1.Taint {
 	// Use map for deduplication (key+effect as unique identifier)
 	taintMap := make(map[string]corev1.Taint)
 
@@ -128,10 +131,21 @@ func mergeTaints(kubelet *stratosv1alpha1.KubeletConfig, templateTaints []corev1
 		}
 	}
 
-	// 2. Template taints (highest priority - includes both regular and startup taints pre-merged)
+	// 2. Template taints (permanent taints from NodePool spec)
 	for _, t := range templateTaints {
 		key := fmt.Sprintf("%s:%s", t.Key, t.Effect)
 		taintMap[key] = t
+	}
+
+	// 3. Network readiness taint (highest priority, hardcoded)
+	if enableNetworkReadinessTaint {
+		nrt := corev1.Taint{
+			Key:    "stratos.sh/not-ready",
+			Value:  "true",
+			Effect: corev1.TaintEffectNoSchedule,
+		}
+		key := fmt.Sprintf("%s:%s", nrt.Key, nrt.Effect)
+		taintMap[key] = nrt
 	}
 
 	// Convert to slice and sort for deterministic output

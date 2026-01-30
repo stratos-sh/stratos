@@ -40,35 +40,27 @@ var _ = Describe("Startup Taints", func() {
 		poolName = "startup-taints-test"
 	)
 
-	Context("WhenNetworkReady mode", func() {
-		It("should preserve startup taints when node starts and remove them when network is ready", func() {
-			By("Creating a NodePool with startup taints")
-			np := createTestNodePoolWithStartupTaints(poolName, 3, 2,
-				[]corev1.Taint{{
-					Key:    "node.eks.amazonaws.com/not-ready",
-					Value:  "true",
-					Effect: corev1.TaintEffectNoSchedule,
-				}},
-				stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
-			)
+	Context("Network readiness taint enabled (default)", func() {
+		It("should preserve network readiness taint when node starts and remove it when network is ready", func() {
+			By("Creating a NodePool with network readiness taint enabled (default)")
+			np := createTestNodePoolWithNetworkReadinessTaint(poolName, 3, 2, nil)
 			Expect(np).NotTo(BeNil())
 
-			By("Simulating a running node with startup taint (past grace period)")
+			By("Simulating a running node with network readiness taint (past grace period)")
 			instanceID := launchFakeInstance(poolName)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			// Create node directly in running state with annotation set to past grace period
 			startTime := time.Now().Add(-45 * time.Second)
 			node := simulateNodeWithStartupTaint(poolName, instanceID, controller.NodeStateRunning,
-				"node.eks.amazonaws.com/not-ready", "true", corev1.TaintEffectNoSchedule, startTime)
+				controller.TaintKeyNotReady, controller.TaintValueNotReady, corev1.TaintEffectNoSchedule, startTime)
 
-			By("Verifying startup taint is preserved initially (before network ready)")
+			By("Verifying network readiness taint is preserved initially (before network ready)")
 			Eventually(func() bool {
 				n := &corev1.Node{}
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n)
 				if err != nil {
 					return false
 				}
-				return hasTaint(n.Spec.Taints, "node.eks.amazonaws.com/not-ready", corev1.TaintEffectNoSchedule)
+				return hasTaint(n.Spec.Taints, controller.TaintKeyNotReady, corev1.TaintEffectNoSchedule)
 			}, timeout, interval).Should(BeTrue())
 
 			By("Simulating CNI ready (NetworkingReady condition)")
@@ -77,136 +69,55 @@ var _ = Describe("Startup Taints", func() {
 			By("Triggering reconciliation")
 			triggerReconcile(poolName)
 
-			By("Verifying startup taint is removed after network ready")
+			By("Verifying network readiness taint is removed after network ready")
 			Eventually(func() bool {
 				n := &corev1.Node{}
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n)
 				if err != nil {
 					return true // Node might be gone, which is also a failure
 				}
-				return !hasTaint(n.Spec.Taints, "node.eks.amazonaws.com/not-ready", corev1.TaintEffectNoSchedule)
+				return !hasTaint(n.Spec.Taints, controller.TaintKeyNotReady, corev1.TaintEffectNoSchedule)
 			}, timeout, interval).Should(BeTrue())
 		})
 
-		It("should not remove startup taints when network is not ready", func() {
-			By("Creating a NodePool with startup taints")
-			np := createTestNodePoolWithStartupTaints(poolName+"-network-not-ready", 3, 2,
-				[]corev1.Taint{{
-					Key:    "node.eks.amazonaws.com/not-ready",
-					Value:  "true",
-					Effect: corev1.TaintEffectNoSchedule,
-				}},
-				stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
-			)
+		It("should not remove network readiness taint when network is not ready", func() {
+			By("Creating a NodePool with network readiness taint enabled")
+			np := createTestNodePoolWithNetworkReadinessTaint(poolName+"-network-not-ready", 3, 2, nil)
 			Expect(np).NotTo(BeNil())
 
-			By("Simulating a running node with startup taint but network not ready")
+			By("Simulating a running node with network readiness taint but network not ready")
 			instanceID := launchFakeInstance(poolName + "-network-not-ready")
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			// Create with start time past grace period
 			startTime := time.Now().Add(-45 * time.Second)
 			node := simulateNodeWithStartupTaint(poolName+"-network-not-ready", instanceID, controller.NodeStateRunning,
-				"node.eks.amazonaws.com/not-ready", "true", corev1.TaintEffectNoSchedule, startTime)
+				controller.TaintKeyNotReady, controller.TaintValueNotReady, corev1.TaintEffectNoSchedule, startTime)
 
 			By("Triggering reconciliation")
 			triggerReconcile(poolName + "-network-not-ready")
 
-			By("Verifying startup taint is NOT removed (network not ready)")
+			By("Verifying network readiness taint is NOT removed (network not ready)")
 			Consistently(func() bool {
 				n := &corev1.Node{}
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n)
 				if err != nil {
 					return false
 				}
-				return hasTaint(n.Spec.Taints, "node.eks.amazonaws.com/not-ready", corev1.TaintEffectNoSchedule)
+				return hasTaint(n.Spec.Taints, controller.TaintKeyNotReady, corev1.TaintEffectNoSchedule)
 			}, 2*time.Second, 200*time.Millisecond).Should(BeTrue())
 		})
 	})
 
-	Context("External mode", func() {
-		It("should not remove startup taints in External mode", func() {
-			By("Creating a NodePool with startup taints in External mode")
-			np := createTestNodePoolWithStartupTaints(poolName+"-external", 3, 2,
-				[]corev1.Taint{{
-					Key:    "node.cilium.io/agent-not-ready",
-					Value:  "true",
-					Effect: corev1.TaintEffectNoSchedule,
-				}},
-				stratosv1alpha1.StartupTaintRemovalExternal,
-			)
-			Expect(np).NotTo(BeNil())
-
-			By("Simulating a running node with startup taint")
-			instanceID := launchFakeInstance(poolName + "-external")
-			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			// Create with start time past grace period
-			startTime := time.Now().Add(-45 * time.Second)
-			node := simulateNodeWithStartupTaint(poolName+"-external", instanceID, controller.NodeStateRunning,
-				"node.cilium.io/agent-not-ready", "true", corev1.TaintEffectNoSchedule, startTime)
-
-			// Simulate network ready
-			updateNodeNetworkConditionCilium(node.Name, true)
-
-			By("Triggering reconciliation")
-			triggerReconcile(poolName + "-external")
-
-			By("Verifying startup taint is NOT removed by Stratos (External mode)")
-			Consistently(func() bool {
-				n := &corev1.Node{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n)
-				if err != nil {
-					return false
-				}
-				return hasTaint(n.Spec.Taints, "node.cilium.io/agent-not-ready", corev1.TaintEffectNoSchedule)
-			}, 2*time.Second, 200*time.Millisecond).Should(BeTrue())
-		})
-
-		It("should detect when external controller removes startup taints", func() {
-			By("Creating a NodePool with startup taints in External mode")
-			np := createTestNodePoolWithStartupTaints(poolName+"-external-detect", 3, 2,
-				[]corev1.Taint{{
-					Key:    "node.cilium.io/agent-not-ready",
-					Value:  "true",
-					Effect: corev1.TaintEffectNoSchedule,
-				}},
-				stratosv1alpha1.StartupTaintRemovalExternal,
-			)
-			Expect(np).NotTo(BeNil())
-
-			By("Simulating a running node with startup taint")
-			instanceID := launchFakeInstance(poolName + "-external-detect")
-			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeWithStartupTaint(poolName+"-external-detect", instanceID, controller.NodeStateRunning,
-				"node.cilium.io/agent-not-ready", "true", corev1.TaintEffectNoSchedule)
-
-			By("Simulating external controller (Cilium) removing the taint")
-			patchNode := client.MergeFrom(node.DeepCopy())
-			node.Spec.Taints = nil // Remove all taints
-			err := k8sClient.Patch(ctx, node, patchNode)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Verifying startup taint was removed externally")
-			Eventually(func() bool {
-				n := &corev1.Node{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n)
-				if err != nil {
-					return false
-				}
-				return !hasTaint(n.Spec.Taints, "node.cilium.io/agent-not-ready", corev1.TaintEffectNoSchedule)
-			}, timeout, interval).Should(BeTrue())
-		})
-	})
-
-	Context("Backward compatibility", func() {
-		It("should work without startup taints configured", func() {
-			By("Creating a NodePool without startup taints")
-			np := createTestNodePool(poolName+"-no-taints", 3, 2)
+	Context("Network readiness taint disabled", func() {
+		It("should not manage taints when networkReadinessStrategy is None", func() {
+			By("Creating a NodePool with network readiness strategy None")
+			none := stratosv1alpha1.NetworkReadinessStrategyNone
+			np := createTestNodePoolWithNetworkReadinessTaint(poolName+"-disabled", 3, 2, &none)
 			Expect(np).NotTo(BeNil())
 
 			By("Simulating a standby node")
-			instanceID := launchFakeInstance(poolName + "-no-taints")
+			instanceID := launchFakeInstance(poolName + "-disabled")
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			node := simulateNodeJoin(poolName+"-no-taints", instanceID, controller.NodeStateStandby)
+			node := simulateNodeJoin(poolName+"-disabled", instanceID, controller.NodeStateStandby)
 
 			By("Triggering scale-up")
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
@@ -220,7 +131,44 @@ var _ = Describe("Startup Taints", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Triggering reconciliation")
-			triggerReconcile(poolName + "-no-taints")
+			triggerReconcile(poolName + "-disabled")
+
+			By("Verifying node is running without issues")
+			Eventually(func() string {
+				n := &corev1.Node{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, n)
+				if err != nil {
+					return ""
+				}
+				return n.Labels[controller.LabelState]
+			}, timeout, interval).Should(Equal(string(controller.NodeStateRunning)))
+		})
+	})
+
+	Context("Backward compatibility", func() {
+		It("should work with default networkReadinessStrategy (nil = Taint)", func() {
+			By("Creating a NodePool without explicit networkReadinessStrategy")
+			np := createTestNodePool(poolName+"-default", 3, 2)
+			Expect(np).NotTo(BeNil())
+
+			By("Simulating a standby node")
+			instanceID := launchFakeInstance(poolName + "-default")
+			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
+			node := simulateNodeJoin(poolName+"-default", instanceID, controller.NodeStateStandby)
+
+			By("Triggering scale-up")
+			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
+
+			// Update to running state
+			patchNode := client.MergeFrom(node.DeepCopy())
+			node.Labels[controller.LabelState] = string(controller.NodeStateRunning)
+			node.Spec.Unschedulable = false
+			node.Spec.Taints = nil
+			err := k8sClient.Patch(ctx, node, patchNode)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Triggering reconciliation")
+			triggerReconcile(poolName + "-default")
 
 			By("Verifying node is running without issues")
 			Eventually(func() string {
@@ -235,8 +183,8 @@ var _ = Describe("Startup Taints", func() {
 	})
 })
 
-// createTestNodePoolWithStartupTaints creates a NodePool with startup taints configuration.
-func createTestNodePoolWithStartupTaints(name string, poolSize, minStandby int32, startupTaints []corev1.Taint, removalMode stratosv1alpha1.StartupTaintRemovalMode) *stratosv1alpha1.NodePool {
+// createTestNodePoolWithNetworkReadinessTaint creates a NodePool with the networkReadinessStrategy field.
+func createTestNodePoolWithNetworkReadinessTaint(name string, poolSize, minStandby int32, strategy *stratosv1alpha1.NetworkReadinessStrategy) *stratosv1alpha1.NodePool {
 	// Create an AWSNodeClass for this pool
 	nodeClassName := name + "-nodeclass"
 	createTestAWSNodeClass(nodeClassName)
@@ -249,8 +197,7 @@ func createTestNodePoolWithStartupTaints(name string, poolSize, minStandby int32
 			PoolSize:   poolSize,
 			MinStandby: minStandby,
 			Template: stratosv1alpha1.NodeTemplate{
-				StartupTaints:       startupTaints,
-				StartupTaintRemoval: removalMode,
+				NetworkReadinessStrategy: strategy,
 				NodeClassRef: stratosv1alpha1.NodeClassRef{
 					Kind: "AWSNodeClass",
 					Name: nodeClassName,
@@ -350,44 +297,6 @@ func updateNodeNetworkCondition(nodeName string, ready bool) {
 	if !found {
 		node.Status.Conditions = append(node.Status.Conditions, corev1.NodeCondition{
 			Type:   controller.NetworkingReadyCondition,
-			Status: status,
-			Reason: reason,
-		})
-	}
-
-	err = k8sClient.Status().Patch(ctx, node, patch)
-	Expect(err).NotTo(HaveOccurred())
-}
-
-// updateNodeNetworkConditionCilium updates the NetworkUnavailable condition on a node (Cilium-style).
-func updateNodeNetworkConditionCilium(nodeName string, ready bool) {
-	node := &corev1.Node{}
-	err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)
-	Expect(err).NotTo(HaveOccurred())
-
-	patch := client.MergeFrom(node.DeepCopy())
-
-	// For Cilium, NetworkUnavailable=False means ready
-	status := corev1.ConditionTrue
-	reason := "NetworkPluginNotReady"
-	if ready {
-		status = corev1.ConditionFalse
-		reason = "CiliumIsUp"
-	}
-
-	// Add or update the NetworkUnavailable condition
-	found := false
-	for i, cond := range node.Status.Conditions {
-		if cond.Type == corev1.NodeNetworkUnavailable {
-			node.Status.Conditions[i].Status = status
-			node.Status.Conditions[i].Reason = reason
-			found = true
-			break
-		}
-	}
-	if !found {
-		node.Status.Conditions = append(node.Status.Conditions, corev1.NodeCondition{
-			Type:   corev1.NodeNetworkUnavailable,
 			Status: status,
 			Reason: reason,
 		})

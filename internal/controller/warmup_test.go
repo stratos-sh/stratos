@@ -235,6 +235,7 @@ func TestMonitorWarmup_NodeReady_StopsInstance(t *testing.T) {
 	_ = corev1.AddToScheme(scheme)
 	_ = stratosv1alpha1.AddToScheme(scheme)
 
+	none := stratosv1alpha1.NetworkReadinessStrategyNone
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-node",
@@ -279,6 +280,9 @@ func TestMonitorWarmup_NodeReady_StopsInstance(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
 			PreWarm: &stratosv1alpha1.PreWarmConfig{},
+			Template: stratosv1alpha1.NodeTemplate{
+				NetworkReadinessStrategy: &none, // Skip network check
+			},
 		},
 	}
 
@@ -352,11 +356,8 @@ func TestMonitorWarmup_WaitsForNetworkReady(t *testing.T) {
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{},
-			Template: stratosv1alpha1.NodeTemplate{
-				// WhenNetworkReady is the default
-				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
-			},
+			PreWarm:  &stratosv1alpha1.PreWarmConfig{},
+			Template: stratosv1alpha1.NodeTemplate{},
 		},
 	}
 
@@ -430,10 +431,8 @@ func TestMonitorWarmup_NetworkReady_StopsInstance(t *testing.T) {
 	pool := &stratosv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pool"},
 		Spec: stratosv1alpha1.NodePoolSpec{
-			PreWarm: &stratosv1alpha1.PreWarmConfig{},
-			Template: stratosv1alpha1.NodeTemplate{
-				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
-			},
+			PreWarm:  &stratosv1alpha1.PreWarmConfig{},
+			Template: stratosv1alpha1.NodeTemplate{},
 		},
 	}
 

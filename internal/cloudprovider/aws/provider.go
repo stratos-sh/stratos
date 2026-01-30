@@ -29,7 +29,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	corev1 "k8s.io/api/core/v1"
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
@@ -226,7 +225,8 @@ func (p *AWSProvider) generateEncodedUserData(nodeClass *stratosv1alpha1.AWSNode
 
 	if templateConfig != nil {
 		bootstrapConfig.TemplateLabels = templateConfig.Labels
-		bootstrapConfig.TemplateTaints = mergeTemplateTaints(templateConfig.Taints, templateConfig.StartupTaints)
+		bootstrapConfig.TemplateTaints = templateConfig.Taints
+		bootstrapConfig.EnableNetworkReadinessTaint = templateConfig.EnableNetworkReadinessTaint
 	}
 
 	userData, err := GenerateUserData(bootstrapConfig)
@@ -483,33 +483,6 @@ func (p *AWSProvider) convertState(state *types.InstanceState) cloudprovider.Ins
 	default:
 		return cloudprovider.InstanceStateUnknown
 	}
-}
-
-// mergeTemplateTaints merges regular taints and startup taints, with startup taints taking precedence.
-func mergeTemplateTaints(taints, startupTaints []corev1.Taint) []corev1.Taint {
-	if len(taints) == 0 && len(startupTaints) == 0 {
-		return nil
-	}
-
-	taintMap := make(map[string]corev1.Taint)
-
-	// Regular taints first (lower priority)
-	for _, t := range taints {
-		key := fmt.Sprintf("%s:%s", t.Key, t.Effect)
-		taintMap[key] = t
-	}
-
-	// Startup taints override (higher priority)
-	for _, t := range startupTaints {
-		key := fmt.Sprintf("%s:%s", t.Key, t.Effect)
-		taintMap[key] = t
-	}
-
-	result := make([]corev1.Taint, 0, len(taintMap))
-	for _, t := range taintMap {
-		result = append(result, t)
-	}
-	return result
 }
 
 // handleError converts AWS errors to cloudprovider errors.
