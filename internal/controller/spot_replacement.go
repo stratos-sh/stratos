@@ -84,34 +84,7 @@ func (r *NodePoolReconciler) processSpotReplacements(ctx context.Context, nodePo
 	for i := range runningNodes {
 		node := &runningNodes[i]
 
-		// Skip Spot nodes — only replace On-Demand
-		if node.Labels[LabelCapacityType] == cloudprovider.CapacityTypeSpot {
-			logger.V(1).Info("Skipping spot node", "node", node.Name)
-			continue
-		}
-
-		// Skip if already being replaced
-		if _, ok := node.Annotations[AnnotationSpotReplacementStarted]; ok {
-			logger.V(1).Info("Skipping node already being replaced", "node", node.Name)
-			continue
-		}
-
-		// Check replacement delay — node must be running long enough
-		startedAtStr := node.Annotations[AnnotationLastStarted]
-		if startedAtStr == "" {
-			logger.Info("Skipping node without last-started annotation", "node", node.Name)
-			continue
-		}
-		startedAt, err := time.Parse(time.RFC3339, startedAtStr)
-		if err != nil {
-			logger.Info("Skipping node with invalid last-started annotation", "node", node.Name, "value", startedAtStr)
-			continue
-		}
-		if now.Sub(startedAt) < replacementDelay {
-			logger.V(1).Info("Skipping node not running long enough",
-				"node", node.Name,
-				"runningSince", startedAt,
-				"remaining", replacementDelay-now.Sub(startedAt))
+		if !r.isEligibleForSpotReplacement(ctx, node, nodePool.Name, replacementDelay, now) {
 			continue
 		}
 
@@ -122,17 +95,53 @@ func (r *NodePoolReconciler) processSpotReplacements(ctx context.Context, nodePo
 
 		// Launch Spot replacement
 		logger.Info("Launching spot replacement for On-Demand node",
-			"node", node.Name,
-			"runningSince", startedAt)
+			"node", node.Name)
 
 		if err := r.launchSpotReplacement(ctx, nodePool, nodeClass, node, spotLauncher); err != nil {
 			logger.Error(err, "Failed to launch spot replacement", "node", node.Name)
-			// Continue with other nodes
 			continue
 		}
 	}
 
 	return nil
+}
+
+// isEligibleForSpotReplacement checks whether a node is eligible for spot replacement.
+func (r *NodePoolReconciler) isEligibleForSpotReplacement(ctx context.Context, node *corev1.Node, poolName string, replacementDelay time.Duration, now time.Time) bool {
+	logger := log.FromContext(ctx)
+
+	// Skip Spot nodes — only replace On-Demand
+	if node.Labels[LabelCapacityType] == cloudprovider.CapacityTypeSpot {
+		logger.V(1).Info("Skipping spot node", "node", node.Name)
+		return false
+	}
+
+	// Skip if already being replaced
+	if _, ok := node.Annotations[AnnotationSpotReplacementStarted]; ok {
+		logger.V(1).Info("Skipping node already being replaced", "node", node.Name)
+		return false
+	}
+
+	// Check replacement delay — node must be running long enough
+	startedAtStr := node.Annotations[AnnotationLastStarted]
+	if startedAtStr == "" {
+		logger.Info("Skipping node without last-started annotation", "node", node.Name)
+		return false
+	}
+	startedAt, err := time.Parse(time.RFC3339, startedAtStr)
+	if err != nil {
+		logger.Info("Skipping node with invalid last-started annotation", "node", node.Name, "value", startedAtStr)
+		return false
+	}
+	if now.Sub(startedAt) < replacementDelay {
+		logger.V(1).Info("Skipping node not running long enough",
+			"node", node.Name,
+			"runningSince", startedAt,
+			"remaining", replacementDelay-now.Sub(startedAt))
+		return false
+	}
+
+	return true
 }
 
 // launchSpotReplacement launches a Spot instance to replace an On-Demand node.
@@ -337,28 +346,6 @@ func (r *NodePoolReconciler) migrateToSpot(ctx context.Context, pool *stratosv1a
 
 	r.recordEvent(pool, corev1.EventTypeNormal, "SpotReplacementComplete",
 		fmt.Sprintf("Migrated workload from %s (On-Demand) to %s (Spot)", onDemandNodeName, spotNode.Name))
-
-	return nil
-}
-
-// handleSpotInterruption handles a terminated Spot instance by cleaning up the node
-// and letting the existing scale-up path handle fallback to On-Demand.
-func (r *NodePoolReconciler) handleSpotInterruption(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node) error {
-	logger := log.FromContext(ctx)
-
-	logger.Info("Handling spot interruption", "node", node.Name)
-
-	metrics.RecordSpotInterruption(pool.Name)
-	metrics.RecordSpotFallback(pool.Name)
-
-	r.recordEvent(pool, corev1.EventTypeWarning, "SpotInterruption",
-		fmt.Sprintf("Spot node %s was interrupted, falling back to On-Demand", node.Name))
-
-	// Delete the K8s node — existing scale-up path detects unschedulable pods
-	// and starts On-Demand standby nodes
-	if err := r.Delete(ctx, node); err != nil {
-		return fmt.Errorf("failed to delete interrupted spot node: %w", err)
-	}
 
 	return nil
 }

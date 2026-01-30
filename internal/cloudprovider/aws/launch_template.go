@@ -134,7 +134,7 @@ func (p *AWSProvider) CreateOrUpdateLaunchTemplate(ctx context.Context, nodeClas
 	})
 	if descErr == nil && len(descOutput.LaunchTemplates) > 0 {
 		ltID := aws.ToString(descOutput.LaunchTemplates[0].LaunchTemplateId)
-		_, err := p.client.CreateLaunchTemplateVersion(ctx, &ec2.CreateLaunchTemplateVersionInput{
+		_, err = p.client.CreateLaunchTemplateVersion(ctx, &ec2.CreateLaunchTemplateVersionInput{
 			LaunchTemplateId:   aws.String(ltID),
 			LaunchTemplateData: ltData,
 			SourceVersion:      aws.String("$Latest"),
