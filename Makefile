@@ -62,7 +62,7 @@ test: ## Run tests
 
 .PHONY: test-integration
 test-integration: envtest ## Run integration tests
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) ./tests/integration/... -v -tags=integration
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" $(GOTEST) ./tests/integration/... -v -tags=integration -timeout=300s $(if $(TEST),-run $(TEST),)
 
 .PHONY: test-e2e
 test-e2e: ## Run E2E tests (requires live EKS cluster + AWS credentials)

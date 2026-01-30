@@ -180,31 +180,38 @@ func cleanupTestResources() {
 		}
 	}
 
-	// Delete all NodePools
-	nodePoolList := &stratosv1alpha1.NodePoolList{}
-	err = k8sClient.List(ctx, nodePoolList)
-	if err == nil {
-		for i := range nodePoolList.Items {
-			np := &nodePoolList.Items[i]
-			// Remove finalizer first to allow deletion
-			np.Finalizers = nil
-			_ = k8sClient.Update(ctx, np)
+	// Force-delete NodePools with retry loop to win the race against reconciler re-adding finalizers
+	Eventually(func() int {
+		list := &stratosv1alpha1.NodePoolList{}
+		_ = k8sClient.List(ctx, list)
+		for i := range list.Items {
+			np := &list.Items[i]
+			// Re-fetch to get latest resourceVersion (reconciler may have re-added finalizer)
+			_ = k8sClient.Get(ctx, client.ObjectKeyFromObject(np), np)
+			if len(np.Finalizers) > 0 {
+				np.Finalizers = nil
+				_ = k8sClient.Update(ctx, np)
+			}
 			_ = k8sClient.Delete(ctx, np)
 		}
-	}
+		return len(list.Items)
+	}, timeout, interval).Should(Equal(0))
 
-	// Delete all AWSNodeClasses
-	nodeClassList := &stratosv1alpha1.AWSNodeClassList{}
-	err = k8sClient.List(ctx, nodeClassList)
-	if err == nil {
-		for i := range nodeClassList.Items {
-			nc := &nodeClassList.Items[i]
-			// Remove finalizer first to allow deletion
-			nc.Finalizers = nil
-			_ = k8sClient.Update(ctx, nc)
+	// Force-delete AWSNodeClasses with same retry pattern
+	Eventually(func() int {
+		list := &stratosv1alpha1.AWSNodeClassList{}
+		_ = k8sClient.List(ctx, list)
+		for i := range list.Items {
+			nc := &list.Items[i]
+			_ = k8sClient.Get(ctx, client.ObjectKeyFromObject(nc), nc)
+			if len(nc.Finalizers) > 0 {
+				nc.Finalizers = nil
+				_ = k8sClient.Update(ctx, nc)
+			}
 			_ = k8sClient.Delete(ctx, nc)
 		}
-	}
+		return len(list.Items)
+	}, timeout, interval).Should(Equal(0))
 
 	// Delete all Nodes with stratos labels
 	nodeList := &corev1.NodeList{}
@@ -217,11 +224,4 @@ func cleanupTestResources() {
 			}
 		}
 	}
-
-	// Wait for cleanup to complete
-	Eventually(func() int {
-		list := &stratosv1alpha1.NodePoolList{}
-		_ = k8sClient.List(ctx, list)
-		return len(list.Items)
-	}, timeout, interval).Should(Equal(0))
 }
