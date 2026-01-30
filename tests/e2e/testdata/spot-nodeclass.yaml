@@ -1,0 +1,26 @@
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: spot-basic
+spec:
+  bootstrapTemplate: AL2023
+  instanceType: t3.medium
+  amiSelector:
+    name: amazon-eks-node-al2023-x86_64-standard-1.34-*
+    owner: amazon
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: main
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: main
+  role: EKSNodeRole
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 20
+      volumeType: gp3
+  spotConfig:
+    instanceTypes:
+      - t3.medium
+      - t3a.medium
+    allocationStrategy: price-capacity-optimized

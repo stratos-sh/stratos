@@ -146,6 +146,7 @@ var _ = BeforeEach(func() {
 	// Reset the fake provider before each test
 	fakeProvider.Reset()
 	fakeProvider.LaunchHook = nil
+	fakeProvider.LaunchSpotHook = nil
 	fakeProvider.StartHook = nil
 	fakeProvider.StopHook = nil
 	fakeProvider.TerminateHook = nil
