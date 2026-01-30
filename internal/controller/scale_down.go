@@ -157,16 +157,19 @@ func (r *NodePoolReconciler) scaleDown(ctx context.Context, nodePool *stratosv1a
 		if isSpot {
 			// Spot nodes can't be stopped — terminate and delete K8s node
 			instanceID := nodeCopy.Labels[LabelInstanceID]
-			if instanceID != "" {
-				if err := provider.TerminateInstance(ctx, instanceID); err != nil {
-					logger.Error(err, "Failed to terminate spot instance", "node", node.Name, "instanceID", instanceID)
-					continue
-				}
+			if instanceID == "" {
+				logger.Error(nil, "Spot node missing instance ID label, skipping termination", "node", node.Name)
+				continue
+			}
+			if err := provider.TerminateInstance(ctx, instanceID); err != nil {
+				logger.Error(err, "Failed to terminate spot instance", "node", node.Name, "instanceID", instanceID)
+				continue
 			}
 			if err := nodeMgr.deleteNode(ctx, nodeCopy); err != nil {
 				logger.Error(err, "Failed to delete spot node", "node", node.Name)
 				continue
 			}
+			metrics.RecordScaleDown(nodePool.Name)
 			terminated++
 		} else {
 			// On-Demand nodes are stopped and returned to standby

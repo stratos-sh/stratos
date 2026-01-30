@@ -692,21 +692,16 @@ func (m *NodeManager) MonitorCloudWarmup(ctx context.Context, pool *stratosv1alp
 		// If K8s node exists but isn't tracked by warmup workflow, label it
 		if node != nil && node.Labels[LabelState] == "" {
 			logger.Info("Labeling unlabeled K8s node as warmup", "instanceID", instanceID, "node", node.Name)
-			if err := m.LabelNode(ctx, node, pool.Name, instanceID, NodeStateWarmup, pool.Spec.Template.Labels, instance.CapacityType); err != nil {
-				return fmt.Errorf("failed to label warmup node: %w", err)
-			}
-			// If the instance has a replacing-node tag, set the annotation on the K8s node
+			// Set replacing-node annotation before labeling so it's included in the same patch
 			if replacingNode, ok := instance.Tags[TagReplacingNode]; ok && replacingNode != "" {
-				patch := client.MergeFrom(node.DeepCopy())
 				if node.Annotations == nil {
 					node.Annotations = make(map[string]string)
 				}
 				node.Annotations[AnnotationSpotReplacingNode] = replacingNode
-				if err := m.client.Patch(ctx, node, patch); err != nil {
-					logger.Error(err, "Failed to set spot-replacing-node annotation", "node", node.Name, "replacingNode", replacingNode)
-				} else {
-					logger.Info("Set spot-replacing-node annotation", "node", node.Name, "replacingNode", replacingNode)
-				}
+				logger.Info("Setting spot-replacing-node annotation", "node", node.Name, "replacingNode", replacingNode)
+			}
+			if err := m.LabelNode(ctx, node, pool.Name, instanceID, NodeStateWarmup, pool.Spec.Template.Labels, instance.CapacityType); err != nil {
+				return fmt.Errorf("failed to label warmup node: %w", err)
 			}
 		}
 

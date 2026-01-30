@@ -182,12 +182,16 @@ func (r *NodePoolReconciler) launchSpotReplacement(ctx context.Context, pool *st
 
 // hasSpotReplacementInFlight checks if a Spot node is already warming up for the given On-Demand node.
 func (r *NodePoolReconciler) hasSpotReplacementInFlight(ctx context.Context, poolName, onDemandNodeName string) bool {
+	logger := log.FromContext(ctx)
+
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList, client.MatchingLabels{
 		LabelPool:         poolName,
 		LabelCapacityType: cloudprovider.CapacityTypeSpot,
 	}); err != nil {
-		return false
+		// Fail closed — assume in-flight to avoid launching duplicate spot instances
+		logger.Error(err, "Failed to list spot nodes for in-flight check, assuming in-flight exists")
+		return true
 	}
 
 	for _, node := range nodeList.Items {
@@ -246,15 +250,15 @@ func (r *NodePoolReconciler) processSpotWarmupComplete(ctx context.Context, node
 		// Spot warmup complete — transition to running directly (no stop for Spot)
 		logger.Info("Spot node warmup complete, transitioning to running", "node", node.Name)
 
-		// Prepare for running (uncordon + remove standby taint)
-		if err := nodeMgr.prepareNodeForRunning(ctx, nodePool, node); err != nil {
-			logger.Error(err, "Failed to prepare spot node for running", "node", node.Name)
-			continue
-		}
-
 		// Transition warmup → standby (required intermediate state)
 		if err := nodeMgr.TransitionState(ctx, node, NodeStateStandby); err != nil {
 			logger.Error(err, "Failed to transition spot node to standby", "node", node.Name)
+			continue
+		}
+
+		// Prepare for running (uncordon + remove standby taint)
+		if err := nodeMgr.prepareNodeForRunning(ctx, nodePool, node); err != nil {
+			logger.Error(err, "Failed to prepare spot node for running", "node", node.Name)
 			continue
 		}
 
@@ -321,6 +325,11 @@ func (r *NodePoolReconciler) migrateToSpot(ctx context.Context, pool *stratosv1a
 	}
 	metrics.RecordDrainDuration(pool.Name, time.Since(drainStart).Seconds())
 
+	// Re-fetch the On-Demand node to get the latest resource version after drain
+	if err := r.Get(ctx, client.ObjectKey{Name: onDemandNodeName}, onDemandNode); err != nil {
+		return fmt.Errorf("failed to re-fetch on-demand node %s: %w", onDemandNodeName, err)
+	}
+
 	// Stop the On-Demand node → returns to standby
 	if err := nodeMgr.StopNode(ctx, pool, onDemandNode); err != nil {
 		return fmt.Errorf("failed to stop on-demand node: %w", err)
@@ -333,8 +342,8 @@ func (r *NodePoolReconciler) migrateToSpot(ctx context.Context, pool *stratosv1a
 		logger.Error(err, "Failed to clean up spot replacement annotation")
 	}
 
-	// Record spot replacement duration
-	spotReplacementStarted := spotNode.Annotations[AnnotationSpotReplacementStarted]
+	// Record spot replacement duration (annotation is on the On-Demand node)
+	spotReplacementStarted := onDemandNode.Annotations[AnnotationSpotReplacementStarted]
 	if startedAt, err := time.Parse(time.RFC3339, spotReplacementStarted); err == nil {
 		metrics.RecordSpotReplacementDuration(pool.Name, time.Since(startedAt).Seconds())
 	}
