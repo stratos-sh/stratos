@@ -198,6 +198,51 @@ var (
 		[]string{"pool", "trigger", "result"},
 	)
 
+	// SpotReplacementsTotal tracks successful On-Demand → Spot replacements.
+	SpotReplacementsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "spot_replacements_total",
+			Help:      "Total successful On-Demand to Spot replacements",
+		},
+		[]string{"pool"},
+	)
+
+	// SpotInterruptionsTotal tracks Spot interruption events.
+	SpotInterruptionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "spot_interruptions_total",
+			Help:      "Total Spot instance interruption events",
+		},
+		[]string{"pool"},
+	)
+
+	// SpotReplacementDuration tracks the time from replacement start to completion.
+	SpotReplacementDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "spot_replacement_duration_seconds",
+			Help:      "Time from spot replacement start to migration completion",
+			Buckets:   []float64{30, 60, 120, 180, 300, 600, 900},
+		},
+		[]string{"pool"},
+	)
+
+	// SpotFallbacksTotal tracks Spot → On-Demand fallback events.
+	SpotFallbacksTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "spot_fallbacks_total",
+			Help:      "Total Spot to On-Demand fallback events",
+		},
+		[]string{"pool"},
+	)
+
 	// StartupTaintDuration tracks the duration from node start to startup taint removal.
 	StartupTaintDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -230,6 +275,10 @@ func init() {
 		CloudProviderLatency,
 		StartupTaintRemovalTotal,
 		StartupTaintDuration,
+		SpotReplacementsTotal,
+		SpotInterruptionsTotal,
+		SpotReplacementDuration,
+		SpotFallbacksTotal,
 	)
 }
 
@@ -320,4 +369,24 @@ func RecordStartupTaintRemoval(pool, trigger, result string) {
 // RecordStartupTaintDuration records the duration from node start to startup taint removal.
 func RecordStartupTaintDuration(pool string, durationSeconds float64) {
 	StartupTaintDuration.WithLabelValues(pool).Observe(durationSeconds)
+}
+
+// RecordSpotReplacement records a successful On-Demand → Spot replacement.
+func RecordSpotReplacement(pool string) {
+	SpotReplacementsTotal.WithLabelValues(pool).Inc()
+}
+
+// RecordSpotInterruption records a Spot interruption event.
+func RecordSpotInterruption(pool string) {
+	SpotInterruptionsTotal.WithLabelValues(pool).Inc()
+}
+
+// RecordSpotReplacementDuration records the time from replacement start to completion.
+func RecordSpotReplacementDuration(pool string, durationSeconds float64) {
+	SpotReplacementDuration.WithLabelValues(pool).Observe(durationSeconds)
+}
+
+// RecordSpotFallback records a Spot → On-Demand fallback event.
+func RecordSpotFallback(pool string) {
+	SpotFallbacksTotal.WithLabelValues(pool).Inc()
 }

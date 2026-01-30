@@ -73,6 +73,25 @@ const (
 	// AnnotationScaleUpStarted marks when a node was started for scale-up.
 	// Used for in-flight tracking to prevent duplicate scale-ups.
 	AnnotationScaleUpStarted = "stratos.sh/scale-up-started"
+
+	// AnnotationSpotReplacementStarted records when spot replacement was initiated for this On-Demand node.
+	// Prevents duplicate spot launches for the same running node.
+	AnnotationSpotReplacementStarted = "stratos.sh/spot-replacement-started"
+
+	// AnnotationSpotReplacingNode records the name of the On-Demand node being replaced by this Spot node.
+	AnnotationSpotReplacingNode = "stratos.sh/spot-replacing-node"
+)
+
+// Labels for capacity type tracking
+const (
+	// LabelCapacityType indicates the capacity type of the node ("on-demand" or "spot")
+	LabelCapacityType = "stratos.sh/capacity-type"
+)
+
+// Tags for capacity type tracking
+const (
+	// TagCapacityType is the cloud tag for capacity type
+	TagCapacityType = "stratos.sh/capacity-type"
 )
 
 // Scale-up tracking constants
@@ -134,6 +153,9 @@ const (
 
 	// TagState indicates the current Stratos state
 	TagState = "stratos.sh/state"
+
+	// TagReplacingNode records which On-Demand node a Spot instance is replacing
+	TagReplacingNode = "stratos.sh/replacing-node"
 )
 
 // ValidTransitions defines valid state transitions for nodes.
