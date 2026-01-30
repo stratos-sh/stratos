@@ -159,10 +159,6 @@ make test-integration TEST=TestNodePoolLifecycle
 - **Fake provider**: `internal/cloudprovider/fake/provider.go` supports hooks for intercepting cloud operations
 - **BDD style**: Integration tests use Ginkgo/Gomega for readable assertions
 
-## OpenSpec Workflow
-
-After completing an OpenSpec implementation (`/opsx:apply` finishes all tasks), always run the full test suite (unit + integration) before marking the work as complete. Use `/run-tests` to execute all tests.
-
 ## Context7 MCP
 
 Always use Context7 MCP proactively for third-party library documentation (controller-runtime, AWS SDK, client-go, etc.) without waiting for explicit instruction.

@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
+	"github.com/stratos-sh/stratos/internal/cloudprovider"
 	"github.com/stratos-sh/stratos/internal/metrics"
 )
 
@@ -133,8 +134,10 @@ func (r *NodePoolReconciler) scaleDown(ctx context.Context, nodePool *stratosv1a
 	nodeMgr := NewNodeManager(r.Client, r.Recorder, provider, r.ClusterName)
 
 	stopped := 0
+	terminated := 0
 	for _, node := range candidates {
 		nodeCopy := node.DeepCopy()
+		isSpot := nodeCopy.Labels[LabelCapacityType] == cloudprovider.CapacityTypeSpot
 
 		// Transition to terminating state
 		if err := nodeMgr.TransitionState(ctx, nodeCopy, NodeStateTerminating); err != nil {
@@ -151,18 +154,40 @@ func (r *NodePoolReconciler) scaleDown(ctx context.Context, nodePool *stratosv1a
 		drainDuration := time.Since(startTime).Seconds()
 		metrics.RecordDrainDuration(nodePool.Name, drainDuration)
 
-		// Stop the node
-		if err := nodeMgr.StopNode(ctx, nodePool, nodeCopy); err != nil {
-			logger.Error(err, "Failed to stop node", "node", node.Name)
-			continue
+		if isSpot {
+			// Spot nodes can't be stopped — terminate and delete K8s node
+			instanceID := nodeCopy.Labels[LabelInstanceID]
+			if instanceID == "" {
+				logger.Error(nil, "Spot node missing instance ID label, skipping termination", "node", node.Name)
+				continue
+			}
+			if err := provider.TerminateInstance(ctx, instanceID); err != nil {
+				logger.Error(err, "Failed to terminate spot instance", "node", node.Name, "instanceID", instanceID)
+				continue
+			}
+			if err := nodeMgr.deleteNode(ctx, nodeCopy); err != nil {
+				logger.Error(err, "Failed to delete spot node", "node", node.Name)
+				continue
+			}
+			metrics.RecordScaleDown(nodePool.Name)
+			terminated++
+		} else {
+			// On-Demand nodes are stopped and returned to standby
+			if err := nodeMgr.StopNode(ctx, nodePool, nodeCopy); err != nil {
+				logger.Error(err, "Failed to stop node", "node", node.Name)
+				continue
+			}
+			stopped++
 		}
-
-		stopped++
 	}
 
 	if stopped > 0 {
 		r.recordEvent(nodePool, corev1.EventTypeNormal, "ScaleDown",
-			fmt.Sprintf("Stopped %d nodes for scale-down", stopped))
+			fmt.Sprintf("Stopped %d on-demand nodes for scale-down", stopped))
+	}
+	if terminated > 0 {
+		r.recordEvent(nodePool, corev1.EventTypeNormal, "ScaleDown",
+			fmt.Sprintf("Terminated %d spot nodes for scale-down", terminated))
 	}
 
 	return nil

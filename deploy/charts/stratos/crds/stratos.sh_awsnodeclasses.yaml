@@ -258,6 +258,32 @@ spec:
                     description: Tags to match (AND semantics)
                     type: object
                 type: object
+              spotConfig:
+                description: |-
+                  SpotConfig configures Spot instance fleet parameters for use with
+                  NodePool spotReplacement. Required when spotReplacement is enabled.
+                properties:
+                  allocationStrategy:
+                    default: price-capacity-optimized
+                    description: |-
+                      AllocationStrategy is the Spot allocation strategy.
+                      Default: price-capacity-optimized
+                    type: string
+                  instanceTypes:
+                    description: |-
+                      InstanceTypes is the list of instance types for Spot fleet diversification.
+                      Multiple types increase the chance of getting capacity.
+                    items:
+                      type: string
+                    minItems: 1
+                    type: array
+                  maxPrice:
+                    description: MaxPrice is the maximum Spot price. Empty string
+                      means use On-Demand price as cap.
+                    type: string
+                required:
+                - instanceTypes
+                type: object
               subnetIds:
                 description: |-
                   SubnetIDs is the list of subnets to launch instances in (mutually exclusive with subnetSelector).
@@ -372,6 +398,11 @@ spec:
               resolvedInstanceProfile:
                 description: ResolvedInstanceProfile is the resolved instance profile
                   ARN
+                type: string
+              resolvedLaunchTemplateID:
+                description: |-
+                  ResolvedLaunchTemplateID is the ID of the EC2 Launch Template created for Spot fleet.
+                  Populated when spotConfig is set and used by CreateFleet for Spot instance launches.
                 type: string
               resolvedSecurityGroups:
                 description: ResolvedSecurityGroups is the list of resolved security

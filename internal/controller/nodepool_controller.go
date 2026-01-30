@@ -310,6 +310,16 @@ func (r *NodePoolReconciler) reconcileNodePool(ctx context.Context, nodePool *st
 
 	// Note: Scale-up check is done at the top of reconcileNodePool for fast path
 
+	// Process spot replacements (after scale-up, before scale-down)
+	if spotErr := r.processSpotReplacements(ctx, nodePool); spotErr != nil {
+		logger.Error(spotErr, "Failed to process spot replacements")
+	}
+
+	// Process spot warmup completion
+	if spotWarmupErr := r.processSpotWarmupComplete(ctx, nodePool); spotWarmupErr != nil {
+		logger.Error(spotWarmupErr, "Failed to process spot warmup completion")
+	}
+
 	// Check for scale-down candidates
 	candidates, err := r.findScaleDownCandidates(ctx, nodePool)
 	if err != nil {

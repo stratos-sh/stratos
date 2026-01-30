@@ -108,7 +108,7 @@ The scale calculator (`internal/controller/scale_calculator.go`) determines how 
    |
 6. Node becomes Ready
    - CNI initializes
-   - Startup taints removed
+   - Network readiness taint removed
    - Pod scheduled
 ```
 
@@ -125,10 +125,38 @@ The scale calculator (`internal/controller/scale_calculator.go`) determines how 
    - Transition state: running -> terminating
    - Cordon the node
    - Drain pods (respecting PDBs)
-   - Stop cloud instance
-   - Transition state: terminating -> standby
    |
-4. Node returns to standby pool
+4a. On-Demand node:          4b. Spot node:
+   - Stop cloud instance        - Terminate cloud instance
+   - terminating -> standby     - Delete K8s node object
+   - Returns to standby pool    - Permanently removed
+```
+
+### Spot Replacement Flow
+
+```
+1. On-Demand node running longer than replacementDelay
+   |
+2. processSpotReplacements() runs:
+   - Check spotReplacement.enabled
+   - Find On-Demand running nodes past delay
+   - Skip nodes already being replaced
+   |
+3. launchSpotReplacement() executes:
+   - Create EC2 Launch Template (if needed)
+   - Call CreateFleet (type: instant, Spot capacity)
+   - Tag Spot instance with stratos.sh/replacing-node
+   - Annotate On-Demand node with spot-replacement-started
+   |
+4. Spot node warmup completes (node becomes Ready):
+   - Transition Spot node to running
+   - Drain On-Demand node (respecting PDBs)
+   - Stop On-Demand instance -> returns to standby
+   |
+5. On Spot interruption:
+   - Delete K8s node object for Spot node
+   - Pods become pending
+   - Normal scale-up starts On-Demand standby node
 ```
 
 ### Warmup Lifecycle
@@ -142,7 +170,7 @@ The warmup phase is where Stratos gains its speed advantage over on-demand provi
    |
 2. User data runs:
    - Join Kubernetes cluster
-   - Register with startup taints
+   - Register with network readiness taint
    - Wait for kubelet healthy
    - Execute poweroff (self-stop)
    |
@@ -189,6 +217,11 @@ The controller needs minimal EC2 permissions:
 - `ec2:StopInstances`
 - `ec2:DescribeInstances`
 - `ec2:CreateTags`
+
+When Spot replacement is enabled, the following additional permissions are required:
+- `ec2:CreateFleet` -- used to launch diversified Spot instances
+- `ec2:CreateLaunchTemplate` -- used to create Launch Templates for the Spot fleet
+- `ec2:DescribeLaunchTemplates` -- used to check existing Launch Templates
 
 See [AWS Setup](../guides/aws-setup.md) for detailed IAM configuration.
 

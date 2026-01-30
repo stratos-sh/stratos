@@ -109,6 +109,7 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 		{Key: aws.String("stratos.sh/pool"), Value: aws.String(poolName)},
 		{Key: aws.String("stratos.sh/cluster"), Value: aws.String(clusterName)},
 		{Key: aws.String("stratos.sh/state"), Value: aws.String("warmup")},
+		{Key: aws.String("stratos.sh/capacity-type"), Value: aws.String("on-demand")},
 		{Key: aws.String("Name"), Value: aws.String(fmt.Sprintf("stratos-%s", poolName))},
 	}
 	for k, v := range nodeClass.Spec.Tags {
@@ -458,6 +459,13 @@ func (p *AWSProvider) convertInstance(inst *types.Instance) *cloudprovider.Insta
 		result.Tags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
 	}
 
+	// Populate capacity type from instance lifecycle
+	if inst.InstanceLifecycle == types.InstanceLifecycleTypeSpot {
+		result.CapacityType = cloudprovider.CapacityTypeSpot
+	} else {
+		result.CapacityType = cloudprovider.CapacityTypeOnDemand
+	}
+
 	return result
 }
 
@@ -500,6 +508,152 @@ func (p *AWSProvider) handleError(err error, operation string) error {
 	}
 
 	return fmt.Errorf("%s failed: %w", operation, err)
+}
+
+// buildSpotFleetOverrides builds the cross-product of instance types × subnets for CreateFleet.
+func buildSpotFleetOverrides(spotConfig *stratosv1alpha1.SpotConfig, subnets []stratosv1alpha1.ResolvedSubnet) []types.FleetLaunchTemplateOverridesRequest {
+	var overrides []types.FleetLaunchTemplateOverridesRequest
+	for _, instanceType := range spotConfig.InstanceTypes {
+		for _, subnet := range subnets {
+			override := types.FleetLaunchTemplateOverridesRequest{
+				InstanceType: types.InstanceType(instanceType),
+				SubnetId:     aws.String(subnet.ID),
+			}
+			if spotConfig.MaxPrice != "" {
+				override.MaxPrice = aws.String(spotConfig.MaxPrice)
+			}
+			overrides = append(overrides, override)
+		}
+	}
+	return overrides
+}
+
+// buildSpotInstanceTags builds the tags for a Spot instance.
+func buildSpotInstanceTags(poolName, clusterName string, customTags map[string]string) []types.Tag {
+	tags := []types.Tag{
+		{Key: aws.String("managed-by"), Value: aws.String("stratos")},
+		{Key: aws.String("stratos.sh/pool"), Value: aws.String(poolName)},
+		{Key: aws.String("stratos.sh/cluster"), Value: aws.String(clusterName)},
+		{Key: aws.String("stratos.sh/state"), Value: aws.String("warmup")},
+		{Key: aws.String("stratos.sh/capacity-type"), Value: aws.String("spot")},
+		{Key: aws.String("Name"), Value: aws.String(fmt.Sprintf("stratos-%s-spot", poolName))},
+	}
+	for k, v := range customTags {
+		tags = append(tags, types.Tag{Key: aws.String(k), Value: aws.String(v)})
+	}
+	return tags
+}
+
+// parseSpotAllocationStrategy converts a string allocation strategy to the AWS enum.
+func parseSpotAllocationStrategy(strategy string) types.SpotAllocationStrategy {
+	switch strategy {
+	case "lowest-price":
+		return types.SpotAllocationStrategyLowestPrice
+	case "diversified":
+		return types.SpotAllocationStrategyDiversified
+	case "capacity-optimized":
+		return types.SpotAllocationStrategyCapacityOptimized
+	default:
+		return types.SpotAllocationStrategyPriceCapacityOptimized
+	}
+}
+
+// LaunchSpotInstance launches a Spot instance via EC2 CreateFleet with diversified instance types.
+func (p *AWSProvider) LaunchSpotInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) (*cloudprovider.Instance, error) {
+	startTime := time.Now()
+	status := "success"
+	defer func() {
+		metrics.RecordCloudProviderCall("aws", "LaunchSpotInstance", status, time.Since(startTime).Seconds())
+	}()
+
+	if nodeClass.Spec.SpotConfig == nil {
+		status = "error"
+		return nil, fmt.Errorf("spotConfig is required for LaunchSpotInstance")
+	}
+
+	if err := p.rateLimiter.Wait(ctx, "CreateFleet"); err != nil {
+		status = "error"
+		return nil, err
+	}
+
+	if err := validateNodeClassResolved(nodeClass); err != nil {
+		status = "error"
+		return nil, err
+	}
+
+	ltID, err := p.CreateOrUpdateLaunchTemplate(ctx, nodeClass, clusterName, poolName, templateConfig)
+	if err != nil {
+		status = "error"
+		return nil, fmt.Errorf("failed to ensure launch template: %w", err)
+	}
+
+	spotConfig := nodeClass.Spec.SpotConfig
+	overrides := buildSpotFleetOverrides(spotConfig, nodeClass.Status.ResolvedSubnets)
+	instanceTags := buildSpotInstanceTags(poolName, clusterName, nodeClass.Spec.Tags)
+	if templateConfig != nil && templateConfig.ReplacingNode != "" {
+		instanceTags = append(instanceTags, types.Tag{
+			Key:   aws.String("stratos.sh/replacing-node"),
+			Value: aws.String(templateConfig.ReplacingNode),
+		})
+	}
+	allocationStrategy := parseSpotAllocationStrategy(spotConfig.AllocationStrategy)
+
+	fleetOutput, err := p.client.CreateFleet(ctx, &ec2.CreateFleetInput{
+		Type: types.FleetTypeInstant,
+		LaunchTemplateConfigs: []types.FleetLaunchTemplateConfigRequest{
+			{
+				LaunchTemplateSpecification: &types.FleetLaunchTemplateSpecificationRequest{
+					LaunchTemplateId: aws.String(ltID),
+					Version:          aws.String("$Latest"),
+				},
+				Overrides: overrides,
+			},
+		},
+		TargetCapacitySpecification: &types.TargetCapacitySpecificationRequest{
+			TotalTargetCapacity:       aws.Int32(1),
+			DefaultTargetCapacityType: types.DefaultTargetCapacityTypeSpot,
+		},
+		SpotOptions: &types.SpotOptionsRequest{
+			AllocationStrategy: allocationStrategy,
+		},
+		TagSpecifications: []types.TagSpecification{
+			{
+				ResourceType: types.ResourceTypeInstance,
+				Tags:         instanceTags,
+			},
+		},
+	})
+	if err != nil {
+		status = "error"
+		return nil, p.handleError(err, "LaunchSpotInstance")
+	}
+
+	// Check for fleet errors
+	if len(fleetOutput.Errors) > 0 {
+		status = "error"
+		errMsg := aws.ToString(fleetOutput.Errors[0].ErrorMessage)
+		errCode := aws.ToString(fleetOutput.Errors[0].ErrorCode)
+		if strings.Contains(errCode, "InsufficientCapacity") || strings.Contains(errMsg, "InsufficientInstanceCapacity") {
+			return nil, &cloudprovider.InsufficientCapacityError{
+				InstanceType: strings.Join(spotConfig.InstanceTypes, ","),
+			}
+		}
+		return nil, fmt.Errorf("CreateFleet error: %s - %s", errCode, errMsg)
+	}
+
+	if len(fleetOutput.Instances) == 0 || len(fleetOutput.Instances[0].InstanceIds) == 0 {
+		status = "error"
+		return nil, fmt.Errorf("CreateFleet returned no instances")
+	}
+
+	inst, err := p.GetInstance(ctx, fleetOutput.Instances[0].InstanceIds[0])
+	if err != nil {
+		status = "error"
+		return nil, fmt.Errorf("failed to get launched spot instance: %w", err)
+	}
+
+	inst.CapacityType = cloudprovider.CapacityTypeSpot
+	return inst, nil
 }
 
 // Ensure AWSProvider implements CloudProvider interface.

@@ -483,7 +483,7 @@ func TestLabelNode_AppliesTemplateLabels(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := mgr.LabelNode(ctx, node, "test-pool", "i-123", NodeStateWarmup, templateLabels)
+	err := mgr.LabelNode(ctx, node, "test-pool", "i-123", NodeStateWarmup, templateLabels, cloudprovider.CapacityTypeOnDemand)
 	if err != nil {
 		t.Fatalf("LabelNode() error = %v", err)
 	}
@@ -537,7 +537,7 @@ func TestLabelNode_SkipsStratosPrefix(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := mgr.LabelNode(ctx, node, "test-pool", "i-123", NodeStateWarmup, templateLabels)
+	err := mgr.LabelNode(ctx, node, "test-pool", "i-123", NodeStateWarmup, templateLabels, cloudprovider.CapacityTypeOnDemand)
 	if err != nil {
 		t.Fatalf("LabelNode() error = %v", err)
 	}
@@ -606,7 +606,7 @@ func TestAdoptAndTransitionToStandby_AppliesTemplateLabels(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := mgr.adoptAndTransitionToStandby(ctx, pool, node, instance.ID)
+	err := mgr.adoptAndTransitionToStandby(ctx, pool, node, instance.ID, cloudprovider.CapacityTypeOnDemand)
 	if err != nil {
 		t.Fatalf("adoptAndTransitionToStandby() error = %v", err)
 	}

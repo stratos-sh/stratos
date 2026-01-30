@@ -51,12 +51,17 @@ spec:
   customUserData: <string>
   blockDeviceMappings: <[]BlockDeviceMapping>
   tags: <map[string]string>
+  spotConfig:
+    instanceTypes: <[]string>
+    allocationStrategy: <string>
+    maxPrice: <string>
 status:
   nodePoolCount: <int32>
   resolvedAMI: <string>
   resolvedSubnets: <[]ResolvedSubnet>
   resolvedSecurityGroups: <[]ResolvedSecurityGroup>
   resolvedInstanceProfile: <string>
+  resolvedLaunchTemplateID: <string>
   conditions: <[]Condition>
 ```
 
@@ -123,6 +128,26 @@ Exactly one of `iamInstanceProfile` or `role` must be specified.
 | `customUserData` | string | - | Additional scripts/config to merge with generated bootstrap. For AL2/AL2023, shell scripts. For Bottlerocket, additional TOML settings. |
 | `blockDeviceMappings` | [][BlockDeviceMapping](#block-device-mapping) | - | EBS volume configuration. |
 | `tags` | map[string]string | - | Additional tags to apply to instances. Stratos management tags are added automatically. |
+
+### Spot Configuration
+
+Configure Spot instance fleet parameters for use with NodePool `spotReplacement`. When `spotConfig` is set, Stratos creates an EC2 Launch Template and uses the EC2 `CreateFleet` API (type `instant`, not the legacy SpotFleet API) for diversified Spot instance launches. The fleet builds a cross-product of `instanceTypes` and resolved subnets as overrides, maximizing availability across types and availability zones.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `spotConfig.instanceTypes` | []string | Yes (if spotConfig set) | - | Instance types for Spot fleet diversification. Multiple types increase the chance of getting capacity. Minimum 1. |
+| `spotConfig.allocationStrategy` | string | No | `price-capacity-optimized` | Spot fleet allocation strategy. |
+| `spotConfig.maxPrice` | string | No | On-Demand price | Maximum Spot price. Empty string uses On-Demand price as cap. |
+
+```yaml title="Example"
+spotConfig:
+  instanceTypes:
+    - m5.large
+    - m5a.large
+    - m5d.large
+  allocationStrategy: price-capacity-optimized
+  maxPrice: "0.05"
+```
 
 ### AMISelector
 
@@ -211,6 +236,7 @@ The AWSNodeClass status is updated by the controller. When selectors are used, t
 | `resolvedSubnets` | [][ResolvedSubnet](#resolvedsubnet) | Resolved subnets with IDs and availability zones. |
 | `resolvedSecurityGroups` | [][ResolvedSecurityGroup](#resolvedsecuritygroup) | Resolved security groups with IDs and names. |
 | `resolvedInstanceProfile` | string | The resolved instance profile ARN. |
+| `resolvedLaunchTemplateID` | string | The EC2 Launch Template ID created for Spot fleet. Populated when `spotConfig` is set. |
 | `conditions` | []Condition | Current conditions (see below). |
 
 ### ResolvedSubnet
@@ -446,6 +472,44 @@ spec:
     [settings.host-containers.admin]
     enabled = true
 ```
+
+### Spot-Enabled Configuration
+
+```yaml title="awsnodeclass-spot.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: spot-enabled
+spec:
+  bootstrapTemplate: AL2023
+  instanceType: m5.large
+
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  role: my-eks-node-role
+
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 50
+      volumeType: gp3
+      encrypted: true
+
+  spotConfig:
+    instanceTypes:
+      - m5.large
+      - m5a.large
+      - m5d.large
+      - m5ad.large
+    allocationStrategy: price-capacity-optimized
+```
+
+The `instanceType` field defines the On-Demand instance type. The `spotConfig.instanceTypes` list defines the Spot fleet diversification pool. Using multiple instance types increases the chance of getting Spot capacity.
 
 ## Finding AMI IDs
 

@@ -68,7 +68,7 @@ See the [Use Cases](./guides/use-cases.md) guide for detailed configurations.
 - **Pre-pulled images**: DaemonSet images pulled automatically during warmup
 - **Simplified configuration**: Stratos generates node bootstrap scripts automatically based on your AMI family (AL2023, AL2, Bottlerocket)
 - **Cost-efficient**: Stopped instances only incur EBS storage costs
-- **CNI-aware**: Handles startup taints for VPC CNI, Cilium, and Calico
+- **CNI-aware**: Ensures network readiness for VPC CNI, Cilium, and Calico
 - **Kubernetes-native**: Declarative NodePool and AWSNodeClass CRDs
 - **Cloud-agnostic design**: Built with a provider abstraction layer (AWS supported)
 
@@ -116,10 +116,6 @@ spec:
     labels:
       stratos.sh/pool: workers
       workload-type: general    # Custom label for targeting
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
 ```
 
 ```bash

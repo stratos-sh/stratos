@@ -40,12 +40,21 @@ The `mode` label on `stratos_nodepool_warmup_duration_seconds` indicates how war
 | `controller_stop` | Stratos stopped the instance when Ready (ControllerStop mode) |
 | `timeout` | Warmup timed out and instance was force-stopped |
 
-### Startup Taint Metrics
+### Network Readiness Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `stratos_nodepool_startup_taint_removal_total` | Counter | `pool`, `trigger`, `result` | Startup taint removals |
-| `stratos_nodepool_startup_taint_duration_seconds` | Histogram | `pool` | Time to remove startup taints |
+| `stratos_nodepool_startup_taint_removal_total` | Counter | `pool`, `trigger`, `result` | Network readiness taint removals |
+| `stratos_nodepool_startup_taint_duration_seconds` | Histogram | `pool` | Time to remove network readiness taint |
+
+### Spot Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `stratos_nodepool_spot_replacements_total` | Counter | `pool` | Successful On-Demand to Spot replacements |
+| `stratos_nodepool_spot_interruptions_total` | Counter | `pool` | Spot interruption events |
+| `stratos_nodepool_spot_replacement_duration_seconds` | Histogram | `pool` | Time from replacement start to migration completion |
+| `stratos_nodepool_spot_fallbacks_total` | Counter | `pool` | Spot to On-Demand fallback events |
 
 ### Controller Metrics
 
@@ -99,6 +108,26 @@ histogram_quantile(0.99, rate(stratos_nodepool_scaleup_duration_seconds_bucket[5
 
 # Warmup success rate
 1 - (rate(stratos_nodepool_warmup_failures_total[1h]) / rate(stratos_nodepool_warmup_duration_seconds_count[1h]))
+```
+
+### Spot Replacement
+
+```promql
+# Spot replacement rate (per 5 minutes)
+rate(stratos_nodepool_spot_replacements_total[5m])
+
+# Spot interruption rate
+rate(stratos_nodepool_spot_interruptions_total[5m])
+
+# Spot replacement success ratio (replacements vs fallbacks)
+rate(stratos_nodepool_spot_replacements_total[1h])
+/ (rate(stratos_nodepool_spot_replacements_total[1h]) + rate(stratos_nodepool_spot_fallbacks_total[1h]))
+
+# P95 spot replacement duration
+histogram_quantile(0.95, rate(stratos_nodepool_spot_replacement_duration_seconds_bucket[5m]))
+
+# Spot fallback rate
+rate(stratos_nodepool_spot_fallbacks_total[5m])
 ```
 
 ### Controller Health
@@ -190,6 +219,30 @@ groups:
           summary: "NodePool {{ $labels.pool }} is at capacity"
           description: "Running {{ $value }} nodes, pool size is {{ $labels.pool_size }}"
 
+      # High spot interruption rate
+      - alert: StratosHighSpotInterruptionRate
+        expr: |
+          rate(stratos_nodepool_spot_interruptions_total[1h]) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Spot interruption rate for pool {{ $labels.pool }}"
+          description: "Spot interruptions at {{ $value | printf \"%.2f\" }} per second. Consider reviewing instance type diversification."
+
+      # Low spot replacement success rate
+      - alert: StratosLowSpotReplacementSuccess
+        expr: |
+          rate(stratos_nodepool_spot_fallbacks_total[1h])
+          / (rate(stratos_nodepool_spot_replacements_total[1h]) + rate(stratos_nodepool_spot_fallbacks_total[1h]))
+          > 0.3
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low Spot replacement success rate for pool {{ $labels.pool }}"
+          description: "{{ $value | printf \"%.0f\" }}% of Spot replacements are falling back to On-Demand"
+
       # Cloud API errors
       - alert: StratosCloudAPIErrors
         expr: |
@@ -273,6 +326,19 @@ histogram_quantile(0.95, rate(stratos_cloud_provider_latency_seconds_bucket[5m])
 
 **Visualization:** Time series
 
+### Panel 7: Spot Replacement
+
+**Query:** Spot replacement and interruption events
+
+```promql
+increase(stratos_nodepool_spot_replacements_total[5m])
+increase(stratos_nodepool_spot_interruptions_total[5m])
+increase(stratos_nodepool_spot_fallbacks_total[5m])
+histogram_quantile(0.95, rate(stratos_nodepool_spot_replacement_duration_seconds_bucket[5m]))
+```
+
+**Visualization:** Time series with legend (Replacements, Interruptions, Fallbacks, P95 Duration)
+
 ## Kubernetes Events
 
 Stratos emits Kubernetes events for significant operations:
@@ -287,9 +353,12 @@ Event types:
 |-------|-------------|
 | `Created` | NodePool created |
 | `ScaleUp` | Nodes started for scale-up |
-| `ScaleDown` | Nodes stopped for scale-down |
+| `ScaleDown` | Nodes stopped (On-Demand) or terminated (Spot) for scale-down |
 | `Replenishing` | Launching new nodes for minStandby |
 | `MaxRuntimeExceeded` | Node recycled due to max runtime |
+| `SpotReplacementStarted` | Spot instance launched to replace an On-Demand node |
+| `SpotReplacementComplete` | Workload migrated from On-Demand to Spot node |
+| `SpotInterruption` | Spot node was interrupted, falling back to On-Demand |
 | `CleanupFailed` | Error during NodePool deletion |
 | `Deleted` | NodePool deleted |
 

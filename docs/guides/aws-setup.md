@@ -54,7 +54,7 @@ The Stratos controller needs permissions to manage EC2 instances.
 ```
 
 :::note
-The `EC2ResourceDiscovery` statement is required when using [dynamic resource selectors](./dynamic-resource-selectors.md) (`amiSelector`, `subnetSelector`, `securityGroupSelector`). If you only use static IDs, this statement can be omitted.
+The `EC2ResourceDiscovery` statement is required when using [dynamic resource selectors](./dynamic-resource-selectors.md) (`amiSelector`, `subnetSelector`, `securityGroupSelector`). If you only use static IDs, this statement can be omitted. If you use Spot replacement, see [Spot Replacement Permissions](#spot-replacement-permissions) for additional required permissions.
 :::
 
 ### Policy with Instance Profile Management
@@ -118,6 +118,33 @@ If you use the `role` field in AWSNodeClass (automatic instance profile manageme
     ]
 }
 ```
+
+### Spot Replacement Permissions
+
+When using `spotReplacement` on a NodePool, the controller requires additional EC2 permissions for creating fleets and launch templates:
+
+```json title="stratos-spot-policy.json"
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "StratosSpotOperations",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:CreateFleet",
+                "ec2:CreateLaunchTemplate",
+                "ec2:DescribeLaunchTemplates",
+                "ec2:DeleteLaunchTemplate"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+```
+
+:::note
+The `CreateFleet` API is used instead of `RunInstances` with Spot market options. This enables diversified Spot instance launches across multiple instance types for better availability.
+:::
 
 :::tip
 The `IAMInstanceProfileManagement` statement is scoped to instance profiles prefixed with `stratos-`, matching the naming convention used by the controller. The Helm chart includes a complete IAM policy template at `deploy/charts/stratos/templates/iam-policy.yaml`.
@@ -492,10 +519,6 @@ spec:
       name: test-nodes
     labels:
       stratos.sh/pool: test
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
 ```
 
 ```bash

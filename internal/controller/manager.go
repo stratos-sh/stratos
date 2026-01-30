@@ -128,7 +128,8 @@ func (m *NodeManager) WaitForNodeJoin(ctx context.Context, pool *stratosv1alpha1
 // If the node is entering warmup state, it is also cordoned to prevent scheduling.
 // Template labels from the NodePool spec are applied to the node, skipping any
 // labels with the stratos.sh/ prefix to prevent conflicts with system labels.
-func (m *NodeManager) LabelNode(ctx context.Context, node *corev1.Node, poolName, instanceID string, state NodeState, templateLabels map[string]string) error {
+// capacityType should be the instance's actual capacity type (e.g., "on-demand" or "spot").
+func (m *NodeManager) LabelNode(ctx context.Context, node *corev1.Node, poolName, instanceID string, state NodeState, templateLabels map[string]string, capacityType string) error {
 	logger := log.FromContext(ctx)
 
 	// Create a copy for patching
@@ -150,6 +151,13 @@ func (m *NodeManager) LabelNode(ctx context.Context, node *corev1.Node, poolName
 		if !strings.HasPrefix(k, "stratos.sh/") {
 			node.Labels[k] = v
 		}
+	}
+
+	// Set capacity type label from the cloud instance's actual capacity type
+	if capacityType != "" {
+		node.Labels[LabelCapacityType] = capacityType
+	} else if _, hasCapType := node.Labels[LabelCapacityType]; !hasCapType {
+		node.Labels[LabelCapacityType] = cloudprovider.CapacityTypeOnDemand
 	}
 
 	// Ensure annotations map exists
@@ -352,17 +360,26 @@ func (m *NodeManager) handleControllerStopWarmup(ctx context.Context, pool *stra
 		}
 	}
 
-	// Node is ready (and network ready if required) - stop the instance
+	// Node is ready (and network ready if required)
+	// For Spot instances, don't stop and don't transition — leave in warmup state
+	// so processSpotWarmupComplete handles the full migration flow.
+	isSpot := node.Labels[LabelCapacityType] == cloudprovider.CapacityTypeSpot
+	if isSpot {
+		logger.Info("Spot node warmup complete and ready, deferring to processSpotWarmupComplete",
+			"node", node.Name, "instanceID", instanceID)
+		metrics.RecordWarmupDuration(pool.Name, "spot_warmup", time.Since(startTime).Seconds())
+		return nil
+	}
+
 	logger.Info("Node ready, stopping instance", "node", node.Name, "instanceID", instanceID)
 
-	// Stop the instance
+	// Stop the instance (On-Demand only)
 	if err := m.cloudProvider.StopInstance(ctx, instanceID, false); err != nil {
 		return fmt.Errorf("failed to stop instance in ControllerStop mode: %w", err)
 	}
 
-	// Record warmup duration with mode label
-	duration := time.Since(startTime).Seconds()
-	metrics.RecordWarmupDuration(pool.Name, "controller_stop", duration)
+	// Record warmup duration
+	metrics.RecordWarmupDuration(pool.Name, "controller_stop", time.Since(startTime).Seconds())
 
 	// Prepare node for standby (cordon + taint + re-add startup taints)
 	if err := m.prepareNodeForStandby(ctx, pool, node); err != nil {
@@ -559,7 +576,14 @@ func (m *NodeManager) SyncNodeState(ctx context.Context, pool *stratosv1alpha1.N
 
 	// Handle terminated instances
 	if cloudState == cloudprovider.InstanceStateTerminated {
-		logger.Info("Instance terminated externally, cleaning up node", "node", node.Name)
+		// Check if this was a Spot node — record interruption metrics
+		if node.Labels[LabelCapacityType] == cloudprovider.CapacityTypeSpot {
+			logger.Info("Spot instance terminated (likely interruption), cleaning up node", "node", node.Name)
+			metrics.RecordSpotInterruption(pool.Name)
+			metrics.RecordSpotFallback(pool.Name)
+		} else {
+			logger.Info("Instance terminated externally, cleaning up node", "node", node.Name)
+		}
 		return m.deleteNode(ctx, node)
 	}
 
@@ -644,7 +668,7 @@ func (m *NodeManager) MonitorCloudWarmup(ctx context.Context, pool *stratosv1alp
 			// Node exists but doesn't have Stratos labels - label it and transition to standby
 			logger.Info("Instance stopped with unlabeled K8s node, labeling and transitioning to standby",
 				"instanceID", instanceID, "node", node.Name)
-			return m.adoptAndTransitionToStandby(ctx, pool, node, instanceID)
+			return m.adoptAndTransitionToStandby(ctx, pool, node, instanceID, instance.CapacityType)
 		}
 
 		// Instance stopped but node never registered - warmup failure
@@ -668,7 +692,15 @@ func (m *NodeManager) MonitorCloudWarmup(ctx context.Context, pool *stratosv1alp
 		// If K8s node exists but isn't tracked by warmup workflow, label it
 		if node != nil && node.Labels[LabelState] == "" {
 			logger.Info("Labeling unlabeled K8s node as warmup", "instanceID", instanceID, "node", node.Name)
-			if err := m.LabelNode(ctx, node, pool.Name, instanceID, NodeStateWarmup, pool.Spec.Template.Labels); err != nil {
+			// Set replacing-node annotation before labeling so it's included in the same patch
+			if replacingNode, ok := instance.Tags[TagReplacingNode]; ok && replacingNode != "" {
+				if node.Annotations == nil {
+					node.Annotations = make(map[string]string)
+				}
+				node.Annotations[AnnotationSpotReplacingNode] = replacingNode
+				logger.Info("Setting spot-replacing-node annotation", "node", node.Name, "replacingNode", replacingNode)
+			}
+			if err := m.LabelNode(ctx, node, pool.Name, instanceID, NodeStateWarmup, pool.Spec.Template.Labels, instance.CapacityType); err != nil {
 				return fmt.Errorf("failed to label warmup node: %w", err)
 			}
 		}
@@ -771,7 +803,8 @@ func (m *NodeManager) handleCloudWarmupTimeout(ctx context.Context, pool *strato
 
 // adoptAndTransitionToStandby adopts an unlabeled K8s node that was created by warmup
 // and transitions it directly to standby state.
-func (m *NodeManager) adoptAndTransitionToStandby(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node, instanceID string) error {
+// capacityType should be the instance's actual capacity type (e.g., "on-demand" or "spot").
+func (m *NodeManager) adoptAndTransitionToStandby(ctx context.Context, pool *stratosv1alpha1.NodePool, node *corev1.Node, instanceID, capacityType string) error {
 	logger := log.FromContext(ctx)
 
 	// Create a copy for patching
@@ -787,6 +820,13 @@ func (m *NodeManager) adoptAndTransitionToStandby(ctx context.Context, pool *str
 	node.Labels[LabelState] = string(NodeStateStandby)
 	node.Labels[LabelInstanceID] = instanceID
 	node.Labels[LabelStateSince] = fmt.Sprintf("%d", time.Now().Unix())
+
+	// Set capacity type from cloud instance
+	if capacityType != "" {
+		node.Labels[LabelCapacityType] = capacityType
+	} else {
+		node.Labels[LabelCapacityType] = cloudprovider.CapacityTypeOnDemand
+	}
 
 	// Apply template labels (skip stratos.sh/ prefix to prevent conflicts)
 	for k, v := range pool.Spec.Template.Labels {

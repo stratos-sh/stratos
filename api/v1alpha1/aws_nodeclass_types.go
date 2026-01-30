@@ -222,6 +222,11 @@ type AWSNodeClassSpec struct {
 	// Tags to apply to instances in addition to Stratos-managed tags
 	// +optional
 	Tags map[string]string `json:"tags,omitempty"`
+
+	// SpotConfig configures Spot instance fleet parameters for use with
+	// NodePool spotReplacement. Required when spotReplacement is enabled.
+	// +optional
+	SpotConfig *SpotConfig `json:"spotConfig,omitempty"`
 }
 
 // BlockDeviceMapping defines an EBS volume
@@ -249,6 +254,24 @@ type BlockDeviceMapping struct {
 	Throughput int32 `json:"throughput,omitempty"`
 }
 
+// SpotConfig configures Spot instance fleet parameters for diversified Spot launches.
+type SpotConfig struct {
+	// InstanceTypes is the list of instance types for Spot fleet diversification.
+	// Multiple types increase the chance of getting capacity.
+	// +kubebuilder:validation:MinItems=1
+	InstanceTypes []string `json:"instanceTypes"`
+
+	// AllocationStrategy is the Spot allocation strategy.
+	// Default: price-capacity-optimized
+	// +optional
+	// +kubebuilder:default="price-capacity-optimized"
+	AllocationStrategy string `json:"allocationStrategy,omitempty"`
+
+	// MaxPrice is the maximum Spot price. Empty string means use On-Demand price as cap.
+	// +optional
+	MaxPrice string `json:"maxPrice,omitempty"`
+}
+
 // AWSNodeClassStatus defines the observed state of AWSNodeClass
 type AWSNodeClassStatus struct {
 	// NodePoolCount is the number of NodePools currently referencing this AWSNodeClass
@@ -270,6 +293,11 @@ type AWSNodeClassStatus struct {
 	// ResolvedInstanceProfile is the resolved instance profile ARN
 	// +optional
 	ResolvedInstanceProfile string `json:"resolvedInstanceProfile,omitempty"`
+
+	// ResolvedLaunchTemplateID is the ID of the EC2 Launch Template created for Spot fleet.
+	// Populated when spotConfig is set and used by CreateFleet for Spot instance launches.
+	// +optional
+	ResolvedLaunchTemplateID string `json:"resolvedLaunchTemplateID,omitempty"`
 
 	// Conditions represent the latest available observations of the AWSNodeClass's state
 	// +optional

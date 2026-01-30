@@ -39,10 +39,11 @@ type FakeProvider struct {
 	wg sync.WaitGroup
 
 	// Hooks for testing
-	LaunchHook    func(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) error
-	StartHook     func(ctx context.Context, instanceID string) error
-	StopHook      func(ctx context.Context, instanceID string, force bool) error
-	TerminateHook func(ctx context.Context, instanceID string) error
+	LaunchHook     func(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) error
+	LaunchSpotHook func(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) error
+	StartHook      func(ctx context.Context, instanceID string) error
+	StopHook       func(ctx context.Context, instanceID string, force bool) error
+	TerminateHook  func(ctx context.Context, instanceID string) error
 }
 
 // NewFakeProvider creates a new fake cloud provider.
@@ -85,6 +86,7 @@ func (f *FakeProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1a
 		InstanceType:     nodeClass.Spec.InstanceType,
 		SubnetID:         subnetID,
 		AvailabilityZone: "fake-az-1",
+		CapacityType:     cloudprovider.CapacityTypeOnDemand,
 		Tags:             make(map[string]string),
 	}
 
@@ -98,6 +100,7 @@ func (f *FakeProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1a
 	instance.Tags["stratos.sh/pool"] = poolName
 	instance.Tags["stratos.sh/cluster"] = clusterName
 	instance.Tags["stratos.sh/state"] = "warmup"
+	instance.Tags["stratos.sh/capacity-type"] = "on-demand"
 
 	f.instances[instanceID] = instance
 
@@ -157,7 +160,7 @@ func (f *FakeProvider) StartInstance(ctx context.Context, instanceID string) err
 	return nil
 }
 
-// StopInstance stops a running fake instance.
+// StopInstance stops a running fake instance. Spot instances cannot be stopped.
 func (f *FakeProvider) StopInstance(ctx context.Context, instanceID string, force bool) error {
 	if f.StopHook != nil {
 		if err := f.StopHook(ctx, instanceID, force); err != nil {
@@ -171,6 +174,15 @@ func (f *FakeProvider) StopInstance(ctx context.Context, instanceID string, forc
 	inst, ok := f.instances[instanceID]
 	if !ok {
 		return &cloudprovider.InstanceNotFoundError{InstanceID: instanceID}
+	}
+
+	// Spot instances cannot be stopped
+	if inst.CapacityType == cloudprovider.CapacityTypeSpot {
+		return &cloudprovider.InvalidStateError{
+			InstanceID:   instanceID,
+			CurrentState: inst.State,
+			Operation:    "stop (spot instances cannot be stopped)",
+		}
 	}
 
 	if !inst.State.IsStoppable() {
@@ -357,6 +369,111 @@ func matchesTags(instanceTags, requiredTags map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// LaunchSpotInstance creates a new fake spot instance using AWSNodeClass configuration.
+func (f *FakeProvider) LaunchSpotInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) (*cloudprovider.Instance, error) {
+	if f.LaunchSpotHook != nil {
+		if err := f.LaunchSpotHook(ctx, nodeClass, poolName, clusterName, templateConfig); err != nil {
+			return nil, err
+		}
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.counter++
+	instanceID := fmt.Sprintf("i-fake-spot-%06d", f.counter)
+
+	// Select subnet using round-robin
+	var subnetID string
+	subnetIdx := atomic.AddUint64(&f.subnetIndex, 1) - 1
+	if len(nodeClass.Status.ResolvedSubnets) > 0 {
+		subnetID = nodeClass.Status.ResolvedSubnets[subnetIdx%uint64(len(nodeClass.Status.ResolvedSubnets))].ID
+	} else if len(nodeClass.Spec.SubnetIDs) > 0 {
+		subnetID = nodeClass.Spec.SubnetIDs[subnetIdx%uint64(len(nodeClass.Spec.SubnetIDs))]
+	} else {
+		subnetID = "subnet-fake-default"
+	}
+
+	// Determine instance type from spot config
+	instanceType := nodeClass.Spec.InstanceType
+	if nodeClass.Spec.SpotConfig != nil && len(nodeClass.Spec.SpotConfig.InstanceTypes) > 0 {
+		instanceType = nodeClass.Spec.SpotConfig.InstanceTypes[0]
+	}
+
+	instance := &cloudprovider.Instance{
+		ID:               instanceID,
+		State:            cloudprovider.InstanceStatePending,
+		PrivateIP:        fmt.Sprintf("10.0.1.%d", f.counter%256),
+		LaunchTime:       time.Now(),
+		InstanceType:     instanceType,
+		SubnetID:         subnetID,
+		AvailabilityZone: "fake-az-1",
+		CapacityType:     cloudprovider.CapacityTypeSpot,
+		Tags:             make(map[string]string),
+	}
+
+	// Copy tags from nodeClass
+	for k, v := range nodeClass.Spec.Tags {
+		instance.Tags[k] = v
+	}
+
+	// Add standard Stratos tags
+	instance.Tags["managed-by"] = "stratos"
+	instance.Tags["stratos.sh/pool"] = poolName
+	instance.Tags["stratos.sh/cluster"] = clusterName
+	instance.Tags["stratos.sh/state"] = "warmup"
+	instance.Tags["stratos.sh/capacity-type"] = "spot"
+	if templateConfig != nil && templateConfig.ReplacingNode != "" {
+		instance.Tags["stratos.sh/replacing-node"] = templateConfig.ReplacingNode
+	}
+
+	f.instances[instanceID] = instance
+
+	// Simulate instance becoming running after launch
+	f.wg.Add(1)
+	go func() {
+		defer f.wg.Done()
+		time.Sleep(100 * time.Millisecond)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if inst, ok := f.instances[instanceID]; ok && inst.State == cloudprovider.InstanceStatePending {
+			inst.State = cloudprovider.InstanceStateRunning
+		}
+	}()
+
+	return instance, nil
+}
+
+// SimulateSpotInterruption simulates a Spot interruption by terminating the instance.
+func (f *FakeProvider) SimulateSpotInterruption(instanceID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	inst, ok := f.instances[instanceID]
+	if !ok {
+		return &cloudprovider.InstanceNotFoundError{InstanceID: instanceID}
+	}
+
+	if inst.CapacityType != cloudprovider.CapacityTypeSpot {
+		return fmt.Errorf("instance %s is not a spot instance", instanceID)
+	}
+
+	inst.State = cloudprovider.InstanceStateTerminated
+	return nil
+}
+
+// IsSpotInstance returns true if the instance is a Spot instance.
+func (f *FakeProvider) IsSpotInstance(instanceID string) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	inst, ok := f.instances[instanceID]
+	if !ok {
+		return false
+	}
+	return inst.CapacityType == cloudprovider.CapacityTypeSpot
 }
 
 // Ensure FakeProvider implements CloudProvider interface.

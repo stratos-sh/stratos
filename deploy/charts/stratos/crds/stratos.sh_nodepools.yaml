@@ -192,6 +192,24 @@ spec:
                         type: object
                     type: object
                 type: object
+              spotReplacement:
+                description: |-
+                  SpotReplacement configures automatic replacement of On-Demand running nodes
+                  with Spot instances for cost savings. When enabled, running On-Demand nodes
+                  are transparently replaced with Spot instances after a configurable delay.
+                  On Spot interruption, On-Demand standby nodes start instantly as fallback.
+                properties:
+                  enabled:
+                    description: Enabled controls whether spot replacement is active.
+                    type: boolean
+                  replacementDelay:
+                    description: |-
+                      ReplacementDelay is how long an On-Demand node must be running before
+                      it becomes eligible for Spot replacement. This gives workloads time to
+                      stabilize before migration.
+                      Default: 2 minutes
+                    type: string
+                type: object
               template:
                 description: Template defines the node template for this pool
                 properties:

@@ -29,6 +29,8 @@ type TemplateConfig struct {
 	Labels                      map[string]string
 	Taints                      []corev1.Taint // Permanent taints
 	EnableNetworkReadinessTaint bool           // Whether to add stratos.sh/not-ready taint
+	CapacityType                string         // "on-demand" or "spot"
+	ReplacingNode               string         // Name of the On-Demand node being replaced (spot only)
 }
 
 // CloudProvider defines the interface for cloud instance lifecycle operations.

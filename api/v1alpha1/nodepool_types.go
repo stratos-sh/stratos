@@ -56,6 +56,13 @@ type NodePoolSpec struct {
 	// ScaleUp configures scale-up behavior including resource-based calculation
 	// +optional
 	ScaleUp *ScaleUpConfig `json:"scaleUp,omitempty"`
+
+	// SpotReplacement configures automatic replacement of On-Demand running nodes
+	// with Spot instances for cost savings. When enabled, running On-Demand nodes
+	// are transparently replaced with Spot instances after a configurable delay.
+	// On Spot interruption, On-Demand standby nodes start instantly as fallback.
+	// +optional
+	SpotReplacement *SpotReplacementConfig `json:"spotReplacement,omitempty"`
 }
 
 // ScaleUpConfig configures scale-up behavior

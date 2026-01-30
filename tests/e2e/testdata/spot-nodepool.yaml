@@ -1,0 +1,21 @@
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: spot-basic
+spec:
+  poolSize: 3
+  minStandby: 1
+  scaleDown:
+    enabled: true
+    emptyNodeTTL: 1m
+    drainTimeout: 1m
+  template:
+    labels:
+      workload: spot-e2e
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: spot-basic
+    networkReadinessStrategy: Taint
+  spotReplacement:
+    enabled: true
+    replacementDelay: 30s

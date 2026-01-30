@@ -93,12 +93,13 @@ spec:
 
 ### How Scale-Down Works
 
-1. Controller identifies nodes with no scheduled pods (excluding DaemonSets)
+1. Controller identifies running nodes with no scheduled pods (excluding DaemonSets)
 2. Marks empty nodes with `scale-down-candidate-since` annotation
 3. After `emptyNodeTTL` elapses, node becomes scale-down candidate
 4. Node is cordoned and drained (respecting PDBs)
-5. After drain completes (or timeout), instance is stopped
-6. Node transitions to standby state
+5. After drain completes (or timeout):
+   - **On-Demand nodes** are stopped and returned to standby state
+   - **Spot nodes** are terminated and the Kubernetes node object is deleted (Spot instances cannot be stopped)
 
 ### Tuning Scale-Down Timing
 
@@ -126,6 +127,116 @@ spec:
 :::warning
 With scale-down disabled, nodes will run until `maxNodeRuntime` is reached or the pool is deleted.
 :::
+
+## Spot Replacement
+
+Spot replacement transparently replaces On-Demand running nodes with Spot instances, saving 60-90% on compute costs while maintaining instant fallback to On-Demand standby nodes on interruption.
+
+### How Spot Replacement Works
+
+1. An On-Demand node runs for longer than `replacementDelay` (default: 2 minutes)
+2. Stratos launches a Spot instance via EC2 `CreateFleet` API with the diversified instance types from `spotConfig.instanceTypes`
+3. The Spot node joins the cluster and completes warmup (stays running, does not stop)
+4. Stratos drains the On-Demand node and migrates workloads to the Spot node
+5. The On-Demand node returns to standby (stopped), ready for instant reuse
+
+On Spot interruption, the Spot node is terminated and a standby On-Demand node starts instantly.
+
+### Configuration
+
+**NodePool** - Enable spot replacement:
+
+```yaml
+spec:
+  spotReplacement:
+    enabled: true
+    replacementDelay: 2m    # How long On-Demand must run before replacement
+```
+
+**AWSNodeClass** - Configure Spot fleet:
+
+```yaml
+spec:
+  spotConfig:
+    instanceTypes:          # Diversify for better Spot availability
+      - m5.large
+      - m5a.large
+      - m5d.large
+    allocationStrategy: price-capacity-optimized
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `spotReplacement.enabled` | - | Enable/disable spot replacement |
+| `spotReplacement.replacementDelay` | `2m` | Time before On-Demand becomes eligible |
+| `spotConfig.instanceTypes` | - | Spot fleet instance types |
+| `spotConfig.allocationStrategy` | `price-capacity-optimized` | Fleet allocation strategy |
+| `spotConfig.maxPrice` | On-Demand price | Maximum Spot price cap |
+
+### Interaction with Scale-Down
+
+Spot replacement and scale-down operate independently:
+
+- **Empty Spot nodes are terminated during scale-down** (not stopped), because Spot instances cannot be stopped. The Kubernetes node object is also deleted. This differs from On-Demand nodes, which are stopped and returned to standby.
+- **Spot replacement only targets On-Demand running nodes** that have been running longer than `replacementDelay`.
+- When a Spot node is interrupted, workloads move to On-Demand standby nodes via normal scale-up, not spot replacement.
+
+### Interruption Handling
+
+When a Spot instance is interrupted:
+
+1. AWS terminates the Spot instance (2-minute warning)
+2. Stratos detects the terminated node
+3. The Spot node is cleaned up (node object removed)
+4. Pending pods trigger normal scale-up from On-Demand standby pool
+5. On-Demand standby node starts in seconds
+6. The `stratos_nodepool_spot_interruptions_total` metric is incremented
+
+### Example Configurations
+
+**Cost-optimized** - Maximize savings with broad instance diversification:
+
+```yaml
+spec:
+  spotReplacement:
+    enabled: true
+    replacementDelay: 1m     # Replace quickly for maximum savings
+---
+spec:
+  spotConfig:
+    instanceTypes:
+      - m5.large
+      - m5a.large
+      - m5d.large
+      - m5ad.large
+      - m5n.large
+```
+
+**Reliability-focused** - Conservative replacement with tight price cap:
+
+```yaml
+spec:
+  spotReplacement:
+    enabled: true
+    replacementDelay: 5m     # Wait longer before replacing
+---
+spec:
+  spotConfig:
+    instanceTypes:
+      - m5.large
+      - m5a.large
+    maxPrice: "0.04"         # Only use Spot if significantly cheaper
+```
+
+### Tuning replacementDelay
+
+The `replacementDelay` controls how long an On-Demand node must be running before becoming eligible for Spot replacement:
+
+- **Shorter delay** (e.g., `1m`): Faster transition to Spot, maximizes savings, but more churn for short-lived workloads
+- **Longer delay** (e.g., `5m`): Gives workloads more time to stabilize before migration, reduces unnecessary replacements for burst traffic
+- **Default** (`2m`): Balances cost savings with workload stability
 
 ## Node Recycling
 
@@ -202,21 +313,9 @@ Stratos automatically pre-pulls images for all DaemonSets that will run on nodes
 DaemonSet images that match the pool's labels and tolerations are automatically discovered and pre-pulled. You don't need to configure this manually.
 :::
 
-## Startup Taint Management
+## Network Readiness
 
-### WhenNetworkReady Mode
-
-Stratos monitors network conditions and removes taints:
-
-```yaml
-spec:
-  template:
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: WhenNetworkReady
-```
+By default (`networkReadinessStrategy: Taint`), Stratos automatically manages the `stratos.sh/not-ready=true:NoSchedule` taint. No configuration is needed — the default behavior applies the taint during startup and removes it when the CNI is ready.
 
 Supported CNIs:
 - **EKS VPC CNI:** `NetworkingReady=True` condition
@@ -225,23 +324,13 @@ Supported CNIs:
 
 Timeout: 2 minutes (then forcibly removed)
 
-### External Mode
-
-For CNIs that manage their own taints:
+To disable network readiness taint management (e.g., if your CNI manages its own readiness):
 
 ```yaml
 spec:
   template:
-    startupTaints:
-      - key: node.cilium.io/agent-not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: External
+    networkReadinessStrategy: None
 ```
-
-:::note Automatic Taint Registration
-When using `bootstrapTemplate`, Stratos automatically configures kubelet to register with the startup taints defined in your NodePool spec. You don't need to manually coordinate `--register-with-taints` arguments.
-:::
 
 ## Example Configurations
 
