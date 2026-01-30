@@ -90,6 +90,29 @@ func (c *ScaleDownConfig) GetDrainTimeout() metav1.Duration {
 	return *c.DrainTimeout
 }
 
+// SpotReplacementConfig configures automatic replacement of On-Demand running
+// nodes with Spot instances for cost savings.
+type SpotReplacementConfig struct {
+	// Enabled controls whether spot replacement is active.
+	// +optional
+	Enabled bool `json:"enabled"`
+
+	// ReplacementDelay is how long an On-Demand node must be running before
+	// it becomes eligible for Spot replacement. This gives workloads time to
+	// stabilize before migration.
+	// Default: 2 minutes
+	// +optional
+	ReplacementDelay *metav1.Duration `json:"replacementDelay,omitempty"`
+}
+
+// GetReplacementDelay returns the replacement delay (default: 2 minutes).
+func (c *SpotReplacementConfig) GetReplacementDelay() metav1.Duration {
+	if c == nil || c.ReplacementDelay == nil {
+		return metav1.Duration{Duration: 2 * 60 * 1000000000} // 2 minutes
+	}
+	return *c.ReplacementDelay
+}
+
 // GetTimeout returns the pre-warm timeout (default: 10 minutes)
 func (c *PreWarmConfig) GetTimeout() metav1.Duration {
 	if c == nil || c.Timeout == nil {
