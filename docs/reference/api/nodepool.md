@@ -23,8 +23,7 @@ spec:
   template:
     labels: <map[string]string>
     taints: <[]Taint>
-    startupTaints: <[]Taint>
-    startupTaintRemoval: <string>
+    networkReadinessStrategy: <string>
     nodeClassRef:
       kind: <string>
       name: <string>
@@ -38,6 +37,9 @@ spec:
     enabled: <bool>
     emptyNodeTTL: <duration>
     drainTimeout: <duration>
+  spotReplacement:
+    enabled: <bool>
+    replacementDelay: <duration>
 status:
   conditions: <[]Condition>
   observedGeneration: <int64>
@@ -68,8 +70,7 @@ The `template` field defines the configuration for nodes in this pool.
 | `nodeClassRef` | NodeClassRef | Yes | - | Reference to the cloud-specific NodeClass (e.g., AWSNodeClass) containing instance configuration. |
 | `labels` | map[string]string | No | - | Labels to apply to managed nodes. The `stratos.sh/pool` label is automatically added. |
 | `taints` | []Taint | No | - | Permanent taints for workload isolation. These persist throughout the node lifecycle. |
-| `startupTaints` | []Taint | No | - | Taints applied during startup, removed when CNI is ready. Must match `--register-with-taints` in userData. |
-| `startupTaintRemoval` | string | No | `WhenNetworkReady` | How startup taints are removed: `WhenNetworkReady` or `External`. |
+| `networkReadinessStrategy` | string | No | `Taint` | How network readiness is managed: `Taint` (auto-manage `stratos.sh/not-ready` taint) or `None` (no taint applied). |
 
 #### NodeClassRef
 
@@ -91,12 +92,12 @@ template:
 The referenced NodeClass must exist before creating the NodePool. If the NodeClass is not found, the NodePool will be marked as degraded with reason `NodeClassNotFound`.
 :::
 
-#### Startup Taint Removal Modes
+#### Network Readiness Strategy
 
-| Mode | Description |
-|------|-------------|
-| `WhenNetworkReady` | Stratos monitors network conditions and removes taints when the CNI is ready. Supports EKS VPC CNI, Cilium, and Calico. |
-| `External` | Stratos waits for an external controller (like the CNI plugin) to remove the taints. |
+| Strategy | Description |
+|----------|-------------|
+| `Taint` (default) | Stratos automatically applies and manages the `stratos.sh/not-ready=true:NoSchedule` taint. The taint is removed when the CNI reports readiness. Supports EKS VPC CNI, Cilium, and Calico. |
+| `None` | No network readiness taint is applied. Use when the CNI manages its own readiness or taint gating is not needed. |
 
 ### PreWarm Configuration
 
@@ -126,6 +127,19 @@ The referenced NodeClass must exist before creating the NodePool. If the NodeCla
 | `enabled` | bool | No | `true` | Whether automatic scale-down is enabled. |
 | `emptyNodeTTL` | duration | No | `5m` | How long a node must be empty before scale-down. |
 | `drainTimeout` | duration | No | `5m` | Maximum time to wait for node drain before force-stopping. |
+
+### SpotReplacement Configuration
+
+Spot replacement transparently replaces On-Demand running nodes with Spot instances for cost savings. On Spot interruption, On-Demand standby nodes start instantly as fallback. Requires `spotConfig` on the referenced AWSNodeClass.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `spotReplacement.enabled` | bool | Yes | - | Enable automatic spot replacement of On-Demand running nodes. |
+| `spotReplacement.replacementDelay` | duration | No | `2m` | How long an On-Demand node must be running before it becomes eligible for Spot replacement. Gives workloads time to stabilize before migration. |
+
+:::note Scale-down behavior for Spot nodes
+When scale-down targets an empty Spot node, the node is **terminated** (not stopped), because Spot instances cannot be stopped and restarted. The Kubernetes node object is also deleted. On-Demand nodes are stopped and returned to standby as usual.
+:::
 
 ## Status Fields
 
@@ -190,10 +204,6 @@ spec:
       name: standard-nodes
     labels:
       stratos.sh/pool: workers
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
 ```
 
 Target pods to this pool:
@@ -260,12 +270,6 @@ spec:
       - key: dedicated
         value: workers
         effect: NoSchedule
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: WhenNetworkReady
-
   preWarm:
     timeout: 15m
     timeoutAction: terminate
@@ -299,11 +303,9 @@ spec:
     labels:
       stratos.sh/pool: cilium-workers
       cni: cilium
-    startupTaints:
-      - key: node.cilium.io/agent-not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: External  # Cilium removes the taint
+    # Stratos natively detects Cilium readiness via NetworkUnavailable condition
+    # Use 'None' if you want Cilium to manage its own readiness taint instead
+    # networkReadinessStrategy: None
 ```
 
 Target pods to Cilium nodes:
@@ -362,11 +364,6 @@ spec:
       name: bottlerocket-nodes
     labels:
       stratos.sh/pool: bottlerocket-workers
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: WhenNetworkReady
 ```
 
 Target pods to Bottlerocket nodes:
@@ -410,10 +407,6 @@ spec:
     labels:
       stratos.sh/pool: workers-low
       tier: low-priority
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
 ---
 apiVersion: stratos.sh/v1alpha1
 kind: NodePool
@@ -429,10 +422,6 @@ spec:
     labels:
       stratos.sh/pool: workers-high
       tier: high-priority
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
 ```
 
 Target pods to specific pools:
@@ -445,6 +434,55 @@ nodeSelector:
 # High priority workloads
 nodeSelector:
   stratos.sh/pool: workers-high
+```
+
+### Spot Replacement
+
+Replace On-Demand running nodes with Spot instances for cost savings. Requires an AWSNodeClass with `spotConfig` set.
+
+```yaml title="awsnodeclass-spot.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: spot-enabled
+spec:
+  bootstrapTemplate: AL2023
+  instanceType: m5.large
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: node-role
+  spotConfig:
+    instanceTypes:
+      - m5.large
+      - m5a.large
+      - m5d.large
+```
+
+```yaml title="nodepool-spot.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: spot-workers
+spec:
+  poolSize: 10
+  minStandby: 3
+  template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: spot-enabled
+    labels:
+      stratos.sh/pool: spot-workers
+    networkReadinessStrategy: Taint
+  scaleDown:
+    enabled: true
+    emptyNodeTTL: 5m
+  spotReplacement:
+    enabled: true
+    replacementDelay: 2m
 ```
 
 ## Kubectl Commands

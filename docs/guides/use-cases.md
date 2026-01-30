@@ -66,11 +66,6 @@ spec:
     labels:
       stratos.sh/pool: ci-runners
       node-role.kubernetes.io/ci: ""
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: WhenNetworkReady
   preWarm:
     timeout: 15m
     timeoutAction: terminate
@@ -165,11 +160,6 @@ spec:
       stratos.sh/pool: inference
       node-role.kubernetes.io/inference: ""
       nvidia.com/gpu: "present"
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: WhenNetworkReady
   preWarm:
     timeout: 20m
     timeoutAction: terminate
@@ -255,11 +245,6 @@ spec:
     labels:
       stratos.sh/pool: on-demand
       scale-to-zero: enabled
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: WhenNetworkReady
   scaleDown:
     enabled: true
     emptyNodeTTL: 2m   # Return nodes to standby quickly
@@ -285,6 +270,102 @@ spec:
 ```
 
 With this setup, you can confidently scale services to zero knowing that when traffic arrives, a node will be available in seconds rather than minutes.
+
+## Cost Optimization with Spot Replacement
+
+### The Problem
+
+On-Demand EC2 instances are reliable but expensive. Spot instances offer 60-90% savings but come with the risk of interruption at any time. Most teams either:
+
+- **Run entirely On-Demand**: Reliable, but expensive
+- **Run entirely Spot**: Cheap, but risk service disruptions during interruptions
+- **Mix On-Demand and Spot** using separate node groups: Complex to manage, and interruptions still cause cold-start delays when Spot nodes are reclaimed
+
+The challenge is combining Spot savings with On-Demand reliability without adding operational complexity or cold-start risk.
+
+### How Stratos Helps
+
+Stratos's Spot replacement feature transparently replaces On-Demand running nodes with Spot instances, giving you the best of both worlds:
+
+1. **On-Demand nodes always stand by.** Your pool maintains stopped On-Demand instances in standby, ready to start in seconds
+2. **Running nodes are replaced with Spot.** After a configurable delay, Stratos launches a Spot instance via EC2 `CreateFleet`, migrates workloads, and returns the On-Demand node to standby
+3. **Instant fallback on interruption.** When a Spot instance is interrupted, the Kubernetes node is cleaned up and pods fall back to On-Demand standby nodes via normal scale-up -- no cold-start delay
+4. **Fleet diversification.** Stratos uses multiple instance types to maximize Spot availability and minimize interruption frequency
+
+The result is Spot-level pricing with On-Demand-level reliability and no cold starts.
+
+### Example Configuration
+
+```yaml title="awsnodeclass-spot.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: spot-optimized
+spec:
+  bootstrapTemplate: AL2023
+  instanceType: m5.large
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+  role: node-role
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 50
+      volumeType: gp3
+      encrypted: true
+  spotConfig:
+    instanceTypes:
+      - m5.large
+      - m5a.large
+      - m5d.large
+      - m5ad.large
+      - m5n.large
+    allocationStrategy: price-capacity-optimized
+```
+
+```yaml title="nodepool-spot.yaml"
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: spot-optimized
+spec:
+  poolSize: 20
+  minStandby: 5
+  template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: spot-optimized
+    labels:
+      stratos.sh/pool: spot-optimized
+  scaleDown:
+    enabled: true
+    emptyNodeTTL: 5m
+  spotReplacement:
+    enabled: true
+    replacementDelay: 2m
+```
+
+Target workloads to this pool:
+
+```yaml title="deployment.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-service
+spec:
+  template:
+    spec:
+      nodeSelector:
+        stratos.sh/pool: spot-optimized
+      containers:
+        - name: app
+          image: my-app:latest
+```
+
+With this setup, your workloads run primarily on Spot instances for cost savings, with On-Demand nodes as an instant safety net.
 
 ## Next Steps
 

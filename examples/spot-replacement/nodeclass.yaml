@@ -1,0 +1,32 @@
+apiVersion: stratos.sh/v1alpha1
+kind: AWSNodeClass
+metadata:
+  name: spot-enabled
+spec:
+  bootstrapTemplate: AL2023
+  instanceType: m5.large
+
+  subnetSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  securityGroupSelector:
+    tags:
+      stratos.sh/discovery: my-cluster
+
+  role: my-eks-node-role
+
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      volumeSize: 50
+      volumeType: gp3
+      encrypted: true
+
+  # Spot fleet configuration - multiple instance types for diversification
+  spotConfig:
+    instanceTypes:
+      - m5.large
+      - m5a.large
+      - m5d.large
+      - m5ad.large
+    allocationStrategy: price-capacity-optimized

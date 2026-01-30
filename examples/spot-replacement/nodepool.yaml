@@ -1,0 +1,26 @@
+apiVersion: stratos.sh/v1alpha1
+kind: NodePool
+metadata:
+  name: spot-workers
+spec:
+  poolSize: 10
+  minStandby: 3
+
+  template:
+    nodeClassRef:
+      kind: AWSNodeClass
+      name: spot-enabled
+    labels:
+      stratos.sh/pool: spot-workers
+    networkReadinessStrategy: Taint
+
+  scaleDown:
+    enabled: true
+    emptyNodeTTL: 5m
+
+  # Enable spot replacement - On-Demand running nodes are transparently
+  # replaced with Spot instances after replacementDelay. On Spot
+  # interruption, On-Demand standby nodes start instantly as fallback.
+  spotReplacement:
+    enabled: true
+    replacementDelay: 2m
