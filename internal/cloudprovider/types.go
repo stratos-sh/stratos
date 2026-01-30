@@ -49,7 +49,16 @@ type Instance struct {
 
 	// AvailabilityZone is the AZ the instance is in
 	AvailabilityZone string
+
+	// CapacityType is the instance capacity type ("on-demand" or "spot")
+	CapacityType string
 }
+
+// Capacity type constants
+const (
+	CapacityTypeOnDemand = "on-demand"
+	CapacityTypeSpot     = "spot"
+)
 
 // InstanceState represents the cloud instance lifecycle state.
 type InstanceState string
