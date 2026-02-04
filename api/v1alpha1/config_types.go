@@ -51,6 +51,20 @@ type PreWarmConfig struct {
 	// +kubebuilder:default=stop
 	// +optional
 	TimeoutAction *TimeoutAction `json:"timeoutAction,omitempty"`
+
+	// Images is a list of container images to pre-pull during warmup.
+	// Each image is pulled using ctr and pinned to prevent kubelet GC eviction.
+	// +optional
+	// +kubebuilder:validation:items:MinLength=1
+	Images []string `json:"images,omitempty"`
+
+	// ImagePullPolicy controls whether image pull failures block warmup completion.
+	// Required (default): warmup fails if any image cannot be pulled.
+	// BestEffort: warmup completes regardless of pull failures.
+	// +kubebuilder:validation:Enum=Required;BestEffort
+	// +kubebuilder:default=Required
+	// +optional
+	ImagePullPolicy *ImagePullPolicy `json:"imagePullPolicy,omitempty"`
 }
 
 // TimeoutAction defines what happens when pre-warming times out
@@ -63,6 +77,18 @@ const (
 
 	// TimeoutActionTerminate terminates the instance when pre-warming times out
 	TimeoutActionTerminate TimeoutAction = "terminate"
+)
+
+// ImagePullPolicy defines how image pull failures affect warmup completion
+// +kubebuilder:validation:Enum=Required;BestEffort
+type ImagePullPolicy string
+
+const (
+	// ImagePullPolicyRequired fails warmup if any image pull fails
+	ImagePullPolicyRequired ImagePullPolicy = "Required"
+
+	// ImagePullPolicyBestEffort completes warmup regardless of pull failures
+	ImagePullPolicyBestEffort ImagePullPolicy = "BestEffort"
 )
 
 // GetEnabled returns whether scale-down is enabled (default: true)
@@ -103,4 +129,20 @@ func (c *PreWarmConfig) GetTimeoutAction() TimeoutAction {
 		return TimeoutActionStop
 	}
 	return *c.TimeoutAction
+}
+
+// GetImages returns the list of images to pre-pull (default: empty list)
+func (c *PreWarmConfig) GetImages() []string {
+	if c == nil || c.Images == nil {
+		return []string{}
+	}
+	return c.Images
+}
+
+// GetImagePullPolicy returns the image pull policy (default: Required)
+func (c *PreWarmConfig) GetImagePullPolicy() ImagePullPolicy {
+	if c == nil || c.ImagePullPolicy == nil {
+		return ImagePullPolicyRequired
+	}
+	return *c.ImagePullPolicy
 }

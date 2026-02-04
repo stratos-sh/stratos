@@ -181,3 +181,85 @@ func TestPreWarmConfig_GetTimeoutAction(t *testing.T) {
 		})
 	}
 }
+
+func TestPreWarmConfig_GetImages(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *PreWarmConfig
+		want   []string
+	}{
+		{
+			name:   "nil config returns empty slice",
+			config: nil,
+			want:   []string{},
+		},
+		{
+			name:   "empty config returns empty slice",
+			config: &PreWarmConfig{},
+			want:   []string{},
+		},
+		{
+			name: "explicit images returns those images",
+			config: &PreWarmConfig{
+				Images: []string{"nginx:1.25", "redis:7"},
+			},
+			want: []string{"nginx:1.25", "redis:7"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.config.GetImages()
+			if len(got) != len(tt.want) {
+				t.Errorf("GetImages() returned %d items, want %d", len(got), len(tt.want))
+				return
+			}
+			for i, v := range got {
+				if v != tt.want[i] {
+					t.Errorf("GetImages()[%d] = %q, want %q", i, v, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestPreWarmConfig_GetImagePullPolicy(t *testing.T) {
+	required := ImagePullPolicyRequired
+	bestEffort := ImagePullPolicyBestEffort
+
+	tests := []struct {
+		name   string
+		config *PreWarmConfig
+		want   ImagePullPolicy
+	}{
+		{
+			name:   "nil config defaults to Required",
+			config: nil,
+			want:   ImagePullPolicyRequired,
+		},
+		{
+			name:   "empty config defaults to Required",
+			config: &PreWarmConfig{},
+			want:   ImagePullPolicyRequired,
+		},
+		{
+			name:   "explicit Required returns Required",
+			config: &PreWarmConfig{ImagePullPolicy: &required},
+			want:   ImagePullPolicyRequired,
+		},
+		{
+			name:   "explicit BestEffort returns BestEffort",
+			config: &PreWarmConfig{ImagePullPolicy: &bestEffort},
+			want:   ImagePullPolicyBestEffort,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.config.GetImagePullPolicy()
+			if got != tt.want {
+				t.Errorf("GetImagePullPolicy() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
