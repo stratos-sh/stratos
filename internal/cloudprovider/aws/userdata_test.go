@@ -17,6 +17,7 @@ limitations under the License.
 package aws
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -24,6 +25,11 @@ import (
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 )
+
+// ptrImagePullPolicy returns a pointer to the given ImagePullPolicy.
+func ptrImagePullPolicy(p stratosv1alpha1.ImagePullPolicy) *stratosv1alpha1.ImagePullPolicy {
+	return &p
+}
 
 func TestNewBootstrapGenerator(t *testing.T) {
 	tests := []struct {
@@ -563,5 +569,352 @@ func TestGenerator_NilConfig(t *testing.T) {
 		if err == nil {
 			t.Errorf("%T.Generate(nil) should return error", gen)
 		}
+	}
+}
+
+// --- AL2 Image Pre-Pull Tests ---
+
+func TestAL2Generator_WithImages(t *testing.T) {
+	config := &BootstrapConfig{
+		ClusterName:       "test-cluster",
+		ClusterEndpoint:   "https://api.example.com",
+		ClusterCA:         "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t",
+		ClusterCIDR:       "172.20.0.0/16",
+		PoolName:          "test-pool",
+		BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2,
+		PreWarmConfig: &stratosv1alpha1.PreWarmConfig{
+			Images:          []string{"nginx:latest", "redis:7"},
+			ImagePullPolicy: ptrImagePullPolicy(stratosv1alpha1.ImagePullPolicyRequired),
+		},
+	}
+
+	gen := &AL2Generator{}
+	userData, err := gen.Generate(config)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Verify MIME multipart format
+	if !strings.Contains(userData, "MIME-Version: 1.0") {
+		t.Error("missing MIME-Version header")
+	}
+	if !strings.Contains(userData, "==STRATOS_MIME_BOUNDARY==") {
+		t.Error("missing MIME boundary")
+	}
+
+	// Verify bootstrap.sh part exists
+	if !strings.Contains(userData, `filename="bootstrap.sh"`) {
+		t.Error("missing bootstrap.sh MIME part")
+	}
+
+	// Verify image-pull.sh part exists with ctr commands
+	if !strings.Contains(userData, `filename="image-pull.sh"`) {
+		t.Error("missing image-pull.sh MIME part")
+	}
+	if !strings.Contains(userData, "ctr") {
+		t.Error("image-pull.sh should contain ctr commands")
+	}
+	if !strings.Contains(userData, "nginx:latest") {
+		t.Error("image-pull.sh should reference nginx:latest")
+	}
+	if !strings.Contains(userData, "redis:7") {
+		t.Error("image-pull.sh should reference redis:7")
+	}
+
+	// Verify warmup script part exists
+	if !strings.Contains(userData, `filename="stratos-warmup.sh"`) {
+		t.Error("missing stratos-warmup.sh MIME part")
+	}
+
+	// Verify ordering: bootstrap before image-pull before warmup
+	bootstrapIdx := strings.Index(userData, `filename="bootstrap.sh"`)
+	imagePullIdx := strings.Index(userData, `filename="image-pull.sh"`)
+	warmupIdx := strings.Index(userData, `filename="stratos-warmup.sh"`)
+
+	if bootstrapIdx >= imagePullIdx {
+		t.Error("bootstrap.sh must come before image-pull.sh")
+	}
+	if imagePullIdx >= warmupIdx {
+		t.Error("image-pull.sh must come before stratos-warmup.sh")
+	}
+}
+
+func TestAL2Generator_WithoutImages(t *testing.T) {
+	config := &BootstrapConfig{
+		ClusterName:       "test-cluster",
+		ClusterEndpoint:   "https://api.example.com",
+		ClusterCA:         "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t",
+		ClusterCIDR:       "172.20.0.0/16",
+		PoolName:          "test-pool",
+		BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2,
+		// No PreWarmConfig
+	}
+
+	gen := &AL2Generator{}
+	userData, err := gen.Generate(config)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Should have MIME multipart (AL2 always uses MIME)
+	if !strings.Contains(userData, "MIME-Version: 1.0") {
+		t.Error("missing MIME-Version header")
+	}
+
+	// Should have bootstrap and warmup but NOT image-pull
+	if !strings.Contains(userData, `filename="bootstrap.sh"`) {
+		t.Error("missing bootstrap.sh MIME part")
+	}
+	if !strings.Contains(userData, `filename="stratos-warmup.sh"`) {
+		t.Error("missing stratos-warmup.sh MIME part")
+	}
+	if strings.Contains(userData, `filename="image-pull.sh"`) {
+		t.Error("should NOT contain image-pull.sh when no images configured")
+	}
+}
+
+func TestAL2Generator_WithImagesAndCustomUserData(t *testing.T) {
+	config := &BootstrapConfig{
+		ClusterName:       "test-cluster",
+		ClusterEndpoint:   "https://api.example.com",
+		ClusterCA:         "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t",
+		ClusterCIDR:       "172.20.0.0/16",
+		PoolName:          "test-pool",
+		BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2,
+		CustomUserData:    "#!/bin/bash\necho 'custom script'",
+		PreWarmConfig: &stratosv1alpha1.PreWarmConfig{
+			Images:          []string{"nginx:latest"},
+			ImagePullPolicy: ptrImagePullPolicy(stratosv1alpha1.ImagePullPolicyBestEffort),
+		},
+	}
+
+	gen := &AL2Generator{}
+	userData, err := gen.Generate(config)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Verify all 4 parts exist
+	if !strings.Contains(userData, `filename="bootstrap.sh"`) {
+		t.Error("missing bootstrap.sh MIME part")
+	}
+	if !strings.Contains(userData, `filename="image-pull.sh"`) {
+		t.Error("missing image-pull.sh MIME part")
+	}
+	if !strings.Contains(userData, `filename="stratos-warmup.sh"`) {
+		t.Error("missing stratos-warmup.sh MIME part")
+	}
+	if !strings.Contains(userData, `filename="custom-userdata.sh"`) {
+		t.Error("missing custom-userdata.sh MIME part")
+	}
+
+	// Verify ordering: bootstrap < image-pull < warmup < custom
+	bootstrapIdx := strings.Index(userData, `filename="bootstrap.sh"`)
+	imagePullIdx := strings.Index(userData, `filename="image-pull.sh"`)
+	warmupIdx := strings.Index(userData, `filename="stratos-warmup.sh"`)
+	customIdx := strings.Index(userData, `filename="custom-userdata.sh"`)
+
+	if bootstrapIdx >= imagePullIdx {
+		t.Error("bootstrap.sh must come before image-pull.sh")
+	}
+	if imagePullIdx >= warmupIdx {
+		t.Error("image-pull.sh must come before stratos-warmup.sh")
+	}
+	if warmupIdx >= customIdx {
+		t.Error("stratos-warmup.sh must come before custom-userdata.sh")
+	}
+}
+
+// --- AL2023 Image Pre-Pull Tests ---
+
+func TestAL2023Generator_WithImages(t *testing.T) {
+	config := &BootstrapConfig{
+		ClusterName:       "test-cluster",
+		ClusterEndpoint:   "https://api.example.com",
+		ClusterCA:         "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t",
+		ClusterCIDR:       "172.20.0.0/16",
+		PoolName:          "test-pool",
+		BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
+		PreWarmConfig: &stratosv1alpha1.PreWarmConfig{
+			Images:          []string{"nginx:latest", "redis:7"},
+			ImagePullPolicy: ptrImagePullPolicy(stratosv1alpha1.ImagePullPolicyRequired),
+		},
+	}
+
+	gen := &AL2023Generator{}
+	userData, err := gen.Generate(config)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// When images configured, AL2023 switches to MIME multipart
+	if !strings.Contains(userData, "MIME-Version: 1.0") {
+		t.Error("should have MIME headers when images configured")
+	}
+	if !strings.Contains(userData, "==STRATOS_MIME_BOUNDARY==") {
+		t.Error("missing MIME boundary")
+	}
+
+	// Verify NodeConfig part with application/node.eks.aws content type
+	if !strings.Contains(userData, `Content-Type: application/node.eks.aws`) {
+		t.Error("missing application/node.eks.aws content type for NodeConfig")
+	}
+	if !strings.Contains(userData, `filename="nodeadm-config.yaml"`) {
+		t.Error("missing nodeadm-config.yaml filename")
+	}
+	if !strings.Contains(userData, "apiVersion: node.eks.aws/v1alpha1") {
+		t.Error("missing nodeadm apiVersion in NodeConfig part")
+	}
+
+	// Verify image-pull.sh part with ctr commands
+	if !strings.Contains(userData, `filename="image-pull.sh"`) {
+		t.Error("missing image-pull.sh MIME part")
+	}
+	if !strings.Contains(userData, "ctr") {
+		t.Error("image-pull.sh should contain ctr commands")
+	}
+
+	// Verify warmup script part
+	if !strings.Contains(userData, `filename="stratos-warmup.sh"`) {
+		t.Error("missing stratos-warmup.sh MIME part")
+	}
+
+	// Verify ordering: NodeConfig before image-pull before warmup
+	nodeConfigIdx := strings.Index(userData, `filename="nodeadm-config.yaml"`)
+	imagePullIdx := strings.Index(userData, `filename="image-pull.sh"`)
+	warmupIdx := strings.Index(userData, `filename="stratos-warmup.sh"`)
+
+	if nodeConfigIdx >= imagePullIdx {
+		t.Error("nodeadm-config.yaml must come before image-pull.sh")
+	}
+	if imagePullIdx >= warmupIdx {
+		t.Error("image-pull.sh must come before stratos-warmup.sh")
+	}
+}
+
+func TestAL2023Generator_WithoutImages(t *testing.T) {
+	config := &BootstrapConfig{
+		ClusterName:       "test-cluster",
+		ClusterEndpoint:   "https://api.example.com",
+		ClusterCA:         "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t",
+		ClusterCIDR:       "172.20.0.0/16",
+		PoolName:          "test-pool",
+		BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
+		// No PreWarmConfig
+	}
+
+	gen := &AL2023Generator{}
+	userData, err := gen.Generate(config)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Without images, AL2023 returns plain NodeConfig YAML
+	if !strings.Contains(userData, "apiVersion: node.eks.aws/v1alpha1") {
+		t.Error("missing nodeadm apiVersion")
+	}
+	if !strings.Contains(userData, "kind: NodeConfig") {
+		t.Error("missing NodeConfig kind")
+	}
+
+	// Must NOT have MIME headers (plain YAML format)
+	if strings.Contains(userData, "MIME-Version") {
+		t.Error("should NOT have MIME headers when no images configured")
+	}
+	if strings.Contains(userData, "image-pull.sh") {
+		t.Error("should NOT contain image-pull.sh when no images configured")
+	}
+}
+
+func TestAL2023Generator_EmptyImagesList(t *testing.T) {
+	config := &BootstrapConfig{
+		ClusterName:       "test-cluster",
+		ClusterEndpoint:   "https://api.example.com",
+		ClusterCA:         "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t",
+		ClusterCIDR:       "172.20.0.0/16",
+		PoolName:          "test-pool",
+		BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
+		PreWarmConfig: &stratosv1alpha1.PreWarmConfig{
+			Images: []string{}, // explicitly empty
+		},
+	}
+
+	gen := &AL2023Generator{}
+	userData, err := gen.Generate(config)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Empty images list should produce plain YAML, same as no PreWarmConfig
+	if !strings.Contains(userData, "apiVersion: node.eks.aws/v1alpha1") {
+		t.Error("missing nodeadm apiVersion")
+	}
+	if strings.Contains(userData, "MIME-Version") {
+		t.Error("empty images list should NOT produce MIME output")
+	}
+	if strings.Contains(userData, "image-pull.sh") {
+		t.Error("empty images list should NOT include image-pull.sh")
+	}
+}
+
+// --- Size Limit Tests ---
+
+func TestAL2Generator_LargeUserData(t *testing.T) {
+	// Generate enough images to exceed 16 KiB
+	images := make([]string, 200)
+	for i := range images {
+		images[i] = fmt.Sprintf("123456789012.dkr.ecr.us-east-1.amazonaws.com/very-long-repo-name-that-takes-lots-of-space/image-name-%03d:tag-v1.2.3", i)
+	}
+
+	config := &BootstrapConfig{
+		ClusterName:       "test-cluster",
+		ClusterEndpoint:   "https://api.example.com",
+		ClusterCA:         "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t",
+		ClusterCIDR:       "172.20.0.0/16",
+		PoolName:          "test-pool",
+		BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2,
+		PreWarmConfig: &stratosv1alpha1.PreWarmConfig{
+			Images:          images,
+			ImagePullPolicy: ptrImagePullPolicy(stratosv1alpha1.ImagePullPolicyRequired),
+		},
+	}
+
+	gen := &AL2Generator{}
+	_, err := gen.Generate(config)
+	if err == nil {
+		t.Fatal("expected error for oversized user data, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds") && !strings.Contains(err.Error(), "limit") {
+		t.Errorf("error should mention exceeding limit, got: %v", err)
+	}
+}
+
+func TestAL2023Generator_LargeUserData(t *testing.T) {
+	// Generate enough images to exceed 16 KiB
+	images := make([]string, 200)
+	for i := range images {
+		images[i] = fmt.Sprintf("123456789012.dkr.ecr.us-east-1.amazonaws.com/very-long-repo-name-that-takes-lots-of-space/image-name-%03d:tag-v1.2.3", i)
+	}
+
+	config := &BootstrapConfig{
+		ClusterName:       "test-cluster",
+		ClusterEndpoint:   "https://api.example.com",
+		ClusterCA:         "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t",
+		ClusterCIDR:       "172.20.0.0/16",
+		PoolName:          "test-pool",
+		BootstrapTemplate: stratosv1alpha1.BootstrapTemplateAL2023,
+		PreWarmConfig: &stratosv1alpha1.PreWarmConfig{
+			Images:          images,
+			ImagePullPolicy: ptrImagePullPolicy(stratosv1alpha1.ImagePullPolicyRequired),
+		},
+	}
+
+	gen := &AL2023Generator{}
+	_, err := gen.Generate(config)
+	if err == nil {
+		t.Fatal("expected error for oversized user data, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds") && !strings.Contains(err.Error(), "limit") {
+		t.Errorf("error should mention exceeding limit, got: %v", err)
 	}
 }
