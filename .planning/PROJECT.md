@@ -50,7 +50,11 @@ Kubernetes pod-driven scaling with no unnecessary abstraction layers — the cod
 
 ### Active
 
-(None — next milestone requirements TBD)
+- [ ] Warmup image pre-pull — user-configured images pulled during instance warmup
+- [ ] Configurable image pull policy — Required (default) or BestEffort
+- [ ] Auto-detect container runtime — crictl or ctr, whichever is available
+- [ ] AL2023 + AL2 support — inject pull commands into user data
+- [ ] CRD fields — spec.warmup.images and spec.warmup.imagePullPolicy on NodePool
 
 ### Out of Scope
 
@@ -58,11 +62,24 @@ Kubernetes pod-driven scaling with no unnecessary abstraction layers — the cod
 - Documentation site (docs/) rewrites — focus is on code, not user docs
 - GitHub Actions scaling — will be a separate project
 - Adding new scaling strategies — Stratos is Kubernetes-only going forward
+- Dynamic pending-pod image pre-pull at start time — complexity of passing image list to starting node without API server access; considered and rejected
+- Bottlerocket image pre-pull — immutable OS has different container runtime story; defer to future milestone
+
+## Current Milestone: v1.2 Warmup Image Pre-Pull
+
+**Goal:** Allow users to configure container images that get pulled during the warmup phase, so standby nodes already have the expected images cached when they start.
+
+**Target features:**
+- `spec.warmup.images` field on NodePool CRD — list of images to pre-pull
+- `spec.warmup.imagePullPolicy` field — Required (default) or BestEffort
+- Image pull commands injected into user data at launch time
+- Auto-detect crictl/ctr on the instance
+- AL2023 + AL2 support (Bottlerocket deferred)
 
 ## Current State
 
 **Last shipped:** v1.1.1 Naming & Dead Code Cleanup (2026-02-04)
-**Next milestone:** TBD
+**Next milestone:** v1.2 Warmup Image Pre-Pull
 
 ## Context
 
@@ -122,6 +139,10 @@ internal/
 
 | Rename Strategy → Scaler | Vestige of ScalingStrategy interface removed in v1.1. "Scaler" describes what it does. | ✓ Good |
 | Concrete Metadata type | interface{} was for multi-strategy support. Only pods now. | ✓ Good |
+| Image pre-pull on NodePool, not AWSNodeClass | Images are a pool concern (what workloads run), not a cloud concern (how instances are configured) | — Pending |
+| Required as default imagePullPolicy | Stricter default ensures standby nodes have expected images; users opt into BestEffort explicitly | — Pending |
+| Defer Bottlerocket support | Immutable OS has different container runtime; AL2023 + AL2 cover primary use cases | — Pending |
+| Defer dynamic pending-pod image pull | No clean mechanism to pass image list to node at start time without API server access | — Pending |
 
 ---
-*Last updated: 2026-02-04 after v1.1.1 milestone*
+*Last updated: 2026-02-04 after v1.2 milestone started*

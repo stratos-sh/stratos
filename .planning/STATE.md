@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Kubernetes pod-driven scaling with no unnecessary abstraction layers
-**Current focus:** Planning next milestone
+**Current focus:** v1.2 Warmup Image Pre-Pull
 
 ## Current Position
 
-Phase: 16 of 16 (all phases complete)
-Plan: N/A
-Status: v1.1.1 milestone shipped
-Last activity: 2026-02-04 -- v1.1.1 milestone complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-04 — Milestone v1.2 started
 
-Progress: [####################] 100% (16 of 16 phases complete across 3 milestones)
+Progress: [░░░░░░░░░░░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -37,7 +37,11 @@ Progress: [####################] 100% (16 of 16 phases complete across 3 milesto
 
 ### Decisions
 
-None pending. All decisions resolved through v1.1.1.
+- Image pre-pull config lives on NodePool spec (not AWSNodeClass) — images are a workload concern
+- Required is the default imagePullPolicy — stricter ensures standby nodes have expected images
+- Bottlerocket deferred — different container runtime story
+- Dynamic pending-pod image pull deferred — no clean mechanism without API server access
+- Auto-detect crictl/ctr at runtime — covers AL2023 and AL2
 
 ### Pending Todos
 
@@ -50,5 +54,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: v1.1.1 milestone complete. Ready for next milestone.
+Stopped at: v1.2 milestone started. Defining requirements.
 Resume file: None
