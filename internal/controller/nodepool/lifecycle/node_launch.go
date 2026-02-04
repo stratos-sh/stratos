@@ -42,6 +42,7 @@ func (m *Manager) LaunchNode(ctx context.Context, pool *stratosv1alpha1.NodePool
 		Labels:                      pool.Spec.Template.Labels,
 		Taints:                      pool.Spec.Template.Taints,
 		EnableNetworkReadinessTaint: pool.Spec.Template.IsNetworkReadinessTaintEnabled(),
+		PreWarmConfig:               pool.Spec.PreWarm,
 	}
 
 	// Launch the instance using the cloud-specific provider

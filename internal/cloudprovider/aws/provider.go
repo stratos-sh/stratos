@@ -254,6 +254,7 @@ func (p *AWSProvider) generateEncodedUserData(nodeClass *stratosv1alpha1.AWSNode
 		bootstrapConfig.TemplateLabels = templateConfig.Labels
 		bootstrapConfig.TemplateTaints = templateConfig.Taints
 		bootstrapConfig.EnableNetworkReadinessTaint = templateConfig.EnableNetworkReadinessTaint
+		bootstrapConfig.PreWarmConfig = templateConfig.PreWarmConfig
 	}
 
 	userData, err := GenerateUserData(bootstrapConfig)

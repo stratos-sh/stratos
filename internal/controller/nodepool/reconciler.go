@@ -160,6 +160,11 @@ func (r *Reconciler) reconcileNodePool(ctx context.Context, nodePool *stratosv1a
 	provider := r.getCloudProvider(nodePool.Name)
 	scaler := r.scaler
 
+	// Check image pre-pull support (non-blocking, sets condition only)
+	if nodeClass, ncErr := r.getNodeClass(ctx, nodePool.Spec.Template.NodeClassRef); ncErr == nil {
+		r.checkImagePrePullSupport(nodePool, nodeClass)
+	}
+
 	// PRIORITY: Check for scale-up need FIRST (fast path for unschedulable pods)
 	if result, scaled, scaleErr := r.handleScaleUp(ctx, nodePool, scaler); scaleErr != nil {
 		return result, scaleErr

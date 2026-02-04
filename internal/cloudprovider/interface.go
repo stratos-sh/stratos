@@ -20,14 +20,17 @@ import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
+
+	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 )
 
 // TemplateConfig holds NodePool template configuration for userData generation.
 // This includes labels and taints that should be applied to nodes via kubelet flags.
 type TemplateConfig struct {
 	Labels                      map[string]string
-	Taints                      []corev1.Taint // Permanent taints
-	EnableNetworkReadinessTaint bool           // Whether to add stratos.sh/not-ready taint
+	Taints                      []corev1.Taint                  // Permanent taints
+	EnableNetworkReadinessTaint bool                            // Whether to add stratos.sh/not-ready taint
+	PreWarmConfig               *stratosv1alpha1.PreWarmConfig  // Image pre-pull configuration
 }
 
 // CloudProvider defines the interface for cloud instance lifecycle operations.
