@@ -13,14 +13,14 @@
 
 ### Warmup Script
 
-- [ ] **WARM-01**: Warmup script waits for containerd socket readiness before pulling images
-- [ ] **WARM-02**: Warmup script uses `ctr -n k8s.io images pull` to pull configured images into the kubelet-visible namespace
-- [ ] **WARM-03**: For ECR images, warmup script authenticates via `aws ecr get-login-password` using the instance profile
-- [ ] **WARM-04**: Image pulls retry with exponential backoff (up to 3 retries per image)
-- [ ] **WARM-05**: With imagePullPolicy=Required, warmup fails if any image pull fails after retries
-- [ ] **WARM-06**: With imagePullPolicy=BestEffort, warmup completes regardless of pull failures (failures logged)
-- [ ] **WARM-07**: After successful pull, each image is pinned with `io.cri-containerd.pinned=pinned` label to prevent kubelet GC eviction
-- [ ] **WARM-08**: Each image pull logs image name, duration, and success/failure status
+- [x] **WARM-01**: Warmup script waits for containerd socket readiness before pulling images
+- [x] **WARM-02**: Warmup script uses `ctr -n k8s.io images pull` to pull configured images into the kubelet-visible namespace
+- [x] **WARM-03**: For ECR images, warmup script authenticates via `aws ecr get-login-password` using the instance profile
+- [x] **WARM-04**: Image pulls retry with exponential backoff (up to 3 retries per image)
+- [x] **WARM-05**: With imagePullPolicy=Required, warmup fails if any image pull fails after retries
+- [x] **WARM-06**: With imagePullPolicy=BestEffort, warmup completes regardless of pull failures (failures logged)
+- [x] **WARM-07**: After successful pull, each image is pinned with `io.cri-containerd.pinned=pinned` label to prevent kubelet GC eviction
+- [x] **WARM-08**: Each image pull logs image name, duration, and success/failure status
 
 ### AMI Support
 
@@ -40,7 +40,7 @@
 
 ### Tests
 
-- [ ] **TEST-01**: Unit tests for warmup script generation with images, without images, Required policy, BestEffort policy
+- [x] **TEST-01**: Unit tests for warmup script generation with images, without images, Required policy, BestEffort policy
 - [ ] **TEST-02**: Unit tests for AL2 MIME multipart with image pull MIME part
 - [ ] **TEST-03**: Unit tests for AL2023 MIME multipart vs plain YAML conditional output
 - [x] **TEST-04**: Unit tests for nil-safe getter methods on PreWarmConfig (GetImages, GetImagePullPolicy)
@@ -78,14 +78,14 @@
 | CRD-01 | Phase 17 | Complete |
 | CRD-02 | Phase 17 | Complete |
 | CRD-03 | Phase 17 | Complete |
-| WARM-01 | Phase 18 | Pending |
-| WARM-02 | Phase 18 | Pending |
-| WARM-03 | Phase 18 | Pending |
-| WARM-04 | Phase 18 | Pending |
-| WARM-05 | Phase 18 | Pending |
-| WARM-06 | Phase 18 | Pending |
-| WARM-07 | Phase 18 | Pending |
-| WARM-08 | Phase 18 | Pending |
+| WARM-01 | Phase 18 | Complete |
+| WARM-02 | Phase 18 | Complete |
+| WARM-03 | Phase 18 | Complete |
+| WARM-04 | Phase 18 | Complete |
+| WARM-05 | Phase 18 | Complete |
+| WARM-06 | Phase 18 | Complete |
+| WARM-07 | Phase 18 | Complete |
+| WARM-08 | Phase 18 | Complete |
 | AMI-01 | Phase 19 | Pending |
 | AMI-02 | Phase 19 | Pending |
 | AMI-03 | Phase 19 | Pending |
@@ -93,7 +93,7 @@
 | FLOW-02 | Phase 19 | Pending |
 | GEN-01 | Phase 17 | Complete |
 | GEN-02 | Phase 17 | Complete |
-| TEST-01 | Phase 18 | Pending |
+| TEST-01 | Phase 18 | Complete |
 | TEST-02 | Phase 19 | Pending |
 | TEST-03 | Phase 19 | Pending |
 | TEST-04 | Phase 17 | Complete |

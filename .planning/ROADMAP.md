@@ -35,7 +35,7 @@ See .planning/milestones/v1.1.1-ROADMAP.md for v1.1.1 details (5 phases, 5 plans
 **Milestone Goal:** Standby nodes have expected container images cached, eliminating image pull latency when pods are scheduled
 
 - [x] **Phase 17: CRD Types and Code Generation** - PreWarmConfig fields, validation, deepcopy, nil-safe getters
-- [ ] **Phase 18: Warmup Script Generator** - Dynamic bash script generation with ctr pull, ECR auth, retry, pinning
+- [x] **Phase 18: Warmup Script Generator** - Dynamic bash script generation with ctr pull, ECR auth, retry, pinning
 - [ ] **Phase 19: AMI Generator Integration** - Inject image pull script into AL2 and AL2023 user data, Bottlerocket warning
 - [ ] **Phase 20: Controller Data Threading** - Wire image config from NodePool spec through TemplateConfig to BootstrapConfig
 
@@ -67,7 +67,7 @@ Plans:
   5. After successful pull, generated script pins each image with `io.cri-containerd.pinned=pinned` label to prevent kubelet garbage collection
 **Plans**: 1 plan
 Plans:
-- [ ] 18-01-PLAN.md -- Warmup script generator package with template, ECR auth, retry, pinning, and tests
+- [x] 18-01-PLAN.md -- Warmup script generator package with template, ECR auth, retry, pinning, and tests
 
 ### Phase 19: AMI Generator Integration
 **Goal**: Image pull script is correctly injected into user data for AL2 and AL2023 instances, with a validation warning for Bottlerocket
@@ -105,6 +105,6 @@ Plans:
 | 15. File Renames | v1.1.1 | 1/1 | Complete | 2026-02-04 |
 | 16. Struct Field Type Change | v1.1.1 | 1/1 | Complete | 2026-02-04 |
 | 17. CRD Types & Code Gen | v1.2 | 1/1 | Complete | 2026-02-04 |
-| 18. Warmup Script Generator | v1.2 | 0/1 | Not started | - |
+| 18. Warmup Script Generator | v1.2 | 1/1 | Complete | 2026-02-04 |
 | 19. AMI Generator Integration | v1.2 | 0/TBD | Not started | - |
 | 20. Controller Data Threading | v1.2 | 0/TBD | Not started | - |
