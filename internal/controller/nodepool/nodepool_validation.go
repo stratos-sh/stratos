@@ -78,3 +78,38 @@ func (r *Reconciler) checkNodeClassReady(ctx context.Context, nodePool *stratosv
 
 	return nil
 }
+
+// checkImagePrePullSupport checks if the AMI family supports image pre-pull
+// and sets/removes the ImagePrePullSupported condition accordingly.
+// This is non-blocking -- Bottlerocket instances still launch without cached images.
+func (r *Reconciler) checkImagePrePullSupport(
+	nodePool *stratosv1alpha1.NodePool,
+	nodeClass stratosv1alpha1.NodeClass,
+) {
+	// If no images are configured, remove any previous condition and return
+	if nodePool.Spec.PreWarm == nil || len(nodePool.Spec.PreWarm.Images) == 0 {
+		meta.RemoveStatusCondition(&nodePool.Status.Conditions, stratosv1alpha1.ConditionTypeImagePrePullSupported)
+		return
+	}
+
+	// Type-assert to AWSNodeClass to check bootstrap template
+	awsNodeClass, ok := nodeClass.(*stratosv1alpha1.AWSNodeClass)
+	if !ok {
+		// Non-AWS NodeClass -- skip (no condition set)
+		return
+	}
+
+	if awsNodeClass.Spec.BootstrapTemplate == stratosv1alpha1.BootstrapTemplateBottlerocket {
+		meta.SetStatusCondition(&nodePool.Status.Conditions, metav1.Condition{
+			Type:               stratosv1alpha1.ConditionTypeImagePrePullSupported,
+			Status:             metav1.ConditionFalse,
+			ObservedGeneration: nodePool.Generation,
+			LastTransitionTime: metav1.Now(),
+			Reason:             stratosv1alpha1.ReasonBottlerocketNotSupported,
+			Message:            "Image pre-pull is not supported on Bottlerocket AMIs. Instances will launch without cached images.",
+		})
+	} else {
+		// AL2 or AL2023 -- remove condition if it was previously set (e.g., user changed AMI family)
+		meta.RemoveStatusCondition(&nodePool.Status.Conditions, stratosv1alpha1.ConditionTypeImagePrePullSupported)
+	}
+}

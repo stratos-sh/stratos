@@ -225,6 +225,9 @@ const (
 
 	// ConditionTypeScaleDownInProgress indicates scale-down is in progress
 	ConditionTypeScaleDownInProgress = "ScaleDownInProgress"
+
+	// ConditionTypeImagePrePullSupported indicates whether the AMI family supports image pre-pull
+	ConditionTypeImagePrePullSupported = "ImagePrePullSupported"
 )
 
 // Condition reasons
@@ -235,5 +238,7 @@ const (
 	ReasonDegraded            = "Degraded"
 	ReasonScaleUpInProgress   = "ScaleUpInProgress"
 	ReasonScaleDownInProgress = "ScaleDownInProgress"
-	ReasonNodeClassNotFound   = "NodeClassNotFound"
+	ReasonNodeClassNotFound         = "NodeClassNotFound"
+	ReasonBottlerocketNotSupported  = "BottlerocketNotSupported"
+	ReasonImagePrePullSupported     = "Supported"
 )
