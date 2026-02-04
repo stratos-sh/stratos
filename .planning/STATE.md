@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 19 of 20 (AMI Generator Integration)
-Plan: 2 of 2 in current phase
-Status: Phase complete
-Last activity: 2026-02-04 -- Completed 19-02-PLAN.md (Bottlerocket image pre-pull warning)
+Plan: 1 of 2 in current phase
+Status: In progress
+Last activity: 2026-02-04 -- Completed 19-01-PLAN.md (AL2/AL2023 MIME integration)
 
 Progress: [===================.] 95% (milestone: [##..] 50%)
 
@@ -53,8 +53,10 @@ Progress: [===================.] 95% (milestone: [##..] 50%)
 - Use text/template with template.Must for compile-time validation -- fail-fast at init
 - ECR detection at generation time via regex -- cleaner template logic than bash pattern matching
 - No-op script for empty images -- caller always gets valid bash
-- ImagePrePullSupported condition is informational only -- non-blocking, does not prevent launch
-- Condition removed (not set True) when not applicable -- keeps conditions list clean
+- Extract MIME utilities into shared mime.go -- both AL2 and AL2023 need MIME building
+- AL2023 conditionally switches from plain YAML to MIME multipart -- backward compatible
+- Size validation at generator level -- hard error at 16 KiB, warning at 14 KiB
+- PreWarmConfig as pointer field on BootstrapConfig -- nil means no pre-warm configured
 
 ### Pending Todos
 
@@ -67,5 +69,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: Completed 19-02-PLAN.md (Phase 19 complete). Ready for Phase 20.
+Stopped at: Completed 19-01-PLAN.md. Ready for 19-02.
 Resume file: None
