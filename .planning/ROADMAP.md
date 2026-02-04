@@ -65,7 +65,9 @@ Plans:
   3. Generated script retries failed pulls with exponential backoff (up to 3 retries per image) and logs image name, duration, and outcome for each pull
   4. With imagePullPolicy=Required, generated script exits non-zero if any image fails after retries; with BestEffort, script completes regardless of failures
   5. After successful pull, generated script pins each image with `io.cri-containerd.pinned=pinned` label to prevent kubelet garbage collection
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 18-01-PLAN.md -- Warmup script generator package with template, ECR auth, retry, pinning, and tests
 
 ### Phase 19: AMI Generator Integration
 **Goal**: Image pull script is correctly injected into user data for AL2 and AL2023 instances, with a validation warning for Bottlerocket
@@ -103,6 +105,6 @@ Plans:
 | 15. File Renames | v1.1.1 | 1/1 | Complete | 2026-02-04 |
 | 16. Struct Field Type Change | v1.1.1 | 1/1 | Complete | 2026-02-04 |
 | 17. CRD Types & Code Gen | v1.2 | 1/1 | Complete | 2026-02-04 |
-| 18. Warmup Script Generator | v1.2 | 0/TBD | Not started | - |
+| 18. Warmup Script Generator | v1.2 | 0/1 | Not started | - |
 | 19. AMI Generator Integration | v1.2 | 0/TBD | Not started | - |
 | 20. Controller Data Threading | v1.2 | 0/TBD | Not started | - |
