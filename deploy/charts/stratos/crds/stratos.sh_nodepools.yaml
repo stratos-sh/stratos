@@ -82,6 +82,28 @@ spec:
               preWarm:
                 description: PreWarm configures the pre-warming lifecycle
                 properties:
+                  imagePullPolicy:
+                    allOf:
+                    - enum:
+                      - Required
+                      - BestEffort
+                    - enum:
+                      - Required
+                      - BestEffort
+                    default: Required
+                    description: |-
+                      ImagePullPolicy controls whether image pull failures block warmup completion.
+                      Required (default): warmup fails if any image cannot be pulled.
+                      BestEffort: warmup completes regardless of pull failures.
+                    type: string
+                  images:
+                    description: |-
+                      Images is a list of container images to pre-pull during warmup.
+                      Each image is pulled using ctr and pinned to prevent kubelet GC eviction.
+                    items:
+                      minLength: 1
+                      type: string
+                    type: array
                   timeout:
                     description: |-
                       Timeout is how long to wait for warmup to complete (for node to become Ready).
