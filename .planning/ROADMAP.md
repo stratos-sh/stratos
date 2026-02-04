@@ -51,7 +51,9 @@ See .planning/milestones/v1.1.1-ROADMAP.md for v1.1.1 details (5 phases, 5 plans
   3. Applying a NodePool with an empty string in the images list is rejected by CRD validation
   4. `make generate` and `make manifests` succeed with the new fields, producing updated deepcopy methods and CRD YAML
   5. Calling GetImages() and GetImagePullPolicy() on a nil PreWarmConfig returns safe zero values without panicking
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 17-01-PLAN.md -- Add ImagePullPolicy type, PreWarmConfig fields, getters, tests, and code generation
 
 ### Phase 18: Warmup Script Generator
 **Goal**: A warmup script generator produces correct bash that pulls configured images using ctr, with ECR auth, retry logic, pinning, and policy-aware failure handling
@@ -100,7 +102,7 @@ See .planning/milestones/v1.1.1-ROADMAP.md for v1.1.1 details (5 phases, 5 plans
 | 14. Type Renames | v1.1.1 | 1/1 | Complete | 2026-02-04 |
 | 15. File Renames | v1.1.1 | 1/1 | Complete | 2026-02-04 |
 | 16. Struct Field Type Change | v1.1.1 | 1/1 | Complete | 2026-02-04 |
-| 17. CRD Types & Code Gen | v1.2 | 0/TBD | Not started | - |
+| 17. CRD Types & Code Gen | v1.2 | 0/1 | Not started | - |
 | 18. Warmup Script Generator | v1.2 | 0/TBD | Not started | - |
 | 19. AMI Generator Integration | v1.2 | 0/TBD | Not started | - |
 | 20. Controller Data Threading | v1.2 | 0/TBD | Not started | - |
