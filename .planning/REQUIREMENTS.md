@@ -7,9 +7,9 @@
 
 ### CRD Configuration
 
-- [ ] **CRD-01**: User can specify a list of container images to pre-pull on the NodePool CRD (`spec.warmup.images`)
-- [ ] **CRD-02**: User can set image pull policy to Required (default) or BestEffort (`spec.warmup.imagePullPolicy`)
-- [ ] **CRD-03**: CRD validation rejects empty image strings in the images list
+- [x] **CRD-01**: User can specify a list of container images to pre-pull on the NodePool CRD (`spec.warmup.images`)
+- [x] **CRD-02**: User can set image pull policy to Required (default) or BestEffort (`spec.warmup.imagePullPolicy`)
+- [x] **CRD-03**: CRD validation rejects empty image strings in the images list
 
 ### Warmup Script
 
@@ -35,15 +35,15 @@
 
 ### Code Generation
 
-- [ ] **GEN-01**: CRD types generate deepcopy methods via `make generate`
-- [ ] **GEN-02**: CRD manifests updated via `make manifests`
+- [x] **GEN-01**: CRD types generate deepcopy methods via `make generate`
+- [x] **GEN-02**: CRD manifests updated via `make manifests`
 
 ### Tests
 
 - [ ] **TEST-01**: Unit tests for warmup script generation with images, without images, Required policy, BestEffort policy
 - [ ] **TEST-02**: Unit tests for AL2 MIME multipart with image pull MIME part
 - [ ] **TEST-03**: Unit tests for AL2023 MIME multipart vs plain YAML conditional output
-- [ ] **TEST-04**: Unit tests for nil-safe getter methods on PreWarmConfig (GetImages, GetImagePullPolicy)
+- [x] **TEST-04**: Unit tests for nil-safe getter methods on PreWarmConfig (GetImages, GetImagePullPolicy)
 
 ## Future Requirements
 
@@ -75,9 +75,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CRD-01 | Phase 17 | Pending |
-| CRD-02 | Phase 17 | Pending |
-| CRD-03 | Phase 17 | Pending |
+| CRD-01 | Phase 17 | Complete |
+| CRD-02 | Phase 17 | Complete |
+| CRD-03 | Phase 17 | Complete |
 | WARM-01 | Phase 18 | Pending |
 | WARM-02 | Phase 18 | Pending |
 | WARM-03 | Phase 18 | Pending |
@@ -91,12 +91,12 @@
 | AMI-03 | Phase 19 | Pending |
 | FLOW-01 | Phase 20 | Pending |
 | FLOW-02 | Phase 19 | Pending |
-| GEN-01 | Phase 17 | Pending |
-| GEN-02 | Phase 17 | Pending |
+| GEN-01 | Phase 17 | Complete |
+| GEN-02 | Phase 17 | Complete |
 | TEST-01 | Phase 18 | Pending |
 | TEST-02 | Phase 19 | Pending |
 | TEST-03 | Phase 19 | Pending |
-| TEST-04 | Phase 17 | Pending |
+| TEST-04 | Phase 17 | Complete |
 
 **Coverage:**
 - v1.2 requirements: 22 total
