@@ -16,18 +16,17 @@ limitations under the License.
 
 package aws
 
-import "k8s.io/apimachinery/pkg/api/resource"
+import (
+	"sync"
 
-// InstanceCapacity represents the CPU and memory capacity of an instance type
-type InstanceCapacity struct {
-	CPU    resource.Quantity
-	Memory resource.Quantity
-}
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/klog/v2"
 
-// IsZero returns true if both CPU and Memory are zero
-func (c InstanceCapacity) IsZero() bool {
-	return c.CPU.IsZero() && c.Memory.IsZero()
-}
+	"github.com/stratos-sh/stratos/internal/cloudprovider"
+)
+
+// InstanceCapacity is an alias for cloudprovider.InstanceCapacity for backward compatibility.
+type InstanceCapacity = cloudprovider.InstanceCapacity
 
 // awsInstanceCapacity maps AWS EC2 instance types to their capacity.
 // Values are based on AWS documentation for vCPU and memory.
@@ -132,11 +131,18 @@ var awsInstanceCapacity = map[string]InstanceCapacity{
 	"t3a.2xlarge": {CPU: resource.MustParse("8"), Memory: resource.MustParse("32Gi")},
 }
 
+var unknownTypes sync.Map
+
 // GetInstanceCapacity returns the capacity for an AWS instance type.
 // Returns an empty InstanceCapacity (with zero values) if the instance type is unknown.
+// Unknown types are logged once to avoid log spam.
 func GetInstanceCapacity(instanceType string) InstanceCapacity {
 	if cap, ok := awsInstanceCapacity[instanceType]; ok {
 		return cap
+	}
+	if _, loaded := unknownTypes.LoadOrStore(instanceType, struct{}{}); !loaded {
+		klog.Warningf("Instance type %q not in static capacity table; "+
+			"scale calculation will use node allocatable data or 1:1 fallback", instanceType)
 	}
 	return InstanceCapacity{}
 }

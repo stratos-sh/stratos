@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
-	"github.com/stratos-sh/stratos/internal/controller"
+	"github.com/stratos-sh/stratos/internal/controller/nodepool/nodestate"
 )
 
 var _ = Describe("Scale Up", func() {
@@ -43,8 +43,8 @@ var _ = Describe("Scale Up", func() {
 			setFakeInstanceState(instanceID1, cloudprovider.InstanceStateStopped)
 			setFakeInstanceState(instanceID2, cloudprovider.InstanceStateStopped)
 
-			node1 := simulateNodeJoin(np.Name, instanceID1, controller.NodeStateStandby)
-			simulateNodeJoin(np.Name, instanceID2, controller.NodeStateStandby)
+			node1 := simulateNodeJoin(np.Name, instanceID1, nodestate.NodeStateStandby)
+			simulateNodeJoin(np.Name, instanceID2, nodestate.NodeStateStandby)
 
 			// Wait for cache sync and trigger reconcile
 			time.Sleep(500 * time.Millisecond)
@@ -53,7 +53,7 @@ var _ = Describe("Scale Up", func() {
 
 			// Ensure we have standby nodes (use >= 1 to be more lenient)
 			Eventually(func() int {
-				return countNodesByStateForPool(np.Name, controller.NodeStateStandby)
+				return countNodesByStateForPool(np.Name, nodestate.NodeStateStandby)
 			}, timeout, interval).Should(BeNumerically(">=", 1))
 
 			// Create an unschedulable pod
@@ -68,11 +68,11 @@ var _ = Describe("Scale Up", func() {
 			setFakeInstanceState(instanceID1, cloudprovider.InstanceStateRunning)
 
 			// Update node state to running
-			updateNodeState(node1.Name, controller.NodeStateRunning)
+			updateNodeState(node1.Name, nodestate.NodeStateRunning)
 
 			// Eventually should have a running node
 			Eventually(func() int {
-				return countNodesByStateForPool(np.Name, controller.NodeStateRunning)
+				return countNodesByStateForPool(np.Name, nodestate.NodeStateRunning)
 			}, timeout, interval).Should(BeNumerically(">=", 1))
 		})
 
@@ -87,12 +87,12 @@ var _ = Describe("Scale Up", func() {
 			setFakeInstanceState(instanceID1, cloudprovider.InstanceStateStopped)
 			setFakeInstanceState(instanceID2, cloudprovider.InstanceStateStopped)
 
-			simulateNodeJoin(np.Name, instanceID1, controller.NodeStateStandby)
-			node2 := simulateNodeJoin(np.Name, instanceID2, controller.NodeStateStandby)
+			simulateNodeJoin(np.Name, instanceID1, nodestate.NodeStateStandby)
+			node2 := simulateNodeJoin(np.Name, instanceID2, nodestate.NodeStateStandby)
 
 			// Start one as running to fill capacity
 			setFakeInstanceState(instanceID1, cloudprovider.InstanceStateRunning)
-			updateNodeState("node-"+instanceID1, controller.NodeStateRunning)
+			updateNodeState("node-"+instanceID1, nodestate.NodeStateRunning)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -107,11 +107,11 @@ var _ = Describe("Scale Up", func() {
 
 			// Start the second standby
 			setFakeInstanceState(instanceID2, cloudprovider.InstanceStateRunning)
-			updateNodeState(node2.Name, controller.NodeStateRunning)
+			updateNodeState(node2.Name, nodestate.NodeStateRunning)
 
 			// Should only have 2 running nodes (pool size limit)
 			Eventually(func() int {
-				return countNodesByStateForPool(np.Name, controller.NodeStateRunning)
+				return countNodesByStateForPool(np.Name, nodestate.NodeStateRunning)
 			}, timeout, interval).Should(Equal(2))
 
 			// Should not exceed pool size
@@ -125,7 +125,7 @@ var _ = Describe("Scale Up", func() {
 			instanceID1 := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID1, cloudprovider.InstanceStateRunning)
-			simulateNodeJoin(np.Name, instanceID1, controller.NodeStateRunning)
+			simulateNodeJoin(np.Name, instanceID1, nodestate.NodeStateRunning)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -138,8 +138,8 @@ var _ = Describe("Scale Up", func() {
 			time.Sleep(500 * time.Millisecond)
 
 			// Should still have only 1 running node (no standby to start)
-			Expect(countNodesByStateForPool(np.Name, controller.NodeStateRunning)).To(Equal(1))
-			Expect(countNodesByStateForPool(np.Name, controller.NodeStateStandby)).To(Equal(0))
+			Expect(countNodesByStateForPool(np.Name, nodestate.NodeStateRunning)).To(Equal(1))
+			Expect(countNodesByStateForPool(np.Name, nodestate.NodeStateStandby)).To(Equal(0))
 		})
 	})
 
@@ -153,7 +153,7 @@ var _ = Describe("Scale Up", func() {
 				time.Sleep(200 * time.Millisecond)
 				setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
 				// Each node has 4 CPUs, 8Gi memory
-				simulateNodeJoinWithResources(np.Name, instanceID, controller.NodeStateStandby, "4", "8Gi")
+				simulateNodeJoinWithResources(np.Name, instanceID, nodestate.NodeStateStandby, "4", "8Gi")
 			}
 
 			// Wait for cache sync
@@ -196,7 +196,7 @@ var _ = Describe("Scale Up", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -207,7 +207,7 @@ var _ = Describe("Scale Up", func() {
 
 			// Simulate scale-up by starting the instance and transitioning state
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			updateNodeState(node.Name, controller.NodeStateRunning)
+			updateNodeState(node.Name, nodestate.NodeStateRunning)
 
 			// The annotation should be set when scale-up is triggered
 			// For this test, we verify the annotation mechanism works.
@@ -220,13 +220,13 @@ var _ = Describe("Scale Up", func() {
 				if latest.Annotations == nil {
 					latest.Annotations = make(map[string]string)
 				}
-				latest.Annotations[controller.AnnotationScaleUpStarted] = time.Now().Format(time.RFC3339)
+				latest.Annotations[nodestate.AnnotationScaleUpStarted] = time.Now().Format(time.RFC3339)
 				return k8sClient.Update(ctx, latest)
 			}, timeout, interval).Should(Succeed())
 
 			// Verify annotation exists
 			updated := getNode(node.Name)
-			Expect(updated.Annotations[controller.AnnotationScaleUpStarted]).NotTo(BeEmpty())
+			Expect(updated.Annotations[nodestate.AnnotationScaleUpStarted]).NotTo(BeEmpty())
 		})
 
 		It("should track in-flight scale-ups to prevent duplicates", func() {
@@ -239,7 +239,7 @@ var _ = Describe("Scale Up", func() {
 				instanceIDs[i] = launchFakeInstance(np.Name)
 				time.Sleep(200 * time.Millisecond)
 				setFakeInstanceState(instanceIDs[i], cloudprovider.InstanceStateStopped)
-				node := simulateNodeJoin(np.Name, instanceIDs[i], controller.NodeStateStandby)
+				node := simulateNodeJoin(np.Name, instanceIDs[i], nodestate.NodeStateStandby)
 				nodeNames[i] = node.Name
 			}
 
@@ -255,7 +255,7 @@ var _ = Describe("Scale Up", func() {
 
 			// Start one node and mark it as "in-flight" with scale-up annotation
 			setFakeInstanceState(instanceIDs[0], cloudprovider.InstanceStateRunning)
-			updateNodeState(nodeNames[0], controller.NodeStateRunning)
+			updateNodeState(nodeNames[0], nodestate.NodeStateRunning)
 
 			// Add scale-up annotation to mark as in-flight
 			Eventually(func() error {
@@ -267,7 +267,7 @@ var _ = Describe("Scale Up", func() {
 				if nodeUpdate.Annotations == nil {
 					nodeUpdate.Annotations = make(map[string]string)
 				}
-				nodeUpdate.Annotations[controller.AnnotationScaleUpStarted] = time.Now().Format(time.RFC3339)
+				nodeUpdate.Annotations[nodestate.AnnotationScaleUpStarted] = time.Now().Format(time.RFC3339)
 				return k8sClient.Update(ctx, nodeUpdate)
 			}, timeout, interval).Should(Succeed())
 
@@ -290,14 +290,14 @@ var _ = Describe("Scale Up", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			// Verify node is cordoned
 			Expect(node.Spec.Unschedulable).To(BeTrue())
 
 			// Start the node
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			updateNodeState(node.Name, controller.NodeStateRunning)
+			updateNodeState(node.Name, nodestate.NodeStateRunning)
 
 			// Update unschedulable status with retry to handle conflicts
 			Eventually(func() error {
@@ -328,12 +328,12 @@ var _ = Describe("Scale Up", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			// Verify standby taint exists initially
 			hasTaint := false
 			for _, taint := range node.Spec.Taints {
-				if taint.Key == controller.TaintKeyStandby {
+				if taint.Key == nodestate.TaintKeyStandby {
 					hasTaint = true
 					break
 				}
@@ -342,7 +342,7 @@ var _ = Describe("Scale Up", func() {
 
 			// Start the node - the controller should detect this and remove the taint
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			updateNodeState(node.Name, controller.NodeStateRunning)
+			updateNodeState(node.Name, nodestate.NodeStateRunning)
 
 			// Remove standby taint with retry to handle conflicts with controller
 			Eventually(func() error {
@@ -354,7 +354,7 @@ var _ = Describe("Scale Up", func() {
 				// Remove standby taint
 				var newTaints []corev1.Taint
 				for _, taint := range nodeUpdate.Spec.Taints {
-					if taint.Key != controller.TaintKeyStandby {
+					if taint.Key != nodestate.TaintKeyStandby {
 						newTaints = append(newTaints, taint)
 					}
 				}
@@ -370,7 +370,7 @@ var _ = Describe("Scale Up", func() {
 					return false
 				}
 				for _, taint := range updated.Spec.Taints {
-					if taint.Key == controller.TaintKeyStandby {
+					if taint.Key == nodestate.TaintKeyStandby {
 						return false
 					}
 				}

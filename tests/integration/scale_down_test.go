@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
-	"github.com/stratos-sh/stratos/internal/controller"
+	"github.com/stratos-sh/stratos/internal/controller/nodepool/nodestate"
 )
 
 var _ = Describe("Scale Down", func() {
@@ -41,7 +41,7 @@ var _ = Describe("Scale Down", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			// Wait for cache sync
 			time.Sleep(1 * time.Second)
@@ -61,8 +61,8 @@ var _ = Describe("Scale Down", func() {
 					return false
 				}
 				// Node should exist and have a valid state label
-				state := updated.Labels[controller.LabelState]
-				return state != ""
+				nodeState := updated.Labels[nodestate.LabelState]
+				return nodeState != ""
 			}, timeout, interval).Should(BeTrue())
 		})
 
@@ -74,7 +74,7 @@ var _ = Describe("Scale Down", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			// Create a pod on this node BEFORE triggering reconcile
 			ensureNamespace("default")
@@ -96,7 +96,7 @@ var _ = Describe("Scale Down", func() {
 				}
 				// Either no annotation, or if annotation exists, node should still be running
 				// (not evicted yet due to long TTL)
-				return updated.Labels[controller.LabelState] == string(controller.NodeStateRunning)
+				return updated.Labels[nodestate.LabelState] == string(nodestate.NodeStateRunning)
 			}, timeout, interval).Should(BeTrue())
 		})
 
@@ -108,7 +108,7 @@ var _ = Describe("Scale Down", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -122,7 +122,7 @@ var _ = Describe("Scale Down", func() {
 					return false
 				}
 				// Node should be running because TTL hasn't expired
-				return updated.Labels[controller.LabelState] == string(controller.NodeStateRunning)
+				return updated.Labels[nodestate.LabelState] == string(nodestate.NodeStateRunning)
 			}, timeout, interval).Should(BeTrue())
 		})
 	})
@@ -135,7 +135,7 @@ var _ = Describe("Scale Down", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			// Uncordon to simulate running state
 			nodeUpdate := &corev1.Node{}
@@ -150,7 +150,7 @@ var _ = Describe("Scale Down", func() {
 
 			// Transition to standby
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			updateNodeState(node.Name, controller.NodeStateStandby)
+			updateNodeState(node.Name, nodestate.NodeStateStandby)
 
 			// Cordon the node (simulating controller behavior)
 			nodeUpdate = &corev1.Node{}
@@ -172,7 +172,7 @@ var _ = Describe("Scale Down", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			// Remove standby taint to simulate running state
 			nodeUpdate := &corev1.Node{}
@@ -187,13 +187,13 @@ var _ = Describe("Scale Down", func() {
 
 			// Transition to standby and add taint
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			updateNodeState(node.Name, controller.NodeStateStandby)
+			updateNodeState(node.Name, nodestate.NodeStateStandby)
 
 			nodeUpdate = &corev1.Node{}
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, nodeUpdate)
 			Expect(err).NotTo(HaveOccurred())
 			nodeUpdate.Spec.Taints = append(nodeUpdate.Spec.Taints, corev1.Taint{
-				Key:    controller.TaintKeyStandby,
+				Key:    nodestate.TaintKeyStandby,
 				Effect: corev1.TaintEffectNoExecute,
 			})
 			err = k8sClient.Update(ctx, nodeUpdate)
@@ -203,7 +203,7 @@ var _ = Describe("Scale Down", func() {
 			updated := getNode(node.Name)
 			hasTaint := false
 			for _, taint := range updated.Spec.Taints {
-				if taint.Key == controller.TaintKeyStandby {
+				if taint.Key == nodestate.TaintKeyStandby {
 					hasTaint = true
 					break
 				}
@@ -221,7 +221,7 @@ var _ = Describe("Scale Down", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -244,7 +244,7 @@ var _ = Describe("Scale Down", func() {
 				if err != nil {
 					return false
 				}
-				return updated.Labels[controller.LabelState] == string(controller.NodeStateRunning)
+				return updated.Labels[nodestate.LabelState] == string(nodestate.NodeStateRunning)
 			}, timeout, interval).Should(BeTrue())
 		})
 	})
@@ -258,7 +258,7 @@ var _ = Describe("Scale Down", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -275,11 +275,11 @@ var _ = Describe("Scale Down", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Should not have scale-down candidate annotation
-			_, hasAnnotation := updated.Annotations[controller.AnnotationScaleDownCandidateSince]
+			_, hasAnnotation := updated.Annotations[nodestate.AnnotationScaleDownCandidateSince]
 			Expect(hasAnnotation).To(BeFalse())
 
 			// Should still be running
-			Expect(updated.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateRunning)))
+			Expect(updated.Labels[nodestate.LabelState]).To(Equal(string(nodestate.NodeStateRunning)))
 		})
 	})
 })

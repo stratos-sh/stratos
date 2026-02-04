@@ -18,7 +18,6 @@ Labels set by Stratos on managed Kubernetes nodes:
 | `stratos.sh/state` | Current Stratos state | `warmup`, `standby`, `running`, `terminating` |
 | `stratos.sh/instance-id` | Cloud instance ID | `i-0123456789abcdef0` |
 | `stratos.sh/state-since` | Timestamp when state changed | `2024-01-15T10:30:00Z` |
-
 ### Querying by Labels
 
 ```bash
@@ -100,6 +99,7 @@ aws ec2 describe-instances \
 aws ec2 describe-instances \
   --filters "Name=tag:stratos.sh/state,Values=standby" \
   --query 'Reservations[].Instances[].InstanceId'
+
 ```
 
 ## User-Defined Labels
@@ -152,21 +152,16 @@ spec:
         effect: NoSchedule
 ```
 
-### Startup Taints
+### Network Readiness Taint
 
-Startup taints block scheduling until CNI is ready:
+When `networkReadinessStrategy` is `Taint` (the default), Stratos automatically manages the `stratos.sh/not-ready=true:NoSchedule` taint. This taint blocks scheduling until the CNI is ready.
 
-```yaml
-spec:
-  template:
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-```
+| Taint Key | Value | Effect | Managed By |
+|-----------|-------|--------|------------|
+| `stratos.sh/not-ready` | `true` | NoSchedule | Stratos (automatic) |
 
 :::note Automatic Taint Registration
-When using `bootstrapTemplate`, Stratos automatically configures kubelet to register with the startup taints from your NodePool spec. The taints are coordinated for you.
+Stratos handles taint registration internally. You do not need to configure `--register-with-taints` or specify taint keys in your NodePool spec.
 :::
 
 ### Standby Taint
@@ -207,7 +202,7 @@ Metrics use these labels:
 | `provider` | Cloud provider | `aws`, `fake` |
 | `operation` | Cloud API operation | `launch`, `start`, `stop`, `terminate`, `describe` |
 | `status` | Operation result | `success`, `error` |
-| `trigger` | Taint removal trigger | `network_ready`, `timeout`, `external` |
+| `trigger` | Taint removal trigger | `network_ready`, `timeout` |
 | `result` | Taint removal result | `success`, `error` |
 | `reason` | Warmup failure reason | `timeout`, `error` |
 | `type` | Error type | Varies by error |

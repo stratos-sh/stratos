@@ -31,7 +31,7 @@ import (
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
-	"github.com/stratos-sh/stratos/internal/controller"
+	"github.com/stratos-sh/stratos/internal/controller/nodepool/nodestate"
 )
 
 var _ = Describe("NodePool Lifecycle", func() {
@@ -110,8 +110,8 @@ var _ = Describe("NodePool Lifecycle", func() {
 			setFakeInstanceState(instanceID2, cloudprovider.InstanceStateStopped)
 
 			// Simulate nodes joining as standby
-			simulateNodeJoin(np.Name, instanceID1, controller.NodeStateStandby)
-			simulateNodeJoin(np.Name, instanceID2, controller.NodeStateStandby)
+			simulateNodeJoin(np.Name, instanceID1, nodestate.NodeStateStandby)
+			simulateNodeJoin(np.Name, instanceID2, nodestate.NodeStateStandby)
 
 			// Wait for controller cache to sync
 			time.Sleep(1 * time.Second)
@@ -138,7 +138,7 @@ var _ = Describe("NodePool Lifecycle", func() {
 			// Create some nodes
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			// Trigger reconcile to establish ownership
 			triggerReconcile(np.Name)
@@ -184,8 +184,8 @@ var _ = Describe("NodePool Lifecycle", func() {
 			setFakeInstanceState(instanceID1, cloudprovider.InstanceStateStopped)
 			setFakeInstanceState(instanceID2, cloudprovider.InstanceStateStopped)
 
-			simulateNodeJoin(np.Name, instanceID1, controller.NodeStateStandby)
-			simulateNodeJoin(np.Name, instanceID2, controller.NodeStateStandby)
+			simulateNodeJoin(np.Name, instanceID1, nodestate.NodeStateStandby)
+			simulateNodeJoin(np.Name, instanceID2, nodestate.NodeStateStandby)
 
 			// Wait for cache sync
 			time.Sleep(500 * time.Millisecond)
@@ -224,7 +224,7 @@ var _ = Describe("NodePool Lifecycle", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -253,7 +253,7 @@ var _ = Describe("NodePool Lifecycle", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)

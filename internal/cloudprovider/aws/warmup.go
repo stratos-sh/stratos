@@ -59,8 +59,8 @@ log "Warmup script completed. Waiting for controller to stop instance..."
 # Do NOT call poweroff here - that's the old SelfStop behavior
 `
 
-// GetWarmupScript returns the warmup script.
+// getWarmupScript returns the warmup script.
 // This is a function to allow for potential customization in the future.
-func GetWarmupScript() string {
+func getWarmupScript() string {
 	return WarmupScript
 }

@@ -33,7 +33,7 @@ import (
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
-	"github.com/stratos-sh/stratos/internal/controller"
+	"github.com/stratos-sh/stratos/internal/controller/nodepool/nodestate"
 )
 
 // getNodeIfExists retrieves a node, returning nil if not found
@@ -52,7 +52,7 @@ var _ = Describe("Error Handling", func() {
 			np := createTestNodePool("test-launch-error", 5, 2)
 
 			// Inject launch hook that returns an error
-			fakeProvider.LaunchHook = func(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) error {
+			fakeProvider.LaunchHook = func(ctx context.Context, nodeClass stratosv1alpha1.NodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) error {
 				return fmt.Errorf("simulated EC2 launch failure")
 			}
 
@@ -79,7 +79,7 @@ var _ = Describe("Error Handling", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			// Wait for cache to sync
 			time.Sleep(500 * time.Millisecond)
@@ -118,7 +118,7 @@ var _ = Describe("Error Handling", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -144,7 +144,7 @@ var _ = Describe("Error Handling", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -173,7 +173,7 @@ var _ = Describe("Error Handling", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -208,7 +208,7 @@ var _ = Describe("Error Handling", func() {
 				instanceID := launchFakeInstance(np.Name)
 				time.Sleep(200 * time.Millisecond)
 				setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-				simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+				simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 			}
 
 			// Trigger multiple reconciles rapidly to stress test status updates
@@ -233,7 +233,7 @@ var _ = Describe("Error Handling", func() {
 			// Create a node without a corresponding fake instance
 			instanceID := "i-nonexistent"
 
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -246,7 +246,7 @@ var _ = Describe("Error Handling", func() {
 			updated, err := getNodeIfExists(node.Name)
 			if err == nil && updated != nil {
 				// Node still exists - check it's in some valid state
-				Expect(updated.Labels[controller.LabelPool]).To(Equal(np.Name))
+				Expect(updated.Labels[nodestate.LabelPool]).To(Equal(np.Name))
 			}
 			// If node doesn't exist, that's also acceptable (cleanup)
 
@@ -303,7 +303,7 @@ var _ = Describe("Error Handling", func() {
 
 			// Track launch attempts
 			launchAttempts := 0
-			fakeProvider.LaunchHook = func(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) error {
+			fakeProvider.LaunchHook = func(ctx context.Context, nodeClass stratosv1alpha1.NodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) error {
 				launchAttempts++
 				if launchAttempts < 3 {
 					return fmt.Errorf("simulated transient failure")

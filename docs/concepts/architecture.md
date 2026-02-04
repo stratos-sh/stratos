@@ -108,7 +108,7 @@ The scale calculator (`internal/controller/scale_calculator.go`) determines how 
    |
 6. Node becomes Ready
    - CNI initializes
-   - Startup taints removed
+   - Network readiness taint removed
    - Pod scheduled
 ```
 
@@ -125,10 +125,11 @@ The scale calculator (`internal/controller/scale_calculator.go`) determines how 
    - Transition state: running -> terminating
    - Cordon the node
    - Drain pods (respecting PDBs)
-   - Stop cloud instance
-   - Transition state: terminating -> standby
    |
-4. Node returns to standby pool
+4. After drain completes (or drainTimeout):
+   - Stop cloud instance
+   - terminating -> standby
+   - Returns to standby pool
 ```
 
 ### Warmup Lifecycle
@@ -142,7 +143,7 @@ The warmup phase is where Stratos gains its speed advantage over on-demand provi
    |
 2. User data runs:
    - Join Kubernetes cluster
-   - Register with startup taints
+   - Register with network readiness taint
    - Wait for kubelet healthy
    - Execute poweroff (self-stop)
    |

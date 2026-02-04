@@ -40,12 +40,12 @@ The `mode` label on `stratos_nodepool_warmup_duration_seconds` indicates how war
 | `controller_stop` | Stratos stopped the instance when Ready (ControllerStop mode) |
 | `timeout` | Warmup timed out and instance was force-stopped |
 
-### Startup Taint Metrics
+### Network Readiness Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `stratos_nodepool_startup_taint_removal_total` | Counter | `pool`, `trigger`, `result` | Startup taint removals |
-| `stratos_nodepool_startup_taint_duration_seconds` | Histogram | `pool` | Time to remove startup taints |
+| `stratos_nodepool_startup_taint_removal_total` | Counter | `pool`, `trigger`, `result` | Network readiness taint removals |
+| `stratos_nodepool_startup_taint_duration_seconds` | Histogram | `pool` | Time to remove network readiness taint |
 
 ### Controller Metrics
 

@@ -492,10 +492,6 @@ spec:
       name: test-nodes
     labels:
       stratos.sh/pool: test
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
 ```
 
 ```bash

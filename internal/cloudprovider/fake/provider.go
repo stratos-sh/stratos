@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package fake provides a fake cloud provider implementation for testing.
 package fake
 
 import (
@@ -39,7 +38,7 @@ type FakeProvider struct {
 	wg sync.WaitGroup
 
 	// Hooks for testing
-	LaunchHook    func(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) error
+	LaunchHook    func(ctx context.Context, nodeClass stratosv1alpha1.NodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) error
 	StartHook     func(ctx context.Context, instanceID string) error
 	StopHook      func(ctx context.Context, instanceID string, force bool) error
 	TerminateHook func(ctx context.Context, instanceID string) error
@@ -52,10 +51,15 @@ func NewFakeProvider() *FakeProvider {
 	}
 }
 
-// LaunchInstance creates a new fake instance using AWSNodeClass configuration.
-func (f *FakeProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) (*cloudprovider.Instance, error) {
+// LaunchInstance creates a new fake instance using NodeClass configuration.
+// Accepts a NodeClass interface and type-asserts to *AWSNodeClass internally.
+func (f *FakeProvider) LaunchInstance(ctx context.Context, nc stratosv1alpha1.NodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) (*cloudprovider.Instance, error) {
+	nodeClass, ok := nc.(*stratosv1alpha1.AWSNodeClass)
+	if !ok {
+		return nil, fmt.Errorf("expected *AWSNodeClass, got %T", nc)
+	}
 	if f.LaunchHook != nil {
-		if err := f.LaunchHook(ctx, nodeClass, poolName, clusterName, templateConfig); err != nil {
+		if err := f.LaunchHook(ctx, nc, poolName, clusterName, templateConfig); err != nil {
 			return nil, err
 		}
 	}

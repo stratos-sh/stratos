@@ -15,8 +15,4 @@ spec:
     nodeClassRef:
       kind: AWSNodeClass
       name: al2023-basic
-    startupTaintRemoval: WhenNetworkReady
-    startupTaints:
-      - effect: NoSchedule
-        key: node.eks.amazonaws.com/not-ready
-        value: "true"
+    networkReadinessStrategy: Taint

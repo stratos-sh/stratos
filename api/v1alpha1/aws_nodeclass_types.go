@@ -331,15 +331,15 @@ const (
 
 // Condition reasons for AWSNodeClass
 const (
-	AWSNodeClassReasonSpecValid         = "SpecValid"
-	AWSNodeClassReasonInvalidAMI        = "InvalidAMI"
-	AWSNodeClassReasonReferencedByPools = "ReferencedByNodePools"
-	AWSNodeClassReasonNotReferenced     = "NotReferenced"
-	AWSNodeClassReasonResolved          = "Resolved"
-	AWSNodeClassReasonResolutionFailed  = "ResolutionFailed"
+	AWSNodeClassReasonSpecValid           = "SpecValid"
+	AWSNodeClassReasonInvalidAMI          = "InvalidAMI"
+	AWSNodeClassReasonReferencedByPools   = "ReferencedByNodePools"
+	AWSNodeClassReasonNotReferenced       = "NotReferenced"
+	AWSNodeClassReasonResolved            = "Resolved"
+	AWSNodeClassReasonResolutionFailed    = "ResolutionFailed"
 	AWSNodeClassReasonNoMatchingResources = "NoMatchingResources"
-	AWSNodeClassReasonRoleNotFound      = "RoleNotFound"
-	AWSNodeClassReasonRoleUpdateFailed  = "RoleUpdateFailed"
+	AWSNodeClassReasonRoleNotFound        = "RoleNotFound"
+	AWSNodeClassReasonRoleUpdateFailed    = "RoleUpdateFailed"
 )
 
 // Finalizer for AWSNodeClass

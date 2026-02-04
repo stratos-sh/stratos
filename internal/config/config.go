@@ -36,6 +36,8 @@ type Config struct {
 	ClusterCIDR             string
 	CloudProvider           string
 	GracefulShutdownTimeout time.Duration
+	AWSRateLimitQPS         float64
+	AWSRateLimitBurst       float64
 }
 
 // DefaultConfig returns a Config with default values.
@@ -51,6 +53,8 @@ func DefaultConfig() Config {
 		ClusterCIDR:             "",
 		CloudProvider:           "aws",
 		GracefulShutdownTimeout: 30 * time.Second,
+		AWSRateLimitQPS:         1.0,
+		AWSRateLimitBurst:       1.0,
 	}
 }
 
@@ -77,6 +81,8 @@ func LoadFromEnv() Config {
 	cfg.ClusterCIDR = getEnvString("STRATOS_CLUSTER_CIDR", "CLUSTER_CIDR", cfg.ClusterCIDR)
 	cfg.CloudProvider = getEnvString("STRATOS_CLOUD_PROVIDER", "", cfg.CloudProvider)
 	cfg.GracefulShutdownTimeout = getEnvDuration("STRATOS_GRACEFUL_SHUTDOWN_TIMEOUT", "", cfg.GracefulShutdownTimeout)
+	cfg.AWSRateLimitQPS = getEnvFloat64("STRATOS_AWS_RATE_LIMIT_QPS", cfg.AWSRateLimitQPS)
+	cfg.AWSRateLimitBurst = getEnvFloat64("STRATOS_AWS_RATE_LIMIT_BURST", cfg.AWSRateLimitBurst)
 
 	return cfg
 }
@@ -126,6 +132,16 @@ func getEnvDuration(primary, legacy string, defaultVal time.Duration) time.Durat
 			if parsed, err := time.ParseDuration(val); err == nil {
 				return parsed
 			}
+		}
+	}
+	return defaultVal
+}
+
+// getEnvFloat64 returns the float64 value of the env var, falling back to defaultVal.
+func getEnvFloat64(envVar string, defaultVal float64) float64 {
+	if val := os.Getenv(envVar); val != "" {
+		if parsed, err := strconv.ParseFloat(val, 64); err == nil {
+			return parsed
 		}
 	}
 	return defaultVal

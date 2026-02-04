@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
-	"github.com/stratos-sh/stratos/internal/controller"
+	"github.com/stratos-sh/stratos/internal/controller/nodepool/nodestate"
 )
 
 const pollInterval = 5 * time.Second
@@ -151,7 +151,7 @@ func listPoolInstances(ctx context.Context, pool, cluster string) ([]ec2types.In
 	return instances, nil
 }
 
-// countInstancesByEC2State returns the number of instances in a given EC2 state.
+// countInstancesByEC2State returns the number of instances in a given EC2 nodestate.
 func countInstancesByEC2State(ctx context.Context, pool, cluster string, state ec2types.InstanceStateName) (int, error) {
 	instances, err := listPoolInstances(ctx, pool, cluster)
 	if err != nil {
@@ -166,7 +166,7 @@ func countInstancesByEC2State(ctx context.Context, pool, cluster string, state e
 	return count, nil
 }
 
-// allInstancesInEC2State returns true if every instance is in the given state.
+// allInstancesInEC2State returns true if every instance is in the given nodestate.
 func allInstancesInEC2State(ctx context.Context, pool, cluster string, state ec2types.InstanceStateName) (bool, error) {
 	instances, err := listPoolInstances(ctx, pool, cluster)
 	if err != nil {
@@ -219,6 +219,18 @@ func terminatePoolInstances(ctx context.Context, pool, cluster string) error {
 	return err
 }
 
+// --- Node query helpers ---
+
+// getNodesWithLabels lists K8s nodes matching the given label set.
+func getNodesWithLabels(ctx context.Context, labels map[string]string) ([]corev1.Node, error) {
+	var nodeList corev1.NodeList
+	err := k8sClient.List(ctx, &nodeList, client.MatchingLabels(labels))
+	if err != nil {
+		return nil, err
+	}
+	return nodeList.Items, nil
+}
+
 // --- Cleanup ---
 
 // cleanupAll performs idempotent full cleanup of E2E resources.
@@ -231,52 +243,57 @@ func cleanupAll(ctx context.Context, logf func(string, ...any)) {
 	logf("cleanupAll: starting")
 
 	// 1. Delete deployments + pod.
-	dep := &appsv1.Deployment{}
-	dep.Name = "e2e-scaleup-test"
-	dep.Namespace = "default"
-	_ = deleteIgnoreNotFound(ctx, dep)
-
-	depPrecise := &appsv1.Deployment{}
-	depPrecise.Name = "e2e-precise-scaleup-test"
-	depPrecise.Namespace = "default"
-	_ = deleteIgnoreNotFound(ctx, depPrecise)
+	for _, name := range []string{"e2e-scaleup-test", "e2e-precise-scaleup-test"} {
+		dep := &appsv1.Deployment{}
+		dep.Name = name
+		dep.Namespace = "default"
+		_ = deleteIgnoreNotFound(ctx, dep)
+	}
 
 	pod := &corev1.Pod{}
 	pod.Name = "e2e-nomatch-test"
 	pod.Namespace = "default"
 	_ = deleteIgnoreNotFound(ctx, pod)
 
-	// 2. Delete NodePool (force-remove finalizer immediately since no controller is running).
-	np := &stratosv1alpha1.NodePool{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: poolName}, np); err == nil {
-		if len(np.Finalizers) > 0 {
-			np.Finalizers = nil
-			_ = k8sClient.Update(ctx, np)
+	// 2. Delete NodePools (force-remove finalizer immediately since no controller is running).
+	for _, name := range []string{poolName} {
+		np := &stratosv1alpha1.NodePool{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, np); err == nil {
+			if len(np.Finalizers) > 0 {
+				np.Finalizers = nil
+				_ = k8sClient.Update(ctx, np)
+			}
+			_ = k8sClient.Delete(ctx, np)
 		}
-		_ = k8sClient.Delete(ctx, np)
 	}
 
-	// 3. Delete AWSNodeClass (force-remove finalizer immediately).
-	nc := &stratosv1alpha1.AWSNodeClass{}
-	if err := k8sClient.Get(ctx, types.NamespacedName{Name: poolName}, nc); err == nil {
-		if len(nc.Finalizers) > 0 {
-			nc.Finalizers = nil
-			_ = k8sClient.Update(ctx, nc)
+	// 3. Delete AWSNodeClasses (force-remove finalizer immediately).
+	for _, name := range []string{poolName} {
+		nc := &stratosv1alpha1.AWSNodeClass{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, nc); err == nil {
+			if len(nc.Finalizers) > 0 {
+				nc.Finalizers = nil
+				_ = k8sClient.Update(ctx, nc)
+			}
+			_ = k8sClient.Delete(ctx, nc)
 		}
-		_ = k8sClient.Delete(ctx, nc)
 	}
 
-	// 4. Delete stratos-labeled K8s nodes.
-	nodeList := &corev1.NodeList{}
-	if err := k8sClient.List(ctx, nodeList, client.MatchingLabels{controller.LabelPool: poolName}); err == nil {
-		for i := range nodeList.Items {
-			_ = k8sClient.Delete(ctx, &nodeList.Items[i])
+	// 4. Delete stratos-labeled K8s nodes for both pools.
+	for _, name := range []string{poolName} {
+		nodeList := &corev1.NodeList{}
+		if err := k8sClient.List(ctx, nodeList, client.MatchingLabels{nodestate.LabelPool: name}); err == nil {
+			for i := range nodeList.Items {
+				_ = k8sClient.Delete(ctx, &nodeList.Items[i])
+			}
 		}
 	}
 
 	// 5. Terminate EC2 instances via AWS API (safety net).
-	if err := terminatePoolInstances(ctx, poolName, clusterName); err != nil {
-		logf("cleanupAll: failed to terminate EC2 instances: %v", err)
+	for _, name := range []string{poolName} {
+		if err := terminatePoolInstances(ctx, name, clusterName); err != nil {
+			logf("cleanupAll: failed to terminate EC2 instances for pool %s: %v", name, err)
+		}
 	}
 
 	logf("cleanupAll: done")

@@ -117,7 +117,7 @@ func (r *AWSNodeClassReconciler) resolveAMI(ctx context.Context, nodeClass *stra
 			return
 		}
 
-		autoSelector, err := DefaultAMISelector(nodeClass.Spec.BootstrapTemplate, nodeClass.Spec.Architecture, r.KubernetesVersion)
+		autoSelector, err := defaultAMISelector(nodeClass.Spec.BootstrapTemplate, nodeClass.Spec.Architecture, r.KubernetesVersion)
 		if err != nil {
 			meta.SetStatusCondition(&nodeClass.Status.Conditions, metav1.Condition{
 				Type:               stratosv1alpha1.AWSNodeClassConditionTypeAMIReady,

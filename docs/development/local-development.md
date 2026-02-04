@@ -244,10 +244,6 @@ go test -v -tags=integration -run TestNodePoolLifecycle ./tests/integration/...
          name: test
        labels:
          stratos.sh/pool: test
-       startupTaints:
-         - key: stratos.sh/not-ready
-           value: "true"
-           effect: NoSchedule
    ```
 
 2. Apply and observe:

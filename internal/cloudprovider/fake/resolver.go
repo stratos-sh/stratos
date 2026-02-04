@@ -26,17 +26,17 @@ import (
 // FakeResolver implements the aws.Resolver interface with configurable canned responses.
 type FakeResolver struct {
 	// Canned responses
-	AMI              string
-	Subnets          []stratosv1alpha1.ResolvedSubnet
-	SecurityGroups   []stratosv1alpha1.ResolvedSecurityGroup
-	InstanceProfile  string
+	AMI             string
+	Subnets         []stratosv1alpha1.ResolvedSubnet
+	SecurityGroups  []stratosv1alpha1.ResolvedSecurityGroup
+	InstanceProfile string
 
 	// Hooks for error injection
-	ResolveAMIHook              func(ctx context.Context, selector *stratosv1alpha1.AMISelector) (string, error)
-	ResolveSubnetsHook          func(ctx context.Context, selector *stratosv1alpha1.SubnetSelector) ([]stratosv1alpha1.ResolvedSubnet, error)
-	ResolveSecurityGroupsHook   func(ctx context.Context, selector *stratosv1alpha1.SecurityGroupSelector) ([]stratosv1alpha1.ResolvedSecurityGroup, error)
-	ResolveInstanceProfileHook  func(ctx context.Context, role string, profileName string) (string, error)
-	DeleteInstanceProfileHook   func(ctx context.Context, profileName string) error
+	ResolveAMIHook             func(ctx context.Context, selector *stratosv1alpha1.AMISelector) (string, error)
+	ResolveSubnetsHook         func(ctx context.Context, selector *stratosv1alpha1.SubnetSelector) ([]stratosv1alpha1.ResolvedSubnet, error)
+	ResolveSecurityGroupsHook  func(ctx context.Context, selector *stratosv1alpha1.SecurityGroupSelector) ([]stratosv1alpha1.ResolvedSecurityGroup, error)
+	ResolveInstanceProfileHook func(ctx context.Context, role string, profileName string) (string, error)
+	DeleteInstanceProfileHook  func(ctx context.Context, profileName string) error
 }
 
 // NewFakeResolver creates a new FakeResolver with sensible defaults.

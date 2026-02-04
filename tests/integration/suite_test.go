@@ -40,7 +40,9 @@ import (
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 	awsprovider "github.com/stratos-sh/stratos/internal/cloudprovider/aws"
 	"github.com/stratos-sh/stratos/internal/cloudprovider/fake"
-	"github.com/stratos-sh/stratos/internal/controller"
+	"github.com/stratos-sh/stratos/internal/controller/nodeclass"
+	"github.com/stratos-sh/stratos/internal/controller/nodepool"
+	"github.com/stratos-sh/stratos/internal/controller/nodepool/nodestate"
 )
 
 // Test suite variables
@@ -53,7 +55,7 @@ var (
 	testScheme  *runtime.Scheme
 	fakeProvider *fake.FakeProvider
 	fakeResolver *fake.FakeResolver
-	reconciler  *controller.NodePoolReconciler
+	reconciler  *nodepool.Reconciler
 	mgr         ctrl.Manager
 )
 
@@ -105,7 +107,7 @@ var _ = BeforeSuite(func() {
 	fakeProvider = fake.NewFakeProvider()
 
 	// Create and register the reconciler
-	reconciler = &controller.NodePoolReconciler{
+	reconciler = &nodepool.Reconciler{
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
 		ClusterName:   testClusterName,
@@ -114,6 +116,10 @@ var _ = BeforeSuite(func() {
 	reconciler.InjectCloudProvider("default", fakeProvider)
 
 	err = reconciler.SetupWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Register the NodeClass lifecycle controller
+	err = nodeclass.Setup(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
 	// Create and register the AWSNodeClass reconciler with FakeResolver
@@ -179,31 +185,38 @@ func cleanupTestResources() {
 		}
 	}
 
-	// Delete all NodePools
-	nodePoolList := &stratosv1alpha1.NodePoolList{}
-	err = k8sClient.List(ctx, nodePoolList)
-	if err == nil {
-		for i := range nodePoolList.Items {
-			np := &nodePoolList.Items[i]
-			// Remove finalizer first to allow deletion
-			np.Finalizers = nil
-			_ = k8sClient.Update(ctx, np)
+	// Force-delete NodePools with retry loop to win the race against reconciler re-adding finalizers
+	Eventually(func() int {
+		list := &stratosv1alpha1.NodePoolList{}
+		_ = k8sClient.List(ctx, list)
+		for i := range list.Items {
+			np := &list.Items[i]
+			// Re-fetch to get latest resourceVersion (reconciler may have re-added finalizer)
+			_ = k8sClient.Get(ctx, client.ObjectKeyFromObject(np), np)
+			if len(np.Finalizers) > 0 {
+				np.Finalizers = nil
+				_ = k8sClient.Update(ctx, np)
+			}
 			_ = k8sClient.Delete(ctx, np)
 		}
-	}
+		return len(list.Items)
+	}, timeout, interval).Should(Equal(0))
 
-	// Delete all AWSNodeClasses
-	nodeClassList := &stratosv1alpha1.AWSNodeClassList{}
-	err = k8sClient.List(ctx, nodeClassList)
-	if err == nil {
-		for i := range nodeClassList.Items {
-			nc := &nodeClassList.Items[i]
-			// Remove finalizer first to allow deletion
-			nc.Finalizers = nil
-			_ = k8sClient.Update(ctx, nc)
+	// Force-delete AWSNodeClasses with same retry pattern
+	Eventually(func() int {
+		list := &stratosv1alpha1.AWSNodeClassList{}
+		_ = k8sClient.List(ctx, list)
+		for i := range list.Items {
+			nc := &list.Items[i]
+			_ = k8sClient.Get(ctx, client.ObjectKeyFromObject(nc), nc)
+			if len(nc.Finalizers) > 0 {
+				nc.Finalizers = nil
+				_ = k8sClient.Update(ctx, nc)
+			}
 			_ = k8sClient.Delete(ctx, nc)
 		}
-	}
+		return len(list.Items)
+	}, timeout, interval).Should(Equal(0))
 
 	// Delete all Nodes with stratos labels
 	nodeList := &corev1.NodeList{}
@@ -211,16 +224,9 @@ func cleanupTestResources() {
 	if err == nil {
 		for i := range nodeList.Items {
 			node := &nodeList.Items[i]
-			if _, ok := node.Labels[controller.LabelPool]; ok {
+			if _, ok := node.Labels[nodestate.LabelPool]; ok {
 				_ = k8sClient.Delete(ctx, node)
 			}
 		}
 	}
-
-	// Wait for cleanup to complete
-	Eventually(func() int {
-		list := &stratosv1alpha1.NodePoolList{}
-		_ = k8sClient.List(ctx, list)
-		return len(list.Items)
-	}, timeout, interval).Should(Equal(0))
 }

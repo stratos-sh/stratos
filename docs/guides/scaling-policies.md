@@ -93,12 +93,11 @@ spec:
 
 ### How Scale-Down Works
 
-1. Controller identifies nodes with no scheduled pods (excluding DaemonSets)
+1. Controller identifies running nodes with no scheduled pods (excluding DaemonSets)
 2. Marks empty nodes with `scale-down-candidate-since` annotation
 3. After `emptyNodeTTL` elapses, node becomes scale-down candidate
 4. Node is cordoned and drained (respecting PDBs)
-5. After drain completes (or timeout), instance is stopped
-6. Node transitions to standby state
+5. After drain completes (or timeout), node is stopped and returned to standby state
 
 ### Tuning Scale-Down Timing
 
@@ -202,21 +201,9 @@ Stratos automatically pre-pulls images for all DaemonSets that will run on nodes
 DaemonSet images that match the pool's labels and tolerations are automatically discovered and pre-pulled. You don't need to configure this manually.
 :::
 
-## Startup Taint Management
+## Network Readiness
 
-### WhenNetworkReady Mode
-
-Stratos monitors network conditions and removes taints:
-
-```yaml
-spec:
-  template:
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: WhenNetworkReady
-```
+By default (`networkReadinessStrategy: Taint`), Stratos automatically manages the `stratos.sh/not-ready=true:NoSchedule` taint. No configuration is needed — the default behavior applies the taint during startup and removes it when the CNI is ready.
 
 Supported CNIs:
 - **EKS VPC CNI:** `NetworkingReady=True` condition
@@ -225,23 +212,13 @@ Supported CNIs:
 
 Timeout: 2 minutes (then forcibly removed)
 
-### External Mode
-
-For CNIs that manage their own taints:
+To disable network readiness taint management (e.g., if your CNI manages its own readiness):
 
 ```yaml
 spec:
   template:
-    startupTaints:
-      - key: node.cilium.io/agent-not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: External
+    networkReadinessStrategy: None
 ```
-
-:::note Automatic Taint Registration
-When using `bootstrapTemplate`, Stratos automatically configures kubelet to register with the startup taints defined in your NodePool spec. You don't need to manually coordinate `--register-with-taints` arguments.
-:::
 
 ## Example Configurations
 

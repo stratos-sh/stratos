@@ -22,14 +22,14 @@ import (
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 )
 
-// DefaultAMISelector returns the AMI selector for auto-discovery based on
+// defaultAMISelector returns the AMI selector for auto-discovery based on
 // the bootstrap template, architecture, and Kubernetes version.
 //
 // AMI naming conventions:
 // - AL2023: amazon-eks-node-al2023-<arch>-standard-<version>-*
 // - AL2: amazon-eks-node-<version>-<arch>-* (note: version before arch)
 // - Bottlerocket: bottlerocket-aws-k8s-<version>-<arch>-*
-func DefaultAMISelector(template stratosv1alpha1.BootstrapTemplate, arch stratosv1alpha1.Architecture, k8sVersion string) (*stratosv1alpha1.AMISelector, error) {
+func defaultAMISelector(template stratosv1alpha1.BootstrapTemplate, arch stratosv1alpha1.Architecture, k8sVersion string) (*stratosv1alpha1.AMISelector, error) {
 	if k8sVersion == "" {
 		return nil, fmt.Errorf("kubernetes version is required for AMI auto-discovery")
 	}

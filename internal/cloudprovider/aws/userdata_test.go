@@ -471,7 +471,7 @@ func TestBottlerocketGenerator_DeriveDNSIP(t *testing.T) {
 }
 
 func TestWarmupScript_Content(t *testing.T) {
-	script := GetWarmupScript()
+	script := getWarmupScript()
 
 	// Verify script structure
 	if !strings.HasPrefix(script, "#!/bin/bash") {

@@ -54,8 +54,8 @@ func TestBootstrapTemplate_Values(t *testing.T) {
 	}
 
 	validTemplates := map[BootstrapTemplate]bool{
-		BootstrapTemplateAL2023:      true,
-		BootstrapTemplateAL2:         true,
+		BootstrapTemplateAL2023:       true,
+		BootstrapTemplateAL2:          true,
 		BootstrapTemplateBottlerocket: true,
 	}
 
@@ -345,7 +345,7 @@ func TestKubeletConfig(t *testing.T) {
 		config *KubeletConfig
 	}{
 		{
-			name: "nil config",
+			name:   "nil config",
 			config: nil,
 		},
 		{

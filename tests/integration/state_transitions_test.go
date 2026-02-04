@@ -30,7 +30,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
-	"github.com/stratos-sh/stratos/internal/controller"
+	"github.com/stratos-sh/stratos/internal/controller/nodepool/nodestate"
 )
 
 var _ = Describe("State Transitions", func() {
@@ -44,10 +44,10 @@ var _ = Describe("State Transitions", func() {
 
 			// Instance is running (warmup)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateWarmup)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateWarmup)
 
 			// Verify node is in warmup
-			Expect(node.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateWarmup)))
+			Expect(node.Labels[nodestate.LabelState]).To(Equal(string(nodestate.NodeStateWarmup)))
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -56,11 +56,11 @@ var _ = Describe("State Transitions", func() {
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
 
 			// Update state to standby (simulating what MonitorWarmup does)
-			updateNodeState(node.Name, controller.NodeStateStandby)
+			updateNodeState(node.Name, nodestate.NodeStateStandby)
 
 			// Verify transition
 			updated := getNode(node.Name)
-			Expect(updated.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateStandby)))
+			Expect(updated.Labels[nodestate.LabelState]).To(Equal(string(nodestate.NodeStateStandby)))
 		})
 
 		It("should be cordoned during warmup", func() {
@@ -70,7 +70,7 @@ var _ = Describe("State Transitions", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateWarmup)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateWarmup)
 
 			// Warmup nodes should be cordoned (unschedulable)
 			Expect(node.Spec.Unschedulable).To(BeTrue())
@@ -85,10 +85,10 @@ var _ = Describe("State Transitions", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			// Verify node is in standby
-			Expect(node.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateStandby)))
+			Expect(node.Labels[nodestate.LabelState]).To(Equal(string(nodestate.NodeStateStandby)))
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -97,11 +97,11 @@ var _ = Describe("State Transitions", func() {
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
 
 			// Update state to running
-			updateNodeState(node.Name, controller.NodeStateRunning)
+			updateNodeState(node.Name, nodestate.NodeStateRunning)
 
 			// Verify transition
 			updated := getNode(node.Name)
-			Expect(updated.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateRunning)))
+			Expect(updated.Labels[nodestate.LabelState]).To(Equal(string(nodestate.NodeStateRunning)))
 		})
 
 		It("should have standby taint", func() {
@@ -110,12 +110,12 @@ var _ = Describe("State Transitions", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			// Verify standby taint exists
 			hasTaint := false
 			for _, taint := range node.Spec.Taints {
-				if taint.Key == controller.TaintKeyStandby {
+				if taint.Key == nodestate.TaintKeyStandby {
 					hasTaint = true
 					break
 				}
@@ -132,17 +132,17 @@ var _ = Describe("State Transitions", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			// Verify node is running
-			Expect(node.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateRunning)))
+			Expect(node.Labels[nodestate.LabelState]).To(Equal(string(nodestate.NodeStateRunning)))
 
 			// Transition to terminating (for scale-down)
-			updateNodeState(node.Name, controller.NodeStateTerminating)
+			updateNodeState(node.Name, nodestate.NodeStateTerminating)
 
 			// Verify transition
 			updated := getNode(node.Name)
-			Expect(updated.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateTerminating)))
+			Expect(updated.Labels[nodestate.LabelState]).To(Equal(string(nodestate.NodeStateTerminating)))
 		})
 
 		It("should transition to standby if instance stopped externally", func() {
@@ -152,7 +152,7 @@ var _ = Describe("State Transitions", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -162,11 +162,11 @@ var _ = Describe("State Transitions", func() {
 
 			// SyncNodeState should detect this and transition to standby
 			// For this test, we directly update the state
-			updateNodeState(node.Name, controller.NodeStateStandby)
+			updateNodeState(node.Name, nodestate.NodeStateStandby)
 
 			// Verify transition
 			updated := getNode(node.Name)
-			Expect(updated.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateStandby)))
+			Expect(updated.Labels[nodestate.LabelState]).To(Equal(string(nodestate.NodeStateStandby)))
 		})
 
 		It("should not be cordoned", func() {
@@ -178,7 +178,7 @@ var _ = Describe("State Transitions", func() {
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
 
 			// Create a running node - it should be uncordoned
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			// Running nodes should not be cordoned
 			// Use Eventually because the controller may process the node
@@ -199,7 +199,7 @@ var _ = Describe("State Transitions", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateRunning)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateRunning)
 
 			// Running nodes should not have standby taint
 			// Use Eventually because the controller processes nodes
@@ -211,7 +211,7 @@ var _ = Describe("State Transitions", func() {
 				}
 				// Check no standby taint
 				for _, taint := range updated.Spec.Taints {
-					if taint.Key == controller.TaintKeyStandby {
+					if taint.Key == nodestate.TaintKeyStandby {
 						return false
 					}
 				}
@@ -228,10 +228,10 @@ var _ = Describe("State Transitions", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateTerminating)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateTerminating)
 
 			// Verify node is in terminating
-			Expect(node.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateTerminating)))
+			Expect(node.Labels[nodestate.LabelState]).To(Equal(string(nodestate.NodeStateTerminating)))
 
 			triggerReconcile(np.Name)
 			time.Sleep(500 * time.Millisecond)
@@ -240,35 +240,35 @@ var _ = Describe("State Transitions", func() {
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
 
 			// Transition to standby
-			updateNodeState(node.Name, controller.NodeStateStandby)
+			updateNodeState(node.Name, nodestate.NodeStateStandby)
 
 			// Verify transition
 			updated := getNode(node.Name)
-			Expect(updated.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateStandby)))
+			Expect(updated.Labels[nodestate.LabelState]).To(Equal(string(nodestate.NodeStateStandby)))
 		})
 	})
 
 	Context("Invalid Transitions", func() {
 		It("should validate state transitions", func() {
-			// Test valid transitions defined in controller.ValidTransitions
-			validTransitions := map[controller.NodeState][]controller.NodeState{
-				controller.NodeStateWarmup:      {controller.NodeStateStandby, controller.NodeStateTerminating},
-				controller.NodeStateStandby:     {controller.NodeStateRunning, controller.NodeStateTerminating},
-				controller.NodeStateRunning:     {controller.NodeStateTerminating, controller.NodeStateStandby},
-				controller.NodeStateTerminating: {controller.NodeStateStandby},
+			// Test valid transitions defined in nodestate.ValidTransitions
+			validTransitions := map[nodestate.NodeState][]nodestate.NodeState{
+				nodestate.NodeStateWarmup:      {nodestate.NodeStateStandby, nodestate.NodeStateTerminating},
+				nodestate.NodeStateStandby:     {nodestate.NodeStateRunning, nodestate.NodeStateTerminating},
+				nodestate.NodeStateRunning:     {nodestate.NodeStateTerminating, nodestate.NodeStateStandby},
+				nodestate.NodeStateTerminating: {nodestate.NodeStateStandby},
 			}
 
 			for from, toStates := range validTransitions {
 				for _, to := range toStates {
-					Expect(controller.IsValidTransition(from, to)).To(BeTrue(),
+					Expect(nodestate.IsValidTransition(from, to)).To(BeTrue(),
 						"Expected %s -> %s to be valid", from, to)
 				}
 			}
 
 			// Test some invalid transitions
-			Expect(controller.IsValidTransition(controller.NodeStateStandby, controller.NodeStateWarmup)).To(BeFalse())
-			Expect(controller.IsValidTransition(controller.NodeStateRunning, controller.NodeStateWarmup)).To(BeFalse())
-			Expect(controller.IsValidTransition(controller.NodeStateTerminating, controller.NodeStateRunning)).To(BeFalse())
+			Expect(nodestate.IsValidTransition(nodestate.NodeStateStandby, nodestate.NodeStateWarmup)).To(BeFalse())
+			Expect(nodestate.IsValidTransition(nodestate.NodeStateRunning, nodestate.NodeStateWarmup)).To(BeFalse())
+			Expect(nodestate.IsValidTransition(nodestate.NodeStateTerminating, nodestate.NodeStateRunning)).To(BeFalse())
 		})
 	})
 
@@ -279,10 +279,10 @@ var _ = Describe("State Transitions", func() {
 			instanceID := launchFakeInstance(np.Name)
 			time.Sleep(200 * time.Millisecond)
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateStopped)
-			node := simulateNodeJoin(np.Name, instanceID, controller.NodeStateStandby)
+			node := simulateNodeJoin(np.Name, instanceID, nodestate.NodeStateStandby)
 
 			// Record initial state-since
-			initialStateSince := node.Labels[controller.LabelStateSince]
+			initialStateSince := node.Labels[nodestate.LabelStateSince]
 			Expect(initialStateSince).NotTo(BeEmpty())
 
 			// Wait a bit to ensure time difference
@@ -295,7 +295,7 @@ var _ = Describe("State Transitions", func() {
 				if err != nil {
 					return err
 				}
-				nodeUpdate.Labels[controller.LabelStateSince] = fmt.Sprintf("%d", time.Now().Unix())
+				nodeUpdate.Labels[nodestate.LabelStateSince] = fmt.Sprintf("%d", time.Now().Unix())
 				return k8sClient.Update(ctx, nodeUpdate)
 			}, timeout, interval).Should(Succeed())
 
@@ -306,7 +306,7 @@ var _ = Describe("State Transitions", func() {
 				if err != nil {
 					return false
 				}
-				newStateSince := updated.Labels[controller.LabelStateSince]
+				newStateSince := updated.Labels[nodestate.LabelStateSince]
 				return newStateSince != initialStateSince
 			}, timeout, interval).Should(BeTrue())
 		})

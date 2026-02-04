@@ -79,15 +79,17 @@ type NodeClassRef struct {
 	Name string `json:"name"`
 }
 
-// StartupTaintRemovalMode determines how startup taints are removed
-type StartupTaintRemovalMode string
+// NetworkReadinessStrategy defines how Stratos handles network readiness for nodes.
+// +kubebuilder:validation:Enum=Taint;None
+type NetworkReadinessStrategy string
 
 const (
-	// StartupTaintRemovalWhenNetworkReady - Stratos removes taints when network conditions indicate ready
-	StartupTaintRemovalWhenNetworkReady StartupTaintRemovalMode = "WhenNetworkReady"
+	// NetworkReadinessStrategyTaint adds a stratos.sh/not-ready=true:NoSchedule taint
+	// to kubelet and removes it when the CNI is ready.
+	NetworkReadinessStrategyTaint NetworkReadinessStrategy = "Taint"
 
-	// StartupTaintRemovalExternal - Stratos waits for external controller to remove taints
-	StartupTaintRemovalExternal StartupTaintRemovalMode = "External"
+	// NetworkReadinessStrategyNone disables network readiness management.
+	NetworkReadinessStrategyNone NetworkReadinessStrategy = "None"
 )
 
 // NodeTemplate defines the template for nodes in this pool
@@ -100,25 +102,27 @@ type NodeTemplate struct {
 	// +optional
 	Taints []corev1.Taint `json:"taints,omitempty"`
 
-	// StartupTaints are taints applied during node startup that block pod scheduling
-	// until the node is fully ready. These should match the taints configured in
-	// kubelet --register-with-taints. Stratos will remove these taints based on
-	// the StartupTaintRemoval mode.
+	// NetworkReadinessStrategy controls how Stratos handles network readiness.
+	// "Taint" adds a stratos.sh/not-ready=true:NoSchedule taint to kubelet and
+	// removes it when the CNI is ready. "None" disables network readiness management.
+	// Default: Taint.
+	// +kubebuilder:default=Taint
 	// +optional
-	StartupTaints []corev1.Taint `json:"startupTaints,omitempty"`
-
-	// StartupTaintRemoval determines how startup taints are removed:
-	// - WhenNetworkReady (default): Stratos removes taints when network conditions indicate CNI is ready
-	// - External: Stratos waits for taints to be removed by CNI plugin or external controller
-	// +kubebuilder:validation:Enum=WhenNetworkReady;External
-	// +kubebuilder:default=WhenNetworkReady
-	// +optional
-	StartupTaintRemoval StartupTaintRemovalMode `json:"startupTaintRemoval,omitempty"`
+	NetworkReadinessStrategy *NetworkReadinessStrategy `json:"networkReadinessStrategy,omitempty"`
 
 	// NodeClassRef references the cloud-specific NodeClass that defines
 	// instance configuration (e.g., AWSNodeClass for AWS).
 	// +kubebuilder:validation:Required
 	NodeClassRef NodeClassRef `json:"nodeClassRef"`
+}
+
+// IsNetworkReadinessTaintEnabled returns true if the network readiness taint is enabled.
+// Defaults to true when the field is nil (Taint strategy).
+func (t *NodeTemplate) IsNetworkReadinessTaintEnabled() bool {
+	if t.NetworkReadinessStrategy == nil {
+		return true
+	}
+	return *t.NetworkReadinessStrategy != NetworkReadinessStrategyNone
 }
 
 // PodAssignment tracks the mapping of an unschedulable pod to a node being started for it.

@@ -3,14 +3,18 @@ version: "2"
 linters:
   default: none
   enable:
-    - errcheck      # Check for unchecked errors
-    - govet         # Reports suspicious constructs
-    - ineffassign   # Detects ineffectual assignments
-    - staticcheck   # Go static analysis (includes gosimple)
-    - unused        # Check for unused code
-    - gosec         # Security issues
-    - gocyclo       # Cyclomatic complexity
-    - misspell      # Spelling mistakes
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - gocyclo
+    - misspell
+    - funlen
+    - cyclop
+    - depguard
+    - contextcheck
 
   settings:
     errcheck:
@@ -22,6 +26,26 @@ linters:
       enable:
         - shadow
         - nilness
+    funlen:
+      lines: 80
+      statements: 50
+      ignore-comments: true
+    cyclop:
+      max-complexity: 15
+      package-average: 7.0
+    depguard:
+      rules:
+        controller-sub-no-impl:
+          files:
+            - "**/internal/controller/nodepool/lifecycle/**"
+            - "**/internal/controller/nodepool/nodestate/**"
+            - "**/internal/controller/nodeclass/**"
+            - "!$test"
+          deny:
+            - pkg: "github.com/stratos-sh/stratos/internal/cloudprovider/aws"
+              desc: "controller sub-packages must not import provider implementations directly"
+            - pkg: "github.com/stratos-sh/stratos/internal/cloudprovider/fake"
+              desc: "controller sub-packages must not import provider implementations directly"
 
   exclusions:
     paths:
@@ -33,6 +57,9 @@ linters:
           - gocyclo
           - errcheck
           - gosec
+          - funlen
+          - cyclop
+          - contextcheck
 
 run:
   timeout: 5m

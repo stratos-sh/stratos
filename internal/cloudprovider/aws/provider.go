@@ -14,14 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package aws provides an AWS EC2 implementation of the CloudProvider interface.
 package aws
 
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -29,7 +28,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/aws/smithy-go"
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
@@ -46,7 +45,7 @@ type AWSProvider struct {
 }
 
 // ClusterConfig holds the cluster configuration needed for userData generation.
-// This is passed from controller.ClusterConfig at initialization.
+// This is passed from config.ClusterConfig at initialization.
 type ClusterConfig struct {
 	Name                 string
 	APIServerEndpoint    string
@@ -55,9 +54,9 @@ type ClusterConfig struct {
 	KubernetesVersion    string
 }
 
-
 // NewAWSProvider creates a new AWS provider with the specified region and cluster config.
-func NewAWSProvider(ctx context.Context, region string, clusterConfig *ClusterConfig) (*AWSProvider, error) {
+// rateLimitCfg may be nil for default rate limits.
+func NewAWSProvider(ctx context.Context, region string, clusterConfig *ClusterConfig, rateLimitCfg *RateLimitConfig) (*AWSProvider, error) {
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
 	)
@@ -67,16 +66,19 @@ func NewAWSProvider(ctx context.Context, region string, clusterConfig *ClusterCo
 
 	return &AWSProvider{
 		client:        ec2.NewFromConfig(cfg),
-		rateLimiter:   NewRateLimiter(),
+		rateLimiter:   NewRateLimiter(rateLimitCfg),
 		region:        region,
 		clusterConfig: clusterConfig,
 	}, nil
 }
 
 // LaunchInstance creates a new EC2 instance using the AWSNodeClass configuration.
-// This method takes the cloud-specific NodeClass directly, handling subnet selection
-// internally using round-robin distribution across the configured subnets.
-func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) (*cloudprovider.Instance, error) {
+// Accepts a NodeClass interface and type-asserts to *AWSNodeClass internally.
+func (p *AWSProvider) LaunchInstance(ctx context.Context, nc stratosv1alpha1.NodeClass, poolName, clusterName string, templateConfig *cloudprovider.TemplateConfig) (*cloudprovider.Instance, error) {
+	nodeClass, ok := nc.(*stratosv1alpha1.AWSNodeClass)
+	if !ok {
+		return nil, fmt.Errorf("expected *AWSNodeClass, got %T", nc)
+	}
 	startTime := time.Now()
 	status := "success"
 	defer func() {
@@ -88,95 +90,16 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 		return nil, err
 	}
 
-	// Read resolved values from status (populated by AWSNodeClass reconciler)
 	if err := validateNodeClassResolved(nodeClass); err != nil {
 		status = "error"
 		return nil, err
 	}
 
-	// Select subnet using round-robin from resolved subnets
-	subnetIdx := atomic.AddUint64(&p.subnetIndex, 1) - 1
-	subnetID := nodeClass.Status.ResolvedSubnets[subnetIdx%uint64(len(nodeClass.Status.ResolvedSubnets))].ID
+	input := p.buildRunInstancesInput(nodeClass, poolName, clusterName)
 
-	// Collect security group IDs from resolved status
-	var securityGroupIDs []string
-	for _, sg := range nodeClass.Status.ResolvedSecurityGroups {
-		securityGroupIDs = append(securityGroupIDs, sg.ID)
-	}
-
-	// Build tags
-	tags := []types.Tag{
-		{Key: aws.String("managed-by"), Value: aws.String("stratos")},
-		{Key: aws.String("stratos.sh/pool"), Value: aws.String(poolName)},
-		{Key: aws.String("stratos.sh/cluster"), Value: aws.String(clusterName)},
-		{Key: aws.String("stratos.sh/state"), Value: aws.String("warmup")},
-		{Key: aws.String("Name"), Value: aws.String(fmt.Sprintf("stratos-%s", poolName))},
-	}
-	for k, v := range nodeClass.Spec.Tags {
-		tags = append(tags, types.Tag{Key: aws.String(k), Value: aws.String(v)})
-	}
-
-	// Build block device mappings
-	var blockDevices []types.BlockDeviceMapping
-	for _, bd := range nodeClass.Spec.BlockDeviceMappings {
-		blockDevices = append(blockDevices, types.BlockDeviceMapping{
-			DeviceName: aws.String(bd.DeviceName),
-			Ebs: &types.EbsBlockDevice{
-				VolumeSize:          aws.Int32(bd.VolumeSize),
-				VolumeType:          types.VolumeType(bd.VolumeType),
-				Encrypted:           aws.Bool(bd.Encrypted),
-				DeleteOnTermination: aws.Bool(true),
-			},
-		})
-	}
-
-	input := &ec2.RunInstancesInput{
-		ImageId:          aws.String(nodeClass.Status.ResolvedAMI),
-		InstanceType:     types.InstanceType(nodeClass.Spec.InstanceType),
-		MinCount:         aws.Int32(1),
-		MaxCount:         aws.Int32(1),
-		SubnetId:         aws.String(subnetID),
-		SecurityGroupIds: securityGroupIDs,
-		TagSpecifications: []types.TagSpecification{
-			{
-				ResourceType: types.ResourceTypeInstance,
-				Tags:         tags,
-			},
-		},
-	}
-
-	// Instance profile from resolved status
-	input.IamInstanceProfile = &types.IamInstanceProfileSpecification{
-		Arn: aws.String(nodeClass.Status.ResolvedInstanceProfile),
-	}
-
-	// Metadata options passthrough from spec
-	if nodeClass.Spec.MetadataOptions != nil {
-		mo := &types.InstanceMetadataOptionsRequest{}
-		if nodeClass.Spec.MetadataOptions.HTTPTokens != "" {
-			mo.HttpTokens = types.HttpTokensState(nodeClass.Spec.MetadataOptions.HTTPTokens)
-		}
-		if nodeClass.Spec.MetadataOptions.HTTPPutResponseHopLimit != nil {
-			mo.HttpPutResponseHopLimit = nodeClass.Spec.MetadataOptions.HTTPPutResponseHopLimit
-		}
-		if nodeClass.Spec.MetadataOptions.HTTPEndpoint != "" {
-			mo.HttpEndpoint = types.InstanceMetadataEndpointState(nodeClass.Spec.MetadataOptions.HTTPEndpoint)
-		}
-		input.MetadataOptions = mo
-	}
-
-	// Generate userData using the bootstrap generator
-	if p.clusterConfig != nil {
-		encoded, err := p.generateEncodedUserData(nodeClass, poolName, templateConfig)
-		if err != nil {
-			status = "error"
-			return nil, err
-		}
-		input.UserData = aws.String(encoded)
-	}
-
-	if len(blockDevices) > 0 {
-		input.BlockDeviceMappings = blockDevices
+	if err := p.setUserData(input, nodeClass, poolName, templateConfig); err != nil {
+		status = "error"
+		return nil, err
 	}
 
 	result, err := p.client.RunInstances(ctx, input)
@@ -192,6 +115,109 @@ func (p *AWSProvider) LaunchInstance(ctx context.Context, nodeClass *stratosv1al
 
 	inst := result.Instances[0]
 	return p.convertInstance(&inst), nil
+}
+
+// buildRunInstancesInput constructs the EC2 RunInstances input from the node class configuration.
+func (p *AWSProvider) buildRunInstancesInput(nodeClass *stratosv1alpha1.AWSNodeClass, poolName, clusterName string) *ec2.RunInstancesInput {
+	// Select subnet using round-robin from resolved subnets
+	subnetIdx := atomic.AddUint64(&p.subnetIndex, 1) - 1
+	subnetID := nodeClass.Status.ResolvedSubnets[subnetIdx%uint64(len(nodeClass.Status.ResolvedSubnets))].ID
+
+	// Collect security group IDs from resolved status
+	var securityGroupIDs []string
+	for _, sg := range nodeClass.Status.ResolvedSecurityGroups {
+		securityGroupIDs = append(securityGroupIDs, sg.ID)
+	}
+
+	tags := buildInstanceTags(poolName, clusterName, nodeClass.Spec.Tags)
+	blockDevices := buildBlockDeviceMappings(nodeClass.Spec.BlockDeviceMappings)
+
+	input := &ec2.RunInstancesInput{
+		ImageId:          aws.String(nodeClass.Status.ResolvedAMI),
+		InstanceType:     types.InstanceType(nodeClass.Spec.InstanceType),
+		MinCount:         aws.Int32(1),
+		MaxCount:         aws.Int32(1),
+		SubnetId:         aws.String(subnetID),
+		SecurityGroupIds: securityGroupIDs,
+		IamInstanceProfile: &types.IamInstanceProfileSpecification{
+			Arn: aws.String(nodeClass.Status.ResolvedInstanceProfile),
+		},
+		TagSpecifications: []types.TagSpecification{
+			{
+				ResourceType: types.ResourceTypeInstance,
+				Tags:         tags,
+			},
+		},
+	}
+
+	if len(blockDevices) > 0 {
+		input.BlockDeviceMappings = blockDevices
+	}
+
+	if nodeClass.Spec.MetadataOptions != nil {
+		input.MetadataOptions = buildMetadataOptions(nodeClass.Spec.MetadataOptions)
+	}
+
+	return input
+}
+
+// buildInstanceTags creates the EC2 tags for a new instance.
+func buildInstanceTags(poolName, clusterName string, specTags map[string]string) []types.Tag {
+	tags := []types.Tag{
+		{Key: aws.String("managed-by"), Value: aws.String("stratos")},
+		{Key: aws.String("stratos.sh/pool"), Value: aws.String(poolName)},
+		{Key: aws.String("stratos.sh/cluster"), Value: aws.String(clusterName)},
+		{Key: aws.String("stratos.sh/state"), Value: aws.String("warmup")},
+		{Key: aws.String("Name"), Value: aws.String(fmt.Sprintf("stratos-%s", poolName))},
+	}
+	for k, v := range specTags {
+		tags = append(tags, types.Tag{Key: aws.String(k), Value: aws.String(v)})
+	}
+	return tags
+}
+
+// buildBlockDeviceMappings converts AWSNodeClass block device specs to EC2 block device mappings.
+func buildBlockDeviceMappings(bdSpecs []stratosv1alpha1.BlockDeviceMapping) []types.BlockDeviceMapping {
+	var blockDevices []types.BlockDeviceMapping
+	for _, bd := range bdSpecs {
+		blockDevices = append(blockDevices, types.BlockDeviceMapping{
+			DeviceName: aws.String(bd.DeviceName),
+			Ebs: &types.EbsBlockDevice{
+				VolumeSize:          aws.Int32(bd.VolumeSize),
+				VolumeType:          types.VolumeType(bd.VolumeType),
+				Encrypted:           aws.Bool(bd.Encrypted),
+				DeleteOnTermination: aws.Bool(true),
+			},
+		})
+	}
+	return blockDevices
+}
+
+// buildMetadataOptions converts AWSNodeClass metadata options to EC2 metadata options.
+func buildMetadataOptions(opts *stratosv1alpha1.MetadataOptions) *types.InstanceMetadataOptionsRequest {
+	mo := &types.InstanceMetadataOptionsRequest{}
+	if opts.HTTPTokens != "" {
+		mo.HttpTokens = types.HttpTokensState(opts.HTTPTokens)
+	}
+	if opts.HTTPPutResponseHopLimit != nil {
+		mo.HttpPutResponseHopLimit = opts.HTTPPutResponseHopLimit
+	}
+	if opts.HTTPEndpoint != "" {
+		mo.HttpEndpoint = types.InstanceMetadataEndpointState(opts.HTTPEndpoint)
+	}
+	return mo
+}
+
+// setUserData configures the userData on the RunInstances input based on template config.
+func (p *AWSProvider) setUserData(input *ec2.RunInstancesInput, nodeClass *stratosv1alpha1.AWSNodeClass, poolName string, templateConfig *cloudprovider.TemplateConfig) error {
+	if p.clusterConfig != nil {
+		encoded, err := p.generateEncodedUserData(nodeClass, poolName, templateConfig)
+		if err != nil {
+			return err
+		}
+		input.UserData = aws.String(encoded)
+	}
+	return nil
 }
 
 // validateNodeClassResolved checks that all required fields have been resolved.
@@ -226,7 +252,8 @@ func (p *AWSProvider) generateEncodedUserData(nodeClass *stratosv1alpha1.AWSNode
 
 	if templateConfig != nil {
 		bootstrapConfig.TemplateLabels = templateConfig.Labels
-		bootstrapConfig.TemplateTaints = mergeTemplateTaints(templateConfig.Taints, templateConfig.StartupTaints)
+		bootstrapConfig.TemplateTaints = templateConfig.Taints
+		bootstrapConfig.EnableNetworkReadinessTaint = templateConfig.EnableNetworkReadinessTaint
 	}
 
 	userData, err := GenerateUserData(bootstrapConfig)
@@ -485,47 +512,26 @@ func (p *AWSProvider) convertState(state *types.InstanceState) cloudprovider.Ins
 	}
 }
 
-// mergeTemplateTaints merges regular taints and startup taints, with startup taints taking precedence.
-func mergeTemplateTaints(taints, startupTaints []corev1.Taint) []corev1.Taint {
-	if len(taints) == 0 && len(startupTaints) == 0 {
-		return nil
-	}
-
-	taintMap := make(map[string]corev1.Taint)
-
-	// Regular taints first (lower priority)
-	for _, t := range taints {
-		key := fmt.Sprintf("%s:%s", t.Key, t.Effect)
-		taintMap[key] = t
-	}
-
-	// Startup taints override (higher priority)
-	for _, t := range startupTaints {
-		key := fmt.Sprintf("%s:%s", t.Key, t.Effect)
-		taintMap[key] = t
-	}
-
-	result := make([]corev1.Taint, 0, len(taintMap))
-	for _, t := range taintMap {
-		result = append(result, t)
-	}
-	return result
-}
-
-// handleError converts AWS errors to cloudprovider errors.
+// handleError converts AWS errors to typed cloudprovider errors using smithy.APIError.
 func (p *AWSProvider) handleError(err error, operation string) error {
-	errStr := err.Error()
-
-	if strings.Contains(errStr, "InvalidInstanceID.NotFound") {
-		return &cloudprovider.InstanceNotFoundError{InstanceID: "unknown"}
+	var ae smithy.APIError
+	if errors.As(err, &ae) {
+		switch ae.ErrorCode() {
+		case "InvalidInstanceID.NotFound", "InvalidInstanceID.Malformed":
+			return &cloudprovider.InstanceNotFoundError{InstanceID: "unknown"}
+		case "Throttling", "RequestLimitExceeded", "EC2ThrottledException":
+			return &cloudprovider.RateLimitError{RetryAfter: 5 * time.Second}
+		case "InsufficientInstanceCapacity", "InsufficientFreeAddressesInSubnet":
+			return &cloudprovider.InsufficientCapacityError{InstanceType: "unknown"}
+		case "InstanceLimitExceeded", "VcpuLimitExceeded":
+			return &cloudprovider.QuotaExceededError{
+				Resource: "instances",
+				Message:  ae.ErrorMessage(),
+			}
+		case "InvalidParameterValue":
+			return fmt.Errorf("%s: invalid parameter: %s: %w", operation, ae.ErrorMessage(), err)
+		}
 	}
-	if strings.Contains(errStr, "Throttling") || strings.Contains(errStr, "RequestLimitExceeded") {
-		return &cloudprovider.RateLimitError{RetryAfter: time.Second * 5}
-	}
-	if strings.Contains(errStr, "InsufficientInstanceCapacity") {
-		return &cloudprovider.InsufficientCapacityError{InstanceType: "unknown"}
-	}
-
 	return fmt.Errorf("%s failed: %w", operation, err)
 }
 

@@ -54,9 +54,10 @@ warmup --> standby --> running --> stopping
 - **Sub-minute scale-up** - Start pre-warmed nodes in seconds instead of minutes
 - **Cost efficient** - Stopped instances only incur storage costs, not compute
 - **Kubernetes native** - Declarative NodePool and NodeClass CRDs, integrates with existing clusters
-- **CNI-aware** - Properly handles startup taints for VPC CNI, Cilium, Calico
+- **CNI-aware** - Manages network readiness for VPC CNI, Cilium, Calico
 - **Automatic maintenance** - Pool replenishment, node recycling, state synchronization
 - **Dynamic resource selectors** - Discover AMIs, subnets, and security groups by tags instead of hardcoding IDs
+- **Spot replacement** - Transparently replace On-Demand nodes with Spot instances for 60-90% cost savings, with instant On-Demand fallback on interruption
 - **Observable** - Prometheus metrics for all operations
 
 ## Quick Start
@@ -111,6 +112,9 @@ spec:
       volumeSize: 50
       volumeType: gp3
       encrypted: true
+
+  # spotConfig:
+  #   instanceTypes: [m5.large, m5a.large]
 ```
 
 > **Note:** You can also use static IDs (`ami`, `subnetIds`, `securityGroupIds`, `iamInstanceProfile`) instead of selectors. See the [Dynamic Resource Selectors guide](https://stratos-sh.github.io/stratos/guides/dynamic-resource-selectors) for details.
@@ -131,15 +135,13 @@ spec:
       name: workers
     labels:
       stratos.sh/pool: workers
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: WhenNetworkReady
-
   scaleDown:
     enabled: true
     emptyNodeTTL: 5m
+
+  # spotReplacement:
+  #   enabled: true
+  #   replacementDelay: 2m
 ```
 
 **Verify:**

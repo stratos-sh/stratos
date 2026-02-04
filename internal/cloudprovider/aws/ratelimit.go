@@ -20,15 +20,21 @@ import (
 	"context"
 	"sync"
 	"time"
-
-	"github.com/stratos-sh/stratos/internal/cloudprovider"
 )
+
+// RateLimitConfig allows scaling default rate limit parameters.
+type RateLimitConfig struct {
+	QPS   float64 // Multiplier for refill rate. Default 1.0 = AWS defaults.
+	Burst float64 // Multiplier for bucket size. Default 1.0 = AWS defaults.
+}
 
 // RateLimiter implements client-side rate limiting for AWS API calls.
 // Based on AWS EC2 API throttling documentation.
 type RateLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*tokenBucket
+	mu              sync.Mutex
+	buckets         map[string]*tokenBucket
+	qpsMultiplier   float64
+	burstMultiplier float64
 }
 
 // tokenBucket implements a simple token bucket rate limiter.
@@ -44,23 +50,39 @@ var defaultLimits = map[string]struct {
 	maxTokens  float64
 	refillRate float64
 }{
-	"RunInstances":          {maxTokens: 100, refillRate: 2},
-	"StartInstances":        {maxTokens: 100, refillRate: 2},
-	"StopInstances":         {maxTokens: 100, refillRate: 20},
-	"TerminateInstances":    {maxTokens: 100, refillRate: 20},
-	"DescribeInstances":     {maxTokens: 100, refillRate: 10},
-	"DescribeImages":        {maxTokens: 100, refillRate: 10},
-	"DescribeSubnets":       {maxTokens: 100, refillRate: 10},
+	"RunInstances":           {maxTokens: 100, refillRate: 2},
+	"StartInstances":         {maxTokens: 100, refillRate: 2},
+	"StopInstances":          {maxTokens: 100, refillRate: 20},
+	"TerminateInstances":     {maxTokens: 100, refillRate: 20},
+	"DescribeInstances":      {maxTokens: 100, refillRate: 10},
+	"DescribeImages":         {maxTokens: 100, refillRate: 10},
+	"DescribeSubnets":        {maxTokens: 100, refillRate: 10},
 	"DescribeSecurityGroups": {maxTokens: 100, refillRate: 10},
-	"IAMInstanceProfile":    {maxTokens: 100, refillRate: 5},
-	"CreateTags":            {maxTokens: 100, refillRate: 10},
-	"default":               {maxTokens: 100, refillRate: 5},
+	"IAMInstanceProfile":     {maxTokens: 100, refillRate: 5},
+	"CreateTags":             {maxTokens: 100, refillRate: 10},
+	"default":                {maxTokens: 100, refillRate: 5},
 }
 
 // NewRateLimiter creates a new rate limiter.
-func NewRateLimiter() *RateLimiter {
+// cfg may be nil for default (1.0x) multipliers.
+func NewRateLimiter(cfg *RateLimitConfig) *RateLimiter {
+	qps := 1.0
+	burst := 1.0
+	if cfg != nil {
+		qps = cfg.QPS
+		burst = cfg.Burst
+	}
+	// Clamp multipliers to >= 0.1 to prevent disabling rate limiting
+	if qps < 0.1 {
+		qps = 0.1
+	}
+	if burst < 0.1 {
+		burst = 0.1
+	}
 	return &RateLimiter{
-		buckets: make(map[string]*tokenBucket),
+		buckets:         make(map[string]*tokenBucket),
+		qpsMultiplier:   qps,
+		burstMultiplier: burst,
 	}
 }
 
@@ -117,10 +139,12 @@ func (r *RateLimiter) getBucket(operation string) *tokenBucket {
 		limits = defaultLimits["default"]
 	}
 
+	maxTokens := limits.maxTokens * r.burstMultiplier
+	refillRate := limits.refillRate * r.qpsMultiplier
 	bucket = &tokenBucket{
-		tokens:     limits.maxTokens,
-		maxTokens:  limits.maxTokens,
-		refillRate: limits.refillRate,
+		tokens:     maxTokens,
+		maxTokens:  maxTokens,
+		refillRate: refillRate,
 		lastRefill: time.Now(),
 	}
 	r.buckets[operation] = bucket
@@ -136,38 +160,4 @@ func (b *tokenBucket) refill() {
 		b.tokens = b.maxTokens
 	}
 	b.lastRefill = now
-}
-
-// ExponentialBackoff performs an operation with exponential backoff.
-func ExponentialBackoff(ctx context.Context, maxRetries int, fn func() error) error {
-	var lastErr error
-	backoff := 100 * time.Millisecond
-
-	for i := 0; i < maxRetries; i++ {
-		err := fn()
-		if err == nil {
-			return nil
-		}
-
-		lastErr = err
-
-		// Check if it's a rate limit error
-		if _, ok := err.(*cloudprovider.RateLimitError); !ok {
-			// Not a rate limit error, don't retry
-			return err
-		}
-
-		// Wait with exponential backoff
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
-			backoff *= 2
-			if backoff > 30*time.Second {
-				backoff = 30 * time.Second
-			}
-		}
-	}
-
-	return lastErr
 }

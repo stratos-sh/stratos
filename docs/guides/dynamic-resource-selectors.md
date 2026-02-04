@@ -210,10 +210,6 @@ spec:
     labels:
       stratos.sh/pool: workers
       workload-type: general
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
 ```
 
 Target pods to this pool using `nodeSelector`:

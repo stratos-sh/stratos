@@ -19,6 +19,30 @@ const sidebars = {
     },
     {
       type: 'category',
+      label: 'Reference',
+      link: {
+        type: 'generated-index',
+        description: 'API reference and configuration options.',
+      },
+      items: [
+        {
+          type: 'category',
+          label: 'API Reference',
+          link: {
+            type: 'generated-index',
+            description: 'Custom Resource Definition API reference.',
+          },
+          items: [
+            'reference/api/nodepool',
+            'reference/api/awsnodeclass',
+          ],
+        },
+        'reference/cli',
+        'reference/labels-annotations',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Concepts',
       link: {
         type: 'generated-index',
@@ -44,30 +68,6 @@ const sidebars = {
         'guides/bottlerocket',
         'guides/scaling-policies',
         'guides/monitoring',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Reference',
-      link: {
-        type: 'generated-index',
-        description: 'API reference and configuration options.',
-      },
-      items: [
-        {
-          type: 'category',
-          label: 'API Reference',
-          link: {
-            type: 'generated-index',
-            description: 'Custom Resource Definition API reference.',
-          },
-          items: [
-            'reference/api/nodepool',
-            'reference/api/awsnodeclass',
-          ],
-        },
-        'reference/cli',
-        'reference/labels-annotations',
       ],
     },
     {

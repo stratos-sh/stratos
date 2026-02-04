@@ -19,6 +19,8 @@ package cloudprovider
 import (
 	"fmt"
 	"time"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // Instance represents a cloud compute instance.
@@ -147,3 +149,18 @@ type InsufficientCapacityError struct {
 func (e *InsufficientCapacityError) Error() string {
 	return fmt.Sprintf("insufficient capacity for %s in %s", e.InstanceType, e.AvailabilityZone)
 }
+
+// InstanceCapacity represents the CPU and memory capacity of an instance type.
+type InstanceCapacity struct {
+	CPU    resource.Quantity
+	Memory resource.Quantity
+}
+
+// IsZero returns true if both CPU and Memory are zero.
+func (c InstanceCapacity) IsZero() bool {
+	return c.CPU.IsZero() && c.Memory.IsZero()
+}
+
+// InstanceCapacityProvider returns the capacity for a given instance type.
+// Returns a zero-value InstanceCapacity if the instance type is unknown.
+type InstanceCapacityProvider func(instanceType string) InstanceCapacity

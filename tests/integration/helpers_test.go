@@ -32,7 +32,7 @@ import (
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
-	"github.com/stratos-sh/stratos/internal/controller"
+	"github.com/stratos-sh/stratos/internal/controller/nodepool/nodestate"
 )
 
 // testAWSNodeClass returns a minimal AWSNodeClass for testing
@@ -126,23 +126,23 @@ func createTestNodePoolWithScaleDown(name string, poolSize, minStandby int32, em
 
 // simulateNodeJoin creates a K8s Node object that simulates an EC2 instance joining the cluster.
 // This bridges the gap between the fake EC2 provider and Kubernetes.
-func simulateNodeJoin(poolName, instanceID string, state controller.NodeState) *corev1.Node {
+func simulateNodeJoin(poolName, instanceID string, nodeState nodestate.NodeState) *corev1.Node {
 	nodeName := fmt.Sprintf("node-%s", instanceID)
 
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nodeName,
 			Labels: map[string]string{
-				controller.LabelPool:       poolName,
-				controller.LabelState:      string(state),
-				controller.LabelInstanceID: instanceID,
-				controller.LabelStateSince: fmt.Sprintf("%d", time.Now().Unix()),
+				nodestate.LabelPool:       poolName,
+				nodestate.LabelState:      string(nodeState),
+				nodestate.LabelInstanceID: instanceID,
+				nodestate.LabelStateSince: fmt.Sprintf("%d", time.Now().Unix()),
 			},
 			Annotations: make(map[string]string),
 		},
 		Spec: corev1.NodeSpec{
 			ProviderID:    fmt.Sprintf("aws:///us-east-1a/%s", instanceID),
-			Unschedulable: state != controller.NodeStateRunning,
+			Unschedulable: nodeState != nodestate.NodeStateRunning,
 		},
 		Status: corev1.NodeStatus{
 			Conditions: []corev1.NodeCondition{
@@ -165,10 +165,10 @@ func simulateNodeJoin(poolName, instanceID string, state controller.NodeState) *
 	}
 
 	// Add standby taint for non-running nodes
-	if state == controller.NodeStateStandby || state == controller.NodeStateWarmup {
+	if nodeState == nodestate.NodeStateStandby || nodeState == nodestate.NodeStateWarmup {
 		node.Spec.Taints = []corev1.Taint{
 			{
-				Key:    controller.TaintKeyStandby,
+				Key:    nodestate.TaintKeyStandby,
 				Effect: corev1.TaintEffectNoExecute,
 			},
 		}
@@ -180,8 +180,8 @@ func simulateNodeJoin(poolName, instanceID string, state controller.NodeState) *
 }
 
 // simulateNodeJoinWithResources creates a Node with custom resource capacity.
-func simulateNodeJoinWithResources(poolName, instanceID string, state controller.NodeState, cpu, memory string) *corev1.Node {
-	node := simulateNodeJoin(poolName, instanceID, state)
+func simulateNodeJoinWithResources(poolName, instanceID string, nodeState nodestate.NodeState, cpu, memory string) *corev1.Node {
+	node := simulateNodeJoin(poolName, instanceID, nodeState)
 
 	// Update with custom resources
 	patch := client.MergeFrom(node.DeepCopy())
@@ -268,15 +268,15 @@ func createPodOnNode(namespace, name, nodeName string) *corev1.Pod {
 	return pod
 }
 
-// eventuallyNodeState waits for a node to reach the expected state.
-func eventuallyNodeState(nodeName string, expectedState controller.NodeState) {
+// eventuallyNodeState waits for a node to reach the expected nodestate.
+func eventuallyNodeState(nodeName string, expectedState nodestate.NodeState) {
 	Eventually(func() string {
 		node := &corev1.Node{}
 		err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 		if err != nil {
 			return ""
 		}
-		return node.Labels[controller.LabelState]
+		return node.Labels[nodestate.LabelState]
 	}, timeout, interval).Should(Equal(string(expectedState)))
 }
 
@@ -326,20 +326,20 @@ func getNode(name string) *corev1.Node {
 }
 
 // updateNodeState updates a node's state label.
-func updateNodeState(nodeName string, newState controller.NodeState) {
+func updateNodeState(nodeName string, newState nodestate.NodeState) {
 	node := &corev1.Node{}
 	err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 	Expect(err).NotTo(HaveOccurred())
 
 	patch := client.MergeFrom(node.DeepCopy())
-	node.Labels[controller.LabelState] = string(newState)
+	node.Labels[nodestate.LabelState] = string(newState)
 	err = k8sClient.Patch(ctx, node, patch)
 	Expect(err).NotTo(HaveOccurred())
 }
 
 // setFakeInstanceState sets the state of a fake instance in the provider.
-func setFakeInstanceState(instanceID string, state cloudprovider.InstanceState) {
-	err := fakeProvider.SetInstanceState(instanceID, state)
+func setFakeInstanceState(instanceID string, instanceState cloudprovider.InstanceState) {
+	err := fakeProvider.SetInstanceState(instanceID, instanceState)
 	Expect(err).NotTo(HaveOccurred())
 }
 
@@ -391,18 +391,18 @@ func triggerReconcile(name string) {
 func countNodesForPool(poolName string) int {
 	nodeList := &corev1.NodeList{}
 	err := k8sClient.List(ctx, nodeList, client.MatchingLabels{
-		controller.LabelPool: poolName,
+		nodestate.LabelPool: poolName,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	return len(nodeList.Items)
 }
 
 // countNodesByStateForPool counts nodes by state for a specific pool.
-func countNodesByStateForPool(poolName string, state controller.NodeState) int {
+func countNodesByStateForPool(poolName string, nodeState nodestate.NodeState) int {
 	nodeList := &corev1.NodeList{}
 	err := k8sClient.List(ctx, nodeList, client.MatchingLabels{
-		controller.LabelPool:  poolName,
-		controller.LabelState: string(state),
+		nodestate.LabelPool:  poolName,
+		nodestate.LabelState: string(nodeState),
 	})
 	Expect(err).NotTo(HaveOccurred())
 	return len(nodeList.Items)

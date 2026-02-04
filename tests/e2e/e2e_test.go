@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
-	"github.com/stratos-sh/stratos/internal/controller"
+	"github.com/stratos-sh/stratos/internal/controller/nodepool/nodestate"
 )
 
 // Package-level state shared across all tests.
@@ -254,18 +254,18 @@ func TestScaleUp(t *testing.T) {
 			var node corev1.Node
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &node)
 			require.NoError(t, err, "fetching node %s", pod.Spec.NodeName)
-			require.Equal(t, poolName, node.Labels[controller.LabelPool],
+			require.Equal(t, poolName, node.Labels[nodestate.LabelPool],
 				"pod %s node should belong to pool", pod.Name)
-			require.Equal(t, string(controller.NodeStateRunning), node.Labels[controller.LabelState],
+			require.Equal(t, string(nodestate.NodeStateRunning), node.Labels[nodestate.LabelState],
 				"pod %s node should be in running state", pod.Name)
 		}
 	})
 
-	t.Run("nodepool_status_running2_standby0", func(t *testing.T) {
+	t.Run("nodepool_status_running1_standby1", func(t *testing.T) {
 		np, err := getNodePool(ctx, poolName)
 		require.NoError(t, err)
-		require.Equal(t, int32(2), np.Status.Running, "running count")
-		require.Equal(t, int32(0), np.Status.Standby, "standby count")
+		require.Equal(t, int32(1), np.Status.Running, "running count")
+		require.Equal(t, int32(1), np.Status.Standby, "standby count")
 	})
 
 	t.Run("nonmatching_selector_stays_pending", func(t *testing.T) {
@@ -387,7 +387,7 @@ func TestPreciseScaleUp(t *testing.T) {
 	})
 
 	// Cleanup: delete deployment, wait for scale-down so subsequent tests
-	// (if any) start from a clean state.
+	// (if any) start from a clean nodestate.
 	t.Run("cleanup_scales_back_down", func(t *testing.T) {
 		dep := &appsv1.Deployment{}
 		dep.Name = "e2e-precise-scaleup-test"

@@ -34,7 +34,7 @@ import (
 
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 	"github.com/stratos-sh/stratos/internal/cloudprovider"
-	"github.com/stratos-sh/stratos/internal/controller"
+	"github.com/stratos-sh/stratos/internal/controller/nodepool/nodestate"
 )
 
 var _ = Describe("Warmup Completion", func() {
@@ -66,7 +66,7 @@ var _ = Describe("Warmup Completion", func() {
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
 
 			// Simulate node joining with Ready condition
-			node := simulateNodeJoinWithReady(poolName, instanceID, controller.NodeStateWarmup, true)
+			node := simulateNodeJoinWithReady(poolName, instanceID, nodestate.NodeStateWarmup, true)
 			Expect(node).NotTo(BeNil())
 
 			// Trigger reconciliation
@@ -79,8 +79,8 @@ var _ = Describe("Warmup Completion", func() {
 				if err != nil {
 					return ""
 				}
-				return n.Labels[controller.LabelState]
-			}, timeout, interval).Should(Equal(string(controller.NodeStateStandby)))
+				return n.Labels[nodestate.LabelState]
+			}, timeout, interval).Should(Equal(string(nodestate.NodeStateStandby)))
 
 			// Verify StopInstance was called
 			Expect(stopCalled).To(BeTrue())
@@ -104,7 +104,7 @@ var _ = Describe("Warmup Completion", func() {
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
 
 			// Simulate node joining but NOT ready
-			node := simulateNodeJoinWithReady(poolName, instanceID, controller.NodeStateWarmup, false)
+			node := simulateNodeJoinWithReady(poolName, instanceID, nodestate.NodeStateWarmup, false)
 			Expect(node).NotTo(BeNil())
 
 			// Trigger reconciliation multiple times
@@ -120,7 +120,7 @@ var _ = Describe("Warmup Completion", func() {
 			updatedNode := &corev1.Node{}
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(updatedNode.Labels[controller.LabelState]).To(Equal(string(controller.NodeStateWarmup)))
+			Expect(updatedNode.Labels[nodestate.LabelState]).To(Equal(string(nodestate.NodeStateWarmup)))
 		})
 
 		It("should wait for network ready when WhenNetworkReady is configured", func() {
@@ -140,7 +140,7 @@ var _ = Describe("Warmup Completion", func() {
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
 
 			// Simulate node joining - Ready but network NOT ready
-			node := simulateNodeJoinWithReadyNoNetwork(poolName, instanceID, controller.NodeStateWarmup)
+			node := simulateNodeJoinWithReadyNoNetwork(poolName, instanceID, nodestate.NodeStateWarmup)
 			Expect(node).NotTo(BeNil())
 
 			// Trigger reconciliation
@@ -157,7 +157,7 @@ var _ = Describe("Warmup Completion", func() {
 
 			patch := client.MergeFrom(patchNode.DeepCopy())
 			patchNode.Status.Conditions = append(patchNode.Status.Conditions, corev1.NodeCondition{
-				Type:   controller.NetworkingReadyCondition,
+				Type:   nodestate.NetworkingReadyCondition,
 				Status: corev1.ConditionTrue,
 				Reason: "NetworkingIsReady",
 			})
@@ -183,7 +183,7 @@ var _ = Describe("Warmup Completion", func() {
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
 
 			// Simulate node joining
-			node := simulateNodeJoinWithReady(poolName, instanceID, controller.NodeStateWarmup, true)
+			node := simulateNodeJoinWithReady(poolName, instanceID, nodestate.NodeStateWarmup, true)
 			Expect(node).NotTo(BeNil())
 
 			// Simulate instance stopping externally
@@ -199,8 +199,8 @@ var _ = Describe("Warmup Completion", func() {
 				if err != nil {
 					return ""
 				}
-				return n.Labels[controller.LabelState]
-			}, timeout, interval).Should(Equal(string(controller.NodeStateStandby)))
+				return n.Labels[nodestate.LabelState]
+			}, timeout, interval).Should(Equal(string(nodestate.NodeStateStandby)))
 		})
 	})
 
@@ -216,7 +216,7 @@ var _ = Describe("Warmup Completion", func() {
 			setFakeInstanceState(instanceID, cloudprovider.InstanceStateRunning)
 
 			// Simulate node joining but NOT ready (will timeout)
-			node := simulateNodeJoinWithReadyAndOldTimestamp(poolName, instanceID, controller.NodeStateWarmup, false)
+			node := simulateNodeJoinWithReadyAndOldTimestamp(poolName, instanceID, nodestate.NodeStateWarmup, false)
 			Expect(node).NotTo(BeNil())
 
 			// Trigger reconciliation
@@ -269,18 +269,18 @@ var _ = Describe("Warmup Completion", func() {
 				if err != nil {
 					return ""
 				}
-				return n.Labels[controller.LabelState]
+				return n.Labels[nodestate.LabelState]
 			}, timeout, interval).Should(SatisfyAny(
-				Equal(string(controller.NodeStateWarmup)),
-				Equal(string(controller.NodeStateStandby)),
+				Equal(string(nodestate.NodeStateWarmup)),
+				Equal(string(nodestate.NodeStateStandby)),
 			))
 
 			// Verify instance-id was set
 			updatedNode := &corev1.Node{}
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(updatedNode.Labels[controller.LabelInstanceID]).To(Equal(instanceID))
-			Expect(updatedNode.Labels[controller.LabelStateSince]).NotTo(BeEmpty())
+			Expect(updatedNode.Labels[nodestate.LabelInstanceID]).To(Equal(instanceID))
+			Expect(updatedNode.Labels[nodestate.LabelStateSince]).NotTo(BeEmpty())
 
 			// Wait for the node to transition to standby (controller stops it when Ready)
 			Eventually(func() string {
@@ -289,8 +289,8 @@ var _ = Describe("Warmup Completion", func() {
 				if err != nil {
 					return ""
 				}
-				return n.Labels[controller.LabelState]
-			}, timeout, interval).Should(Equal(string(controller.NodeStateStandby)))
+				return n.Labels[nodestate.LabelState]
+			}, timeout, interval).Should(Equal(string(nodestate.NodeStateStandby)))
 
 			// Verify StopInstance was called
 			Expect(stopCalled).To(BeTrue())
@@ -320,21 +320,21 @@ var _ = Describe("Warmup Completion", func() {
 				if err != nil {
 					return ""
 				}
-				return n.Labels[controller.LabelState]
-			}, timeout, interval).Should(Equal(string(controller.NodeStateStandby)))
+				return n.Labels[nodestate.LabelState]
+			}, timeout, interval).Should(Equal(string(nodestate.NodeStateStandby)))
 
 			// Verify all labels, annotations, and taints are set
 			updatedNode := &corev1.Node{}
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: node.Name}, updatedNode)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(updatedNode.Labels[controller.LabelInstanceID]).To(Equal(instanceID))
-			Expect(updatedNode.Labels[controller.LabelStateSince]).NotTo(BeEmpty())
-			Expect(updatedNode.Annotations[controller.AnnotationWarmupCompleted]).NotTo(BeEmpty())
+			Expect(updatedNode.Labels[nodestate.LabelInstanceID]).To(Equal(instanceID))
+			Expect(updatedNode.Labels[nodestate.LabelStateSince]).NotTo(BeEmpty())
+			Expect(updatedNode.Annotations[nodestate.AnnotationWarmupCompleted]).NotTo(BeEmpty())
 
 			// Verify standby taint
 			hasTaint := false
 			for _, taint := range updatedNode.Spec.Taints {
-				if taint.Key == controller.TaintKeyStandby {
+				if taint.Key == nodestate.TaintKeyStandby {
 					hasTaint = true
 					break
 				}
@@ -362,7 +362,7 @@ func createTestNodePoolWithNetworkReady(name string, poolSize, minStandby int32)
 					Kind: "AWSNodeClass",
 					Name: nodeClassName,
 				},
-				StartupTaintRemoval: stratosv1alpha1.StartupTaintRemovalWhenNetworkReady,
+				// NetworkReadinessStrategy defaults to Taint
 			},
 			PreWarm: &stratosv1alpha1.PreWarmConfig{},
 		},
@@ -407,7 +407,7 @@ func createTestNodePoolWithTimeout(name string, poolSize, minStandby int32, time
 
 // simulateNodeJoinWithReady creates a Node with the specified Ready condition status.
 // When ready=true, also sets NodeNetworkUnavailable=False for WhenNetworkReady mode.
-func simulateNodeJoinWithReady(poolName, instanceID string, state controller.NodeState, ready bool) *corev1.Node {
+func simulateNodeJoinWithReady(poolName, instanceID string, nodeState nodestate.NodeState, ready bool) *corev1.Node {
 	nodeName := fmt.Sprintf("node-%s", instanceID)
 	readyStatus := corev1.ConditionFalse
 	if ready {
@@ -432,16 +432,16 @@ func simulateNodeJoinWithReady(poolName, instanceID string, state controller.Nod
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nodeName,
 			Labels: map[string]string{
-				controller.LabelPool:       poolName,
-				controller.LabelState:      string(state),
-				controller.LabelInstanceID: instanceID,
-				controller.LabelStateSince: fmt.Sprintf("%d", time.Now().Unix()),
+				nodestate.LabelPool:       poolName,
+				nodestate.LabelState:      string(nodeState),
+				nodestate.LabelInstanceID: instanceID,
+				nodestate.LabelStateSince: fmt.Sprintf("%d", time.Now().Unix()),
 			},
 			Annotations: make(map[string]string),
 		},
 		Spec: corev1.NodeSpec{
 			ProviderID:    fmt.Sprintf("aws:///us-east-1a/%s", instanceID),
-			Unschedulable: state != controller.NodeStateRunning,
+			Unschedulable: nodeState != nodestate.NodeStateRunning,
 		},
 		Status: corev1.NodeStatus{
 			Conditions: conditions,
@@ -458,10 +458,10 @@ func simulateNodeJoinWithReady(poolName, instanceID string, state controller.Nod
 		},
 	}
 
-	if state == controller.NodeStateStandby || state == controller.NodeStateWarmup {
+	if nodeState == nodestate.NodeStateStandby || nodeState == nodestate.NodeStateWarmup {
 		node.Spec.Taints = []corev1.Taint{
 			{
-				Key:    controller.TaintKeyStandby,
+				Key:    nodestate.TaintKeyStandby,
 				Effect: corev1.TaintEffectNoExecute,
 			},
 		}
@@ -474,23 +474,23 @@ func simulateNodeJoinWithReady(poolName, instanceID string, state controller.Nod
 
 // simulateNodeJoinWithReadyNoNetwork creates a Node that is Ready but without any network readiness
 // conditions (no NetworkingReady and no NodeNetworkUnavailable=False). Used to test network waiting behavior.
-func simulateNodeJoinWithReadyNoNetwork(poolName, instanceID string, state controller.NodeState) *corev1.Node {
+func simulateNodeJoinWithReadyNoNetwork(poolName, instanceID string, nodeState nodestate.NodeState) *corev1.Node {
 	nodeName := fmt.Sprintf("node-%s", instanceID)
 
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nodeName,
 			Labels: map[string]string{
-				controller.LabelPool:       poolName,
-				controller.LabelState:      string(state),
-				controller.LabelInstanceID: instanceID,
-				controller.LabelStateSince: fmt.Sprintf("%d", time.Now().Unix()),
+				nodestate.LabelPool:       poolName,
+				nodestate.LabelState:      string(nodeState),
+				nodestate.LabelInstanceID: instanceID,
+				nodestate.LabelStateSince: fmt.Sprintf("%d", time.Now().Unix()),
 			},
 			Annotations: make(map[string]string),
 		},
 		Spec: corev1.NodeSpec{
 			ProviderID:    fmt.Sprintf("aws:///us-east-1a/%s", instanceID),
-			Unschedulable: state != controller.NodeStateRunning,
+			Unschedulable: nodeState != nodestate.NodeStateRunning,
 		},
 		Status: corev1.NodeStatus{
 			Conditions: []corev1.NodeCondition{
@@ -513,10 +513,10 @@ func simulateNodeJoinWithReadyNoNetwork(poolName, instanceID string, state contr
 		},
 	}
 
-	if state == controller.NodeStateStandby || state == controller.NodeStateWarmup {
+	if nodeState == nodestate.NodeStateStandby || nodeState == nodestate.NodeStateWarmup {
 		node.Spec.Taints = []corev1.Taint{
 			{
-				Key:    controller.TaintKeyStandby,
+				Key:    nodestate.TaintKeyStandby,
 				Effect: corev1.TaintEffectNoExecute,
 			},
 		}
@@ -530,7 +530,7 @@ func simulateNodeJoinWithReadyNoNetwork(poolName, instanceID string, state contr
 // simulateNodeJoinWithReadyAndOldTimestamp creates a Node with an old state-since timestamp
 // to simulate timeout scenarios.
 // When ready=true, also sets NodeNetworkUnavailable=False for WhenNetworkReady mode.
-func simulateNodeJoinWithReadyAndOldTimestamp(poolName, instanceID string, state controller.NodeState, ready bool) *corev1.Node {
+func simulateNodeJoinWithReadyAndOldTimestamp(poolName, instanceID string, nodeState nodestate.NodeState, ready bool) *corev1.Node {
 	nodeName := fmt.Sprintf("node-%s", instanceID)
 	readyStatus := corev1.ConditionFalse
 	if ready {
@@ -558,16 +558,16 @@ func simulateNodeJoinWithReadyAndOldTimestamp(poolName, instanceID string, state
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nodeName,
 			Labels: map[string]string{
-				controller.LabelPool:       poolName,
-				controller.LabelState:      string(state),
-				controller.LabelInstanceID: instanceID,
-				controller.LabelStateSince: fmt.Sprintf("%d", oldTimestamp),
+				nodestate.LabelPool:       poolName,
+				nodestate.LabelState:      string(nodeState),
+				nodestate.LabelInstanceID: instanceID,
+				nodestate.LabelStateSince: fmt.Sprintf("%d", oldTimestamp),
 			},
 			Annotations: make(map[string]string),
 		},
 		Spec: corev1.NodeSpec{
 			ProviderID:    fmt.Sprintf("aws:///us-east-1a/%s", instanceID),
-			Unschedulable: state != controller.NodeStateRunning,
+			Unschedulable: nodeState != nodestate.NodeStateRunning,
 		},
 		Status: corev1.NodeStatus{
 			Conditions: conditions,
@@ -584,10 +584,10 @@ func simulateNodeJoinWithReadyAndOldTimestamp(poolName, instanceID string, state
 		},
 	}
 
-	if state == controller.NodeStateStandby || state == controller.NodeStateWarmup {
+	if nodeState == nodestate.NodeStateStandby || nodeState == nodestate.NodeStateWarmup {
 		node.Spec.Taints = []corev1.Taint{
 			{
-				Key:    controller.TaintKeyStandby,
+				Key:    nodestate.TaintKeyStandby,
 				Effect: corev1.TaintEffectNoExecute,
 			},
 		}
@@ -627,7 +627,7 @@ func simulateNodeJoinWithPoolLabelOnly(poolName, instanceID string, ready bool) 
 			Name: nodeName,
 			Labels: map[string]string{
 				// Only pool label set - no state, instance-id, or state-since
-				controller.LabelPool: poolName,
+				nodestate.LabelPool: poolName,
 			},
 			Annotations: make(map[string]string),
 		},

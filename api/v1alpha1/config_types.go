@@ -65,7 +65,6 @@ const (
 	TimeoutActionTerminate TimeoutAction = "terminate"
 )
 
-
 // GetEnabled returns whether scale-down is enabled (default: true)
 func (c *ScaleDownConfig) GetEnabled() bool {
 	if c == nil || c.Enabled == nil {
@@ -105,4 +104,3 @@ func (c *PreWarmConfig) GetTimeoutAction() TimeoutAction {
 	}
 	return *c.TimeoutAction
 }
-

@@ -189,14 +189,7 @@ spec:
       node-role.kubernetes.io/worker: ""
       workload-type: general       # Custom label for pod targeting
 
-    # Startup taints - Stratos removes these when the CNI is ready
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-
-    # How startup taints are removed
-    startupTaintRemoval: WhenNetworkReady
+    # Network readiness is managed automatically (default: Taint strategy)
 
   # Pre-warm configuration
   preWarm:

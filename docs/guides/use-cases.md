@@ -66,11 +66,6 @@ spec:
     labels:
       stratos.sh/pool: ci-runners
       node-role.kubernetes.io/ci: ""
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: WhenNetworkReady
   preWarm:
     timeout: 15m
     timeoutAction: terminate
@@ -165,11 +160,6 @@ spec:
       stratos.sh/pool: inference
       node-role.kubernetes.io/inference: ""
       nvidia.com/gpu: "present"
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: WhenNetworkReady
   preWarm:
     timeout: 20m
     timeoutAction: terminate
@@ -255,11 +245,6 @@ spec:
     labels:
       stratos.sh/pool: on-demand
       scale-to-zero: enabled
-    startupTaints:
-      - key: stratos.sh/not-ready
-        value: "true"
-        effect: NoSchedule
-    startupTaintRemoval: WhenNetworkReady
   scaleDown:
     enabled: true
     emptyNodeTTL: 2m   # Return nodes to standby quickly

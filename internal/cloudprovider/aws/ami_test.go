@@ -22,7 +22,7 @@ import (
 	stratosv1alpha1 "github.com/stratos-sh/stratos/api/v1alpha1"
 )
 
-func TestDefaultAMISelector(t *testing.T) {
+func Test_defaultAMISelector(t *testing.T) {
 	tests := []struct {
 		name        string
 		template    stratosv1alpha1.BootstrapTemplate
@@ -113,35 +113,35 @@ func TestDefaultAMISelector(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := DefaultAMISelector(tt.template, tt.arch, tt.k8sVersion)
+			got, err := defaultAMISelector(tt.template, tt.arch, tt.k8sVersion)
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("DefaultAMISelector() expected error, got nil")
+					t.Errorf("defaultAMISelector() expected error, got nil")
 					return
 				}
 				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
-					t.Errorf("DefaultAMISelector() error = %v, want error containing %q", err, tt.errContains)
+					t.Errorf("defaultAMISelector() error = %v, want error containing %q", err, tt.errContains)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("DefaultAMISelector() unexpected error: %v", err)
+				t.Errorf("defaultAMISelector() unexpected error: %v", err)
 				return
 			}
 
 			if got == nil {
-				t.Errorf("DefaultAMISelector() returned nil selector")
+				t.Errorf("defaultAMISelector() returned nil selector")
 				return
 			}
 
 			if got.Name != tt.wantName {
-				t.Errorf("DefaultAMISelector() Name = %q, want %q", got.Name, tt.wantName)
+				t.Errorf("defaultAMISelector() Name = %q, want %q", got.Name, tt.wantName)
 			}
 
 			if got.Owner != tt.wantOwner {
-				t.Errorf("DefaultAMISelector() Owner = %q, want %q", got.Owner, tt.wantOwner)
+				t.Errorf("defaultAMISelector() Owner = %q, want %q", got.Owner, tt.wantOwner)
 			}
 		})
 	}
