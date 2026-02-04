@@ -1,268 +1,606 @@
-# Technology Stack: Naming Cleanup & Dead Code Removal
+# Technology Stack: Warmup Image Pre-Pull
 
-**Project:** Stratos Kubernetes Operator -- v1.1.1 naming and dead code cleanup
+**Project:** Stratos Kubernetes Operator -- Warmup Image Pre-Pull Feature
 **Researched:** 2026-02-04
-**Overall confidence:** HIGH
+**Overall confidence:** HIGH (verified with official AWS docs, EKS AMI GitHub issues, and community production patterns)
 
-This milestone is a naming cleanup and dead code removal pass. The "stack" is the tools and techniques for safe Go refactoring, not new dependencies to add.
+This document covers the exact binaries, paths, commands, and integration points needed to add container image pre-pulling during the Stratos warmup phase on EKS-optimized AL2023 and AL2 AMIs.
+
+---
 
 ## Executive Assessment
 
-Five operations need to happen: two type renames, four file renames, one dead method deletion, and one struct field type change. The Go ecosystem provides two purpose-built tools for these operations: `gopls rename` (type-safe symbol renaming) and `deadcode` (unreachable function detection). Both are verified working on this codebase today. No new module dependencies are needed. The existing linter and test infrastructure validates every change.
+Image pre-pulling during warmup requires **zero new Go module dependencies**. The entire feature is implemented by generating bash script fragments that call `ctr` (containerd's CLI, pre-installed on all EKS AMIs) to pull images into the `k8s.io` containerd namespace before the instance is stopped into standby. ECR authentication uses `aws ecr get-login-password` (AWS CLI is pre-installed) backed by the instance profile's IAM role.
+
+The primary complexity is AMI-family-specific user data formats:
+- **AL2**: Straightforward -- add a new MIME part (shell script) to the existing multipart structure.
+- **AL2023**: Requires switching from plain NodeConfig YAML to MIME multipart format, combining the NodeConfig with a shell script part.
+
+Both AMI families can share the same image-pull bash logic. The `ctr` binary and containerd socket are identical across both.
 
 ---
 
-## Recommended Tools by Operation
+## Container Runtime Tooling on EKS AMIs
 
-### 1. Type Renaming: `gopls rename` (recommended)
+### Binary Availability Matrix
 
-**Tool:** `gopls rename` CLI subcommand
-**Version verified:** gopls v0.21.0 (installed at `~/go/bin/gopls`)
-**Confidence:** HIGH -- verified on this exact codebase
+| Tool | AL2 (EKS-optimized) | AL2023 (EKS-optimized) | Path | Notes |
+|------|---------------------|------------------------|------|-------|
+| `ctr` | Pre-installed | Pre-installed | `/usr/bin/ctr` | Bundled with containerd; always available |
+| `crictl` | Pre-installed (added ~2024) | NOT available | `/usr/bin/crictl` (AL2) | AL2023 distro repos do not include cri-tools (open issue #2163) |
+| `nerdctl` | NOT available | NOT available by default | n/a | Was considered but not shipped in AMI; must be manually installed |
+| `aws` CLI | Pre-installed (v1 or v2) | Pre-installed (v2) | `/usr/bin/aws` or `/usr/local/bin/aws` | Required for ECR auth |
+| `containerd` | Pre-installed | Pre-installed | `/usr/bin/containerd` | Runtime; managed by systemd |
 
-`gopls rename` is the officially recommended Go refactoring tool, replacing the deprecated `gorename`. It performs type-safe symbol renaming with the following safety guarantees:
+**Confidence:** HIGH -- verified via [amazon-eks-ami GitHub issues #797](https://github.com/awslabs/amazon-eks-ami/issues/797), [#1486](https://github.com/awslabs/amazon-eks-ami/issues/1486), [#2163](https://github.com/awslabs/amazon-eks-ami/issues/2163)
 
-- Detects symbol shadowing that would break compilation
-- Verifies interface satisfaction is preserved after renaming methods
-- Handles anonymous field embedding correctly
-- Never introduces compilation errors (guaranteed by the tool's design)
+### Recommendation: Use `ctr` exclusively
 
-**Usage pattern:**
+**Use `ctr -n k8s.io images pull` for image pre-pulling.** Rationale:
 
-```bash
-# Rename exported type: Strategy -> Scaler
-# Position format: file.go:line:column
-gopls rename -w internal/scaling/kubernetes.go:39:6 Scaler
+1. `ctr` is the ONLY tool guaranteed to be present on BOTH AL2 and AL2023 EKS AMIs.
+2. `crictl` is absent on AL2023 (the primary target going forward, since AL2 AMIs stopped publishing Nov 2025).
+3. `ctr` operates directly on containerd, bypassing CRI -- this is fine for pre-pull because we do not need pod-level semantics.
+4. The `k8s.io` namespace flag ensures kubelet sees the pre-pulled images.
+5. This is the pattern used in production by Karpenter users, Terraform EKS modules, and the AWS prefetching blog post.
 
-# Rename unexported type: drainHelper -> nodeDrainer
-gopls rename -w internal/scaling/drain.go:30:6 nodeDrainer
-```
+**Why NOT `crictl`:** Not available on AL2023 without manual installation. Adding a `crictl` installation step to user data is unnecessary complexity when `ctr` already works.
 
-**Flags:**
-- `-w` (write): Apply changes to source files in place
-- `-d` (diff): Show diffs without writing (dry-run)
-- `-l` (list): Show which files would be modified
+**Why NOT `nerdctl`:** Not pre-installed on either AMI family. Same issue as `crictl`.
 
-**Verified dry-run results on this codebase:**
+---
 
-| Rename | Files Modified | What Changes |
-|--------|---------------|--------------|
-| `Strategy` to `Scaler` | ~8 files (kubernetes.go, pod_assignments.go, events.go, scaling.go, readiness.go, maintenance.go, network.go, tests) | Type declaration, all method receivers `(s *Strategy)` to `(s *Scaler)`, all constructor calls, all test struct literals |
-| `drainHelper` to `nodeDrainer` | ~3 files (drain.go, drain_eviction.go, scaling.go) | Type declaration, all method receivers `(d *drainHelper)` to `(d *nodeDrainer)`, constructor call site |
+## Containerd Configuration
 
-**Why gopls rename, not manual find-and-replace:**
-1. It understands Go scope -- it renames only the correct `Strategy` in `package scaling`, not any other `Strategy` in comments, strings, or other packages.
-2. It renames the type AND all its method receivers AND all call sites atomically.
-3. It validates the rename would not break compilation before writing.
-4. For `Strategy` (13 references across 5+ files), manual renaming is error-prone. For `drainHelper` (fewer references), gopls rename is still faster and safer than manual editing.
+### Socket and Config Paths (Both AL2 and AL2023)
 
-**Why NOT manual search-and-replace:**
-- `Strategy` is a common word that appears in comments, doc strings, and planning files. A regex replace would produce false positives.
-- Method receiver variables (`s *Strategy`) must be renamed in sync with the type declaration. gopls handles this atomically.
+| Item | Path | Notes |
+|------|------|-------|
+| Containerd socket | `/run/containerd/containerd.sock` | Consistent across all EKS AMI families |
+| Containerd config | `/etc/containerd/config.toml` | Main config file |
+| Config overrides | `/etc/containerd/config.d/` | Drop-in config directory |
+| Containerd data | `/var/lib/containerd/` | Image and container storage |
 
-### 2. File Renaming: `git mv` (recommended)
+**Confidence:** HIGH -- verified via [EKS AMI docs](https://awslabs.github.io/amazon-eks-ami/usage/al2/), [containerd issue #1917](https://github.com/awslabs/amazon-eks-ami/issues/1917)
 
-**Tool:** `git mv`
-**Confidence:** HIGH
+### Containerd Namespace: `k8s.io`
 
-Go does not care about filenames. Any `.go` file in a package directory is part of that package regardless of its name. File renaming is purely organizational -- it affects git history and developer navigation, not compilation.
+Containerd uses namespaces for isolation. Kubelet uses the `k8s.io` namespace exclusively. Images pulled into any other namespace are invisible to kubelet.
 
-**Usage pattern:**
+**Every `ctr` command MUST include `-n k8s.io`.**
 
 ```bash
-# Rename files within internal/scaling/
-git mv internal/scaling/kubernetes.go internal/scaling/scaler.go
-git mv internal/scaling/kubernetes_test.go internal/scaling/scaler_test.go
-git mv internal/scaling/types.go internal/scaling/scaling_types.go
-git mv internal/scaling/events.go internal/scaling/pod_events.go
+# CORRECT -- kubelet will see this image
+ctr -n k8s.io images pull <image>
 
-# Rename file in cloudprovider/
-git mv internal/cloudprovider/types.go internal/cloudprovider/instance_types.go
+# WRONG -- kubelet will NOT see this image (defaults to "default" namespace)
+ctr images pull <image>
 ```
 
-**Why `git mv`, not `mv`:**
-- `git mv` preserves file rename history in git, making `git log --follow` work correctly.
-- `git mv` is equivalent to `mv` + `git add` (old path deletion + new path addition), but makes the rename intent explicit in the commit.
+**Confidence:** HIGH -- this is universally documented in [AWS containerd blog](https://aws.amazon.com/blogs/containers/all-you-need-to-know-about-moving-to-containerd-on-amazon-eks/), Kubernetes docs, and [containerd discussions](https://github.com/containerd/containerd/discussions/7902)
 
-**Why NOT gopls for file renaming:**
-- gopls does not support file renaming. It renames symbols (types, functions, variables), not files.
-- File names have no semantic meaning in Go beyond the `_test.go` suffix convention.
+---
 
-**Important constraint:** Rename files BEFORE or AFTER type renaming, not interleaved. The `gopls rename` command references files by path, so the file must exist at the path specified when running the command.
+## ECR Authentication During User Data
 
-### 3. Dead Code Removal: `deadcode` tool (recommended for detection)
+### How It Works
 
-**Tool:** `golang.org/x/tools/cmd/deadcode`
-**Version verified:** latest (installed at `~/go/bin/deadcode`)
-**Confidence:** HIGH -- verified on this exact codebase
+ECR uses short-lived tokens (12-hour TTL) obtained via the `GetAuthorizationToken` API. During user data execution, the instance profile's IAM role provides credentials through IMDS (Instance Metadata Service). The AWS CLI automatically uses these credentials.
 
-The `deadcode` tool uses Rapid Type Analysis (RTA) to build a call graph from `main()` and reports functions that are unreachable. Unlike the `unused` linter in golangci-lint (which only detects unused unexported symbols within a single package), `deadcode` finds unreachable exported and unexported functions across the entire program.
-
-**Verified dead code in this codebase (run on 2026-02-04):**
-
-```
-internal/scaling/drain.go:99:23: unreachable func: drainHelper.UncordonNode
-internal/cloudprovider/aws/instance_types.go:151:6: unreachable func: IsKnownInstanceType
-internal/cloudprovider/fake/resolver.go:43:6: unreachable func: NewFakeResolver
-internal/cloudprovider/fake/resolver.go:57:24: unreachable func: FakeResolver.ResolveAMI
-internal/cloudprovider/fake/resolver.go:64:24: unreachable func: FakeResolver.ResolveSubnets
-internal/cloudprovider/fake/resolver.go:71:24: unreachable func: FakeResolver.ResolveSecurityGroups
-internal/cloudprovider/fake/resolver.go:78:24: unreachable func: FakeResolver.ResolveInstanceProfile
-internal/cloudprovider/fake/resolver.go:85:24: unreachable func: FakeResolver.DeleteInstanceProfile
-internal/metrics/metrics.go:260:6: unreachable func: RecordStartingNodes
-```
-
-**Usage pattern:**
+**Authentication command chain:**
 
 ```bash
-# Find all dead code (including test entry points)
-~/go/bin/deadcode -test -filter=stratos ./cmd/stratos/...
+# 1. Get ECR password (uses instance profile via IMDS automatically)
+ECR_PASSWORD=$(aws ecr get-login-password --region <region>)
 
-# Explain why a specific function IS reachable (useful for borderline cases)
-~/go/bin/deadcode -whylive="github.com/stratos-sh/stratos/internal/scaling.drainHelper.CordonNode" -test ./cmd/stratos/...
+# 2. Pass to ctr as username:password
+ctr -n k8s.io images pull -u "AWS:${ECR_PASSWORD}" <account-id>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>
 ```
 
-**Key flags:**
-- `-test`: Include test executables in analysis (reduces false positives -- a function used only in tests is not "dead")
-- `-filter=stratos`: Only report dead code in this module, not dependencies
-- `-whylive=function`: Show shortest path from main to a function (debugging tool)
+**Confidence:** HIGH -- verified via [AWS re:Post](https://repost.aws/questions/QUo12Z0uqGRA2cp6K4UNyNnw/how-to-pull-ecr-image-using-ctr-tool-where-runtime-is-containerd), [ECR auth docs](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html), community production patterns
 
-**Why NOT rely solely on golangci-lint `unused` for dead code:**
-- The `unused` linter in golangci-lint detects unused unexported symbols within a single package. It does NOT detect unused exported functions, and it does NOT perform cross-package reachability analysis.
-- Verified: `golangci-lint run` reports 0 issues on this codebase, yet `deadcode` correctly identifies 9 unreachable functions including `UncordonNode`.
-- The `deadcode` linter (lowercase, old golangci-lint integration) is deprecated and removed.
+### IMDS Credential Timing Issue
 
-**For this milestone:** Only `UncordonNode` is in scope for deletion. The other dead code items (FakeResolver methods, IsKnownInstanceType, RecordStartingNodes) may be intentionally retained for future use or test infrastructure. The `deadcode` tool output is a detection aid, not an automatic deletion list.
+**Known problem:** `aws ecr get-login-password` can fail with `AccessDeniedException` during early user data execution because IMDS credentials are not yet available.
 
-### 4. Struct Field Type Change: Manual edit + `go build` (recommended)
+**Root cause:** The instance profile IAM role credentials are served via IMDS, and there is a brief window after instance launch where IMDS is not yet ready to serve credentials.
 
-**Tool:** Go compiler (`go build ./...`)
-**Confidence:** HIGH
+**Recommended mitigation:** Poll for IMDS availability before attempting ECR auth.
 
-Changing `ScalingDemand.Metadata` from `interface{}` to `Pods []corev1.Pod` is a type signature change. No automated refactoring tool handles this -- it requires understanding the semantic intent.
+```bash
+# Wait for IMDS credentials to become available
+wait_for_imds() {
+    local max_attempts=30
+    local attempt=0
+    while [ $attempt -lt $max_attempts ]; do
+        if aws sts get-caller-identity >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
+```
+
+**Confidence:** HIGH -- documented in [AWS re:Post](https://repost.aws/questions/QUOT8lTHaITkqW0NGB74Pkeg/aws-ecr-get-login-password-not-working-when-executed-from-userdata-script-on-ec2-start-up) with known workaround
+
+### Public ECR Images (No Auth Required)
+
+For public ECR images (`public.ecr.aws/...`), no authentication is needed:
+
+```bash
+# Public ECR -- no credentials required
+ctr -n k8s.io images pull public.ecr.aws/eks-distro/kubernetes/pause:3.9
+```
+
+### Required IAM Permissions
+
+The instance profile must have these ECR permissions (included in `AmazonEC2ContainerRegistryReadOnly` managed policy, which EKS worker nodes have by default):
+
+- `ecr:GetAuthorizationToken`
+- `ecr:BatchCheckLayerAvailability`
+- `ecr:BatchGetImage`
+- `ecr:GetDownloadUrlForLayer`
+
+**No additional IAM changes needed** -- standard EKS worker node IAM roles already include these permissions.
+
+---
+
+## Exact `ctr` Pull Command
+
+### Full Command Syntax
+
+```bash
+# For private ECR images:
+ctr -n k8s.io images pull \
+    -u "AWS:${ECR_PASSWORD}" \
+    "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${REPO}:${TAG}"
+
+# For public ECR images:
+ctr -n k8s.io images pull \
+    "public.ecr.aws/${ALIAS}/${IMAGE}:${TAG}"
+
+# For non-ECR registries (Docker Hub, GHCR, etc.) -- no auth for public:
+ctr -n k8s.io images pull \
+    "docker.io/library/nginx:latest"
+```
+
+### Key `ctr` Flags
+
+| Flag | Purpose | Required? |
+|------|---------|-----------|
+| `-n k8s.io` | Target the kubelet namespace | YES -- always |
+| `-u "USER:PASS"` | Authentication credentials | YES for private ECR; NO for public |
+| `--plain-http` | Use HTTP instead of HTTPS | NO -- never use; EKS always uses HTTPS |
+
+### Exit Codes and Error Handling
+
+`ctr` exit codes:
+
+| Exit Code | Meaning | Action |
+|-----------|---------|--------|
+| 0 | Success | Continue |
+| 1 | General failure (network, auth, not found) | Retry or skip based on policy |
+
+**Error detection patterns in bash:**
+
+```bash
+# Pattern 1: BestEffort -- log and continue on failure
+pull_image_best_effort() {
+    local image="$1"
+    if ! ctr -n k8s.io images pull -u "AWS:${ECR_PASSWORD}" "${image}" 2>&1; then
+        log "WARNING: Failed to pull ${image}, continuing (best-effort mode)"
+        return 0
+    fi
+    log "Successfully pulled ${image}"
+}
+
+# Pattern 2: Required -- fail the warmup if any image fails
+pull_image_required() {
+    local image="$1"
+    local max_retries=3
+    local attempt=0
+    while [ $attempt -lt $max_retries ]; do
+        if ctr -n k8s.io images pull -u "AWS:${ECR_PASSWORD}" "${image}" 2>&1; then
+            log "Successfully pulled ${image}"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        log "Retry ${attempt}/${max_retries} for ${image}"
+        sleep $((attempt * 5))  # Exponential-ish backoff: 5s, 10s, 15s
+    done
+    log "ERROR: Failed to pull ${image} after ${max_retries} attempts"
+    return 1
+}
+```
+
+---
+
+## Timing: Containerd Availability During User Data
+
+### AL2 Boot Sequence
+
+```
+cloud-init starts
+  -> /etc/eks/bootstrap.sh runs (starts containerd, configures kubelet)
+  -> MIME part scripts execute (in order of MIME parts)
+  -> kubelet starts
+  -> node joins cluster
+```
+
+On AL2, the bootstrap script (`/etc/eks/bootstrap.sh`) runs first as MIME part 1. It starts containerd and configures kubelet. Subsequent MIME parts execute after bootstrap.sh completes. **By the time the warmup script (MIME part 2+) runs, containerd is already running and the socket is available.**
+
+**Implication for Stratos:** The image pre-pull script should be a MIME part that runs AFTER the bootstrap script but BEFORE or ALONGSIDE the warmup script. Since containerd is started by bootstrap.sh, the socket will be available.
+
+**Current AL2 MIME part order in Stratos:**
+1. `bootstrap.sh` -- calls `/etc/eks/bootstrap.sh`
+2. `stratos-warmup.sh` -- waits for kubelet health
+3. (optional) `custom-userdata.sh`
+
+**New order with image pre-pull:**
+1. `bootstrap.sh` -- calls `/etc/eks/bootstrap.sh` (starts containerd)
+2. `stratos-image-pull.sh` -- pulls images via `ctr` (containerd is now running)
+3. `stratos-warmup.sh` -- waits for kubelet health
+4. (optional) `custom-userdata.sh`
+
+**Confidence:** HIGH -- bootstrap.sh explicitly starts containerd, verified in [EKS AMI AL2 docs](https://awslabs.github.io/amazon-eks-ami/usage/al2/)
+
+### AL2023 Boot Sequence
+
+```
+nodeadm-config.service  (reads user data from IMDS, writes config)
+  -> cloud-init.service  (runs user data shell scripts)
+  -> containerd.service   (starts containerd runtime)
+  -> nodeadm-run.service  (runs nodeadm init, configures kubelet, starts kubelet)
+```
+
+**Critical difference from AL2:** On AL2023, user data shell scripts (in `text/x-shellscript` MIME parts) are executed by cloud-init BEFORE `nodeadm-run.service` starts. However, containerd may or may not be running during cloud-init execution. The systemd ordering is:
+
+- `nodeadm-config.service` runs first (reads IMDS)
+- `cloud-init.service` runs (executes user data scripts) -- **this is where our script runs**
+- `containerd.service` may start in parallel or after cloud-init
+- `nodeadm-run.service` waits for containerd AND cloud-final
+
+**Implication for Stratos:** The image pre-pull script on AL2023 MUST wait for containerd to be ready before pulling images. It cannot assume containerd is running.
+
+```bash
+# Wait for containerd socket to be available
+wait_for_containerd() {
+    local max_wait=120
+    local elapsed=0
+    while [ $elapsed -lt $max_wait ]; do
+        if ctr -n k8s.io version >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    return 1
+}
+```
+
+**Important:** The shell script in MIME multipart runs BEFORE nodeadm-run, which means it blocks node joining. The AWS community has noted this as a design issue ([Issue #2224](https://github.com/awslabs/amazon-eks-ami/issues/2224)). For Stratos warmup, this is actually **acceptable** because the node is going to be stopped after warmup anyway -- we WANT images pulled before the node is stopped. Blocking nodeadm-run briefly is fine for our use case.
+
+**Confidence:** HIGH -- verified via [issue #1751](https://github.com/awslabs/amazon-eks-ami/issues/1751), [issue #2123](https://github.com/awslabs/amazon-eks-ami/issues/2123), [issue #1917](https://github.com/awslabs/amazon-eks-ami/issues/1917)
+
+---
+
+## AL2023 User Data Format Change
+
+### Current AL2023 Format (Plain NodeConfig YAML)
+
+The current `AL2023Generator` outputs plain NodeConfig YAML:
+
+```yaml
+apiVersion: node.eks.aws/v1alpha1
+kind: NodeConfig
+spec:
+  cluster:
+    name: my-cluster
+    apiServerEndpoint: https://...
+    certificateAuthority: Y2VydGlm...
+    cidr: 10.100.0.0/16
+  kubelet:
+    flags:
+      - "--node-labels=stratos.sh/pool=my-pool"
+```
+
+### Required AL2023 Format (MIME Multipart with Script)
+
+To add a shell script alongside the NodeConfig, AL2023 must use MIME multipart:
+
+```
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="BOUNDARY"
+
+--BOUNDARY
+Content-Type: text/x-shellscript; charset="us-ascii"
+
+#!/bin/bash
+# Image pre-pull script runs here
+# (Executes during cloud-init, before nodeadm-run)
+
+--BOUNDARY
+Content-Type: application/node.eks.aws
+
+apiVersion: node.eks.aws/v1alpha1
+kind: NodeConfig
+spec:
+  cluster:
+    name: my-cluster
+    ...
+
+--BOUNDARY--
+```
+
+**Content type for NodeConfig:** `application/node.eks.aws` (NOT `text/x-shellscript`, NOT `text/yaml`)
+
+**Execution order:** Shell script parts execute first during cloud-init. The `application/node.eks.aws` part is read by `nodeadm-config.service` (separate from cloud-init script execution).
+
+**Confidence:** HIGH -- verified via [AWS EKS launch templates docs](https://docs.aws.amazon.com/eks/latest/userguide/launch-templates.html)
+
+### Impact on AL2023Generator
+
+The `AL2023Generator.Generate()` method currently returns plain YAML. When images are specified, it must return MIME multipart instead. When no images are specified, it can continue returning plain YAML (backward compatible).
 
 **Approach:**
-1. Change the field type in `internal/scaling/types.go`
-2. Run `go build ./...`
-3. The compiler reports every site that passes `interface{}` where `[]corev1.Pod` is now expected, and every site that type-asserts the metadata
-4. Fix each call site to pass `[]corev1.Pod` directly instead of wrapping in `interface{}`
-5. Remove any type assertions (`metadata.([]corev1.Pod)`) that are now unnecessary
+- If `config.WarmupImages` is empty: return plain NodeConfig YAML (no change)
+- If `config.WarmupImages` is non-empty: return MIME multipart with shell script + NodeConfig
 
-**Why manual editing is correct here:**
-- This is a semantic change, not a mechanical rename. The compiler identifies exactly which sites need updating.
-- The change simplifies code -- type assertions at consumption sites are eliminated.
-- There is no tool that can infer "this `interface{}` should become `[]corev1.Pod`" -- that requires domain knowledge.
+The existing `buildMIMEMultipart()` and `mimePartShellScript()` helpers in `al2023.go` can be reused. A new helper is needed for the `application/node.eks.aws` content type:
 
----
-
-## Complete Toolchain (All Already Present or Trivially Installable)
-
-| Tool | Version | Role | Status |
-|------|---------|------|--------|
-| `gopls` | v0.21.0 | Type-safe symbol renaming | Installed at `~/go/bin/gopls` |
-| `deadcode` | latest | Dead code detection via RTA | Installed at `~/go/bin/deadcode` |
-| `go build` | 1.25.5 | Primary compile-time correctness check | Bundled with Go |
-| `go vet` | 1.25.5 | Shadow detection, nil analysis | Bundled with Go |
-| `golangci-lint` | v2.8.0 | Lint suite (unused, staticcheck, errcheck, depguard, funlen, cyclop, contextcheck) | Installed at `bin/golangci-lint` |
-| `controller-gen` | v0.16.5 | CRD + deepcopy regeneration (only if `api/v1alpha1/` types change) | Installed at `bin/controller-gen` |
-| `git mv` | system | File renaming with history preservation | System git |
-| `make test` | Makefile | Unit tests with coverage | Project Makefile |
-| `make test-integration` | Makefile | envtest integration tests | Project Makefile |
-
-**No new tools need to be installed. No new Go module dependencies need to be added.**
-
----
-
-## What NOT to Add and Why
-
-| Tool/Approach | Why Skip |
-|---------------|----------|
-| `gorename` | Deprecated and broken under Go modules. The package itself says "use gopls instead." |
-| `gomvpkg` | For moving entire packages between import paths. Not needed -- we are renaming files and types within existing packages, not moving packages. |
-| `gofmt -r` (rewrite rules) | For syntactic pattern rewrites (e.g., `a.Foo()` to `a.Bar()`). Tempting but dangerous for type renames because it matches syntactically, not semantically. `gopls rename` is safer because it understands Go types. |
-| `sed`/`perl` regex replace | No type awareness. Would rename `Strategy` in comments, strings, and unrelated packages. Actively harmful for this use case. |
-| `rf` (rsc.io/rf) | Experimental refactoring tool by Russ Cox. Not widely adopted, not as well-tested as gopls rename. Adds unnecessary risk for a straightforward rename. |
-| `deadmono` | For monorepo dead code detection across multiple main packages. Stratos has a single `cmd/stratos/main.go` entry point, so standard `deadcode` is sufficient. |
-| IDE-based refactoring (GoLand, VS Code) | Both use gopls under the hood. Using the CLI directly is more reproducible and scriptable for this milestone. |
-
----
-
-## Operation Ordering (Recommended Sequence)
-
-The order matters because `gopls rename` references files by path.
-
-```
-1. Dead code removal (delete UncordonNode)
-   Tool: manual deletion, verified by `deadcode`
-   Reason: Smallest change, independent of everything else
-
-2. Type renames (Strategy -> Scaler, drainHelper -> nodeDrainer)
-   Tool: `gopls rename -w`
-   Reason: Must happen BEFORE file renames so gopls can find the files
-
-3. File renames (kubernetes.go -> scaler.go, etc.)
-   Tool: `git mv`
-   Reason: Must happen AFTER type renames (gopls needs stable paths)
-
-4. Struct field type change (Metadata interface{} -> Pods []corev1.Pod)
-   Tool: manual edit + `go build`
-   Reason: Independent, but logically last (naming is settled)
-
-5. Verification
-   Tool: `go build ./...` && `make lint` && `make test` && `make test-integration`
+```go
+func mimePartNodeConfig(content string) string {
+    return fmt.Sprintf("Content-Type: application/node.eks.aws\n\n%s", content)
+}
 ```
 
 ---
 
-## kubebuilder/controller-gen Considerations
+## AL2 MIME Multipart Ordering
 
-For this milestone, the refactoring scope is `internal/` packages, NOT `api/v1alpha1/` CRD types. The `ScalingDemand` struct is in `internal/scaling/types.go`, not in the CRD API. Therefore:
+### Current AL2 MIME Structure
 
-- `make generate` (deepcopy regeneration): **NOT needed** unless `api/v1alpha1/` types are modified
-- `make manifests` (CRD YAML regeneration): **NOT needed** unless kubebuilder markers change
-- `controller-gen` markers: **Unaffected** -- all markers are in `api/v1alpha1/`, which is outside the rename scope
+```
+MIME multipart:
+  Part 1: bootstrap.sh           (text/x-shellscript)
+  Part 2: stratos-warmup.sh      (text/x-shellscript)
+  Part 3: custom-userdata.sh     (text/x-shellscript, optional)
+```
 
-The one exception: if `ScalingDemand.Metadata` is referenced in CRD types (verified: it is not -- `ScalingDemand` is an internal type used only within the scaling package and its consumers in `internal/controller/`).
+### New AL2 MIME Structure (With Image Pre-Pull)
+
+```
+MIME multipart:
+  Part 1: bootstrap.sh           (text/x-shellscript)  -- starts containerd
+  Part 2: stratos-image-pull.sh  (text/x-shellscript)  -- pulls images via ctr
+  Part 3: stratos-warmup.sh      (text/x-shellscript)  -- waits for kubelet
+  Part 4: custom-userdata.sh     (text/x-shellscript, optional)
+```
+
+**Why Part 2 (after bootstrap, before warmup):**
+- bootstrap.sh starts containerd, so the socket is available for Part 2
+- Image pulling should complete before the warmup script signals readiness
+- The warmup script waits for kubelet health, which is independent of image pulls
+- Custom user data runs last (unchanged behavior)
+
+**Impact on AL2Generator:** Insert the image-pull script as a new MIME part between bootstrap and warmup. The existing code structure (`var parts []string` with `append`) makes this straightforward.
 
 ---
 
-## Verification Command Sequence
+## Shared Image Pull Script Template
 
-After all changes are made, run these commands in order:
+Both AL2 and AL2023 can use the same core image-pull bash logic. The only difference is containerd readiness handling:
+
+- **AL2:** Containerd is guaranteed running (bootstrap.sh started it)
+- **AL2023:** Must wait for containerd socket
+
+### Recommended Script Structure
 
 ```bash
-# 1. Compile check (catches ALL broken imports, type mismatches, unused imports)
-go build ./...
+#!/bin/bash
+# Stratos image pre-pull script
+set -euo pipefail
 
-# 2. Vet check (catches shadow issues from renames, nil analysis)
-go vet ./...
+CONTAINERD_SOCK="/run/containerd/containerd.sock"
+MAX_CONTAINERD_WAIT=120
+PULL_TIMEOUT=300
 
-# 3. Lint check (catches unused code, staticcheck, depguard, funlen limits)
-make lint
+log() {
+    echo "[stratos-image-pull] [$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
 
-# 4. Dead code check (confirm UncordonNode no longer appears)
-~/go/bin/deadcode -test -filter=stratos ./cmd/stratos/...
+# Wait for containerd (needed on AL2023; fast no-op on AL2 where it is already running)
+wait_for_containerd() {
+    local elapsed=0
+    while [ $elapsed -lt $MAX_CONTAINERD_WAIT ]; do
+        if ctr -n k8s.io version >/dev/null 2>&1; then
+            log "containerd is ready"
+            return 0
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+        log "Waiting for containerd... (${elapsed}/${MAX_CONTAINERD_WAIT}s)"
+    done
+    log "ERROR: containerd did not become ready within ${MAX_CONTAINERD_WAIT}s"
+    return 1
+}
 
-# 5. Unit tests (verifies behavior preservation)
-make test
+# Authenticate to ECR (only needed for private ECR images)
+get_ecr_password() {
+    local region="$1"
+    local max_attempts=10
+    local attempt=0
+    while [ $attempt -lt $max_attempts ]; do
+        local password
+        if password=$(aws ecr get-login-password --region "${region}" 2>/dev/null); then
+            echo "${password}"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        log "Waiting for ECR auth (IMDS may not be ready)... attempt ${attempt}/${max_attempts}"
+        sleep 3
+    done
+    log "ERROR: Failed to get ECR password after ${max_attempts} attempts"
+    return 1
+}
 
-# 6. Integration tests (verifies controller reconciliation end-to-end)
-make test-integration
+# Pull a single image
+pull_image() {
+    local image="$1"
+    local creds_flag="$2"  # empty for public, "-u AWS:xxx" for private ECR
+    local policy="$3"      # "Required" or "BestEffort"
+    local max_retries=3
+    local attempt=0
+
+    while [ $attempt -lt $max_retries ]; do
+        if ctr -n k8s.io images pull ${creds_flag} "${image}" >/dev/null 2>&1; then
+            log "Pulled: ${image}"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        log "Retry ${attempt}/${max_retries} for ${image}"
+        sleep $((attempt * 5))
+    done
+
+    if [ "${policy}" = "Required" ]; then
+        log "ERROR: Failed to pull required image: ${image}"
+        return 1
+    else
+        log "WARNING: Failed to pull image (best-effort): ${image}"
+        return 0
+    fi
+}
+
+# Main
+wait_for_containerd || { log "Skipping image pulls (containerd not ready)"; exit 0; }
+
+# ECR auth (templated by Go -- only present if ECR images are in the list)
+# {{ECR_AUTH_BLOCK}}
+
+# Pull images (templated by Go)
+# {{IMAGE_PULL_BLOCK}}
+
+log "Image pre-pull complete"
 ```
 
-If all 6 steps pass, the refactoring is complete and correct.
+### Go Template Strategy
+
+The Go code generates the script by:
+1. Building the common shell functions (above)
+2. Detecting which images are private ECR (by hostname pattern `*.dkr.ecr.*.amazonaws.com`)
+3. Generating the ECR auth block only if needed
+4. Generating `pull_image` calls for each image with appropriate auth
+
+---
+
+## Detecting ECR Images in Go
+
+To determine whether an image needs ECR authentication:
+
+```go
+import "regexp"
+
+var ecrPrivatePattern = regexp.MustCompile(`^\d+\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/`)
+var ecrPublicPattern = regexp.MustCompile(`^public\.ecr\.aws/`)
+
+func isPrivateECR(image string) bool {
+    return ecrPrivatePattern.MatchString(image)
+}
+
+func isPublicECR(image string) bool {
+    return ecrPublicPattern.MatchString(image)
+}
+```
+
+- Private ECR images need `aws ecr get-login-password` + `-u` flag
+- Public ECR images do NOT need authentication
+- Non-ECR images (Docker Hub, GHCR, etc.) do NOT need authentication for public images
+
+### ECR Region Detection
+
+For private ECR images, the region is embedded in the hostname: `<account>.dkr.ecr.<region>.amazonaws.com`. The Go code should parse this to pass the correct `--region` flag to `aws ecr get-login-password`.
+
+```go
+func extractECRRegion(image string) string {
+    // Pattern: XXXX.dkr.ecr.REGION.amazonaws.com/...
+    parts := strings.Split(image, ".")
+    // parts[0]=account, [1]=dkr, [2]=ecr, [3]=REGION, [4]=amazonaws, [5]=com/repo
+    if len(parts) >= 6 && parts[1] == "dkr" && parts[2] == "ecr" {
+        return parts[3]
+    }
+    return ""
+}
+```
+
+---
+
+## No New Go Dependencies
+
+| Existing Tool | Used For | Already in go.mod? |
+|---------------|----------|-------------------|
+| `fmt`, `strings`, `regexp` | Script template generation, ECR detection | YES (stdlib) |
+| controller-runtime | Reconciliation, logging | YES |
+| AWS SDK v2 | Provider operations | YES |
+
+**No new Go modules need to be added.** The feature is implemented entirely through bash script generation in the existing user data framework.
+
+---
+
+## Integration Points with Existing Code
+
+### Files That Need Changes
+
+| File | Change Type | Description |
+|------|------------|-------------|
+| `internal/cloudprovider/aws/userdata.go` | Modify | Add `WarmupImages []string` and `ImagePullPolicy string` to `BootstrapConfig` |
+| `internal/cloudprovider/aws/al2.go` | Modify | Insert image-pull MIME part between bootstrap and warmup parts |
+| `internal/cloudprovider/aws/al2023.go` | Modify | Switch to MIME multipart when images are specified; add `application/node.eks.aws` MIME helper |
+| `internal/cloudprovider/aws/warmup.go` | New content | Add image pull script generation function |
+| `api/v1alpha1/nodepool_types.go` | Modify | Add `spec.warmup.images` and `spec.warmup.imagePullPolicy` to CRD |
+
+### Files That Do NOT Need Changes
+
+| File | Why Not |
+|------|---------|
+| `internal/cloudprovider/aws/bottlerocket.go` | Bottlerocket is out of scope for this milestone |
+| `internal/cloudprovider/interface.go` | The CloudProvider interface does not change -- image pull is a user data concern |
+| `internal/cloudprovider/aws/provider.go` | Launch config assembly already passes BootstrapConfig; adding fields is sufficient |
+| `internal/controller/nodepool_controller.go` | No reconciliation logic changes -- images are pulled during instance launch via user data |
+
+---
+
+## AL2 End of Life Considerations
+
+Amazon EKS stopped publishing AL2 AMIs on November 26, 2025. EKS 1.32 is the last version with AL2 support. From EKS 1.33 onward, only AL2023 and Bottlerocket AMIs are published.
+
+**Implication:** AL2023 is the primary target. AL2 support should be maintained for existing clusters on EKS <= 1.32 but should not drive architectural decisions. The AL2023 MIME multipart format is the more important code path.
 
 ---
 
 ## Sources
 
-- gopls rename documentation: [Gopls Code Transformation Features](https://go.dev/gopls/features/transformation) -- HIGH confidence (official Go documentation)
-- gopls CLI documentation: [Gopls Command-line Interface](https://go.dev/gopls/command-line) -- HIGH confidence (official Go documentation)
-- gorename deprecation: [golang.org/x/tools/refactor/rename](https://pkg.go.dev/golang.org/x/tools/refactor/rename) -- HIGH confidence (official package notice)
-- gorename deletion issue: [Issue #69360](https://github.com/golang/go/issues/69360) -- HIGH confidence (official Go issue tracker)
-- deadcode tool documentation: [Finding unreachable functions with deadcode](https://go.dev/blog/deadcode) -- HIGH confidence (official Go blog)
-- deadcode package docs: [pkg.go.dev/golang.org/x/tools/cmd/deadcode](https://pkg.go.dev/golang.org/x/tools/cmd/deadcode) -- HIGH confidence (official package docs)
-- golangci-lint unused vs deadcode: [Discussion #4819](https://github.com/golangci/golangci-lint/discussions/4819) -- MEDIUM confidence (community discussion, verified with tool behavior)
-- gopls rename verified on codebase: `gopls rename -d internal/scaling/kubernetes.go:39:6 Scaler` -- HIGH confidence (direct verification)
-- deadcode verified on codebase: `deadcode -test -filter=stratos ./cmd/stratos/...` -- HIGH confidence (direct verification)
-- kubebuilder controller-gen: [controller-gen CLI Reference](https://book.kubebuilder.io/reference/controller-gen.html) -- HIGH confidence (official kubebuilder docs)
+### HIGH Confidence (Official Documentation)
+- [AWS EKS Launch Templates docs](https://docs.aws.amazon.com/eks/latest/userguide/launch-templates.html) -- AL2023 MIME multipart format with `application/node.eks.aws` content type
+- [AWS ECR Authentication docs](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html) -- `get-login-password` token mechanism
+- [EKS AMI AL2 Usage docs](https://awslabs.github.io/amazon-eks-ami/usage/al2/) -- containerd config paths, bootstrap.sh behavior
+- [EKS AMI nodeadm docs](https://awslabs.github.io/amazon-eks-ami/nodeadm/) -- nodeadm configuration format
+- [Kubernetes crictl docs](https://github.com/kubernetes-sigs/cri-tools/blob/master/docs/crictl.md) -- crictl config, runtime endpoint
+- [ECR Credential Provider](https://deepwiki.com/awslabs/amazon-eks-ami/3.3-container-registry-integration) -- ecr-credential-provider binary path, kubelet integration
+
+### HIGH Confidence (GitHub Issues with Verified Behavior)
+- [amazon-eks-ami #797](https://github.com/awslabs/amazon-eks-ami/issues/797) -- crictl not shipped, nerdctl added instead (AL2)
+- [amazon-eks-ami #1486](https://github.com/awslabs/amazon-eks-ami/issues/1486) -- crictl was added to AL2 AMIs, confirmed by maintainer
+- [amazon-eks-ami #2163](https://github.com/awslabs/amazon-eks-ami/issues/2163) -- crictl NOT available on AL2023 (open issue, Dec 2025)
+- [amazon-eks-ami #2123](https://github.com/awslabs/amazon-eks-ami/issues/2123) -- AL2023 pre/post nodeadm script execution bugs
+- [amazon-eks-ami #2224](https://github.com/awslabs/amazon-eks-ami/issues/2224) -- post-nodeadm user data not natively supported; use systemd
+- [amazon-eks-ami #1917](https://github.com/awslabs/amazon-eks-ami/issues/1917) -- nodeadm-run fails if containerd not ready
+- [amazon-eks-ami #1751](https://github.com/awslabs/amazon-eks-ami/issues/1751) -- AL2023 boot sequence timing: nodeadm-config -> cloud-init -> containerd -> nodeadm-run
+
+### MEDIUM Confidence (Community Production Patterns)
+- [EKS image pre-pull from ECR (Medium)](https://medium.com/@andriikrymus/eks-image-pre-pull-from-ecr-2ec56d33ec82) -- `ctr -n k8s.io images pull -u "AWS:$PASSWORD"` pattern
+- [AWS re:Post: Pull ECR image using ctr](https://repost.aws/questions/QUo12Z0uqGRA2cp6K4UNyNnw/how-to-pull-ecr-image-using-ctr-tool-where-runtime-is-containerd) -- ctr ECR auth syntax
+- [AWS re:Post: ECR get-login-password fails in user data](https://repost.aws/questions/QUOT8lTHaITkqW0NGB74Pkeg/aws-ecr-get-login-password-not-working-when-executed-from-userdata-script-on-ec2-start-up) -- IMDS timing issue during early boot
+- [AWS Blog: Start Pods faster by prefetching images](https://aws.amazon.com/blogs/containers/start-pods-faster-by-prefetching-images/) -- SSM-based prefetching approach
+- [containerd namespace discussion](https://github.com/containerd/containerd/discussions/7902) -- k8s.io namespace requirement
