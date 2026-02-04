@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 17 of 20 (CRD Types and Code Generation)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-02-04 -- Roadmap created for v1.2 (4 phases, 22 requirements)
+Plan: 1 of 1 in current phase
+Status: Phase complete
+Last activity: 2026-02-04 -- Completed 17-01-PLAN.md (CRD types and code generation)
 
-Progress: [==================..] 87% (milestone: [....] 0%)
+Progress: [==================..] 88% (milestone: [#...] 25%)
 
 ## Performance Metrics
 
@@ -43,6 +43,7 @@ Progress: [==================..] 87% (milestone: [....] 0%)
 - Dynamic pending-pod image pull deferred -- no clean mechanism without API server access
 - Use ctr exclusively (not crictl) -- crictl missing on AL2023, ctr universal on all EKS AMIs
 - Image pinning with io.cri-containerd.pinned=pinned is mandatory -- prevents kubelet GC eviction
+- items:MinLength=1 kubebuilder marker works in controller-gen v0.16.5 -- no named type fallback needed
 
 ### Pending Todos
 
@@ -55,5 +56,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: Roadmap created for v1.2 milestone. Ready to plan Phase 17.
+Stopped at: Completed 17-01-PLAN.md (Phase 17 complete). Ready for Phase 18.
 Resume file: None

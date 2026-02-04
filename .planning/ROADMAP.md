@@ -34,7 +34,7 @@ See .planning/milestones/v1.1.1-ROADMAP.md for v1.1.1 details (5 phases, 5 plans
 
 **Milestone Goal:** Standby nodes have expected container images cached, eliminating image pull latency when pods are scheduled
 
-- [ ] **Phase 17: CRD Types and Code Generation** - PreWarmConfig fields, validation, deepcopy, nil-safe getters
+- [x] **Phase 17: CRD Types and Code Generation** - PreWarmConfig fields, validation, deepcopy, nil-safe getters
 - [ ] **Phase 18: Warmup Script Generator** - Dynamic bash script generation with ctr pull, ECR auth, retry, pinning
 - [ ] **Phase 19: AMI Generator Integration** - Inject image pull script into AL2 and AL2023 user data, Bottlerocket warning
 - [ ] **Phase 20: Controller Data Threading** - Wire image config from NodePool spec through TemplateConfig to BootstrapConfig
@@ -53,7 +53,7 @@ See .planning/milestones/v1.1.1-ROADMAP.md for v1.1.1 details (5 phases, 5 plans
   5. Calling GetImages() and GetImagePullPolicy() on a nil PreWarmConfig returns safe zero values without panicking
 **Plans**: 1 plan
 Plans:
-- [ ] 17-01-PLAN.md -- Add ImagePullPolicy type, PreWarmConfig fields, getters, tests, and code generation
+- [x] 17-01-PLAN.md -- Add ImagePullPolicy type, PreWarmConfig fields, getters, tests, and code generation
 
 ### Phase 18: Warmup Script Generator
 **Goal**: A warmup script generator produces correct bash that pulls configured images using ctr, with ECR auth, retry logic, pinning, and policy-aware failure handling
@@ -102,7 +102,7 @@ Plans:
 | 14. Type Renames | v1.1.1 | 1/1 | Complete | 2026-02-04 |
 | 15. File Renames | v1.1.1 | 1/1 | Complete | 2026-02-04 |
 | 16. Struct Field Type Change | v1.1.1 | 1/1 | Complete | 2026-02-04 |
-| 17. CRD Types & Code Gen | v1.2 | 0/1 | Not started | - |
+| 17. CRD Types & Code Gen | v1.2 | 1/1 | Complete | 2026-02-04 |
 | 18. Warmup Script Generator | v1.2 | 0/TBD | Not started | - |
 | 19. AMI Generator Integration | v1.2 | 0/TBD | Not started | - |
 | 20. Controller Data Threading | v1.2 | 0/TBD | Not started | - |
