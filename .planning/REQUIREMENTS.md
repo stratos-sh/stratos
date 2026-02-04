@@ -75,34 +75,34 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CRD-01 | TBD | Pending |
-| CRD-02 | TBD | Pending |
-| CRD-03 | TBD | Pending |
-| WARM-01 | TBD | Pending |
-| WARM-02 | TBD | Pending |
-| WARM-03 | TBD | Pending |
-| WARM-04 | TBD | Pending |
-| WARM-05 | TBD | Pending |
-| WARM-06 | TBD | Pending |
-| WARM-07 | TBD | Pending |
-| WARM-08 | TBD | Pending |
-| AMI-01 | TBD | Pending |
-| AMI-02 | TBD | Pending |
-| AMI-03 | TBD | Pending |
-| FLOW-01 | TBD | Pending |
-| FLOW-02 | TBD | Pending |
-| GEN-01 | TBD | Pending |
-| GEN-02 | TBD | Pending |
-| TEST-01 | TBD | Pending |
-| TEST-02 | TBD | Pending |
-| TEST-03 | TBD | Pending |
-| TEST-04 | TBD | Pending |
+| CRD-01 | Phase 17 | Pending |
+| CRD-02 | Phase 17 | Pending |
+| CRD-03 | Phase 17 | Pending |
+| WARM-01 | Phase 18 | Pending |
+| WARM-02 | Phase 18 | Pending |
+| WARM-03 | Phase 18 | Pending |
+| WARM-04 | Phase 18 | Pending |
+| WARM-05 | Phase 18 | Pending |
+| WARM-06 | Phase 18 | Pending |
+| WARM-07 | Phase 18 | Pending |
+| WARM-08 | Phase 18 | Pending |
+| AMI-01 | Phase 19 | Pending |
+| AMI-02 | Phase 19 | Pending |
+| AMI-03 | Phase 19 | Pending |
+| FLOW-01 | Phase 20 | Pending |
+| FLOW-02 | Phase 19 | Pending |
+| GEN-01 | Phase 17 | Pending |
+| GEN-02 | Phase 17 | Pending |
+| TEST-01 | Phase 18 | Pending |
+| TEST-02 | Phase 19 | Pending |
+| TEST-03 | Phase 19 | Pending |
+| TEST-04 | Phase 17 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 22 total
-- Mapped to phases: 0
-- Unmapped: 22
+- Mapped to phases: 22
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-04*
-*Last updated: 2026-02-04 after initial definition*
+*Last updated: 2026-02-04 after roadmap creation*
