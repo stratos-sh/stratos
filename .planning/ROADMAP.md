@@ -90,7 +90,9 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. When a NodePool with configured images launches a new instance, the generated user data contains the correct ctr pull commands for those images
   2. Changing the image list on a NodePool spec causes newly launched instances to use the updated image list (existing standby nodes are unaffected)
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 20-01-PLAN.md -- Wire PreWarmConfig through TemplateConfig, provider, and reconcile loop with tests
 
 ## Progress
 
@@ -110,4 +112,4 @@ Plans:
 | 17. CRD Types & Code Gen | v1.2 | 1/1 | Complete | 2026-02-04 |
 | 18. Warmup Script Generator | v1.2 | 1/1 | Complete | 2026-02-04 |
 | 19. AMI Generator Integration | v1.2 | 2/2 | Complete | 2026-02-04 |
-| 20. Controller Data Threading | v1.2 | 0/TBD | Not started | - |
+| 20. Controller Data Threading | v1.2 | 0/1 | Not started | - |
