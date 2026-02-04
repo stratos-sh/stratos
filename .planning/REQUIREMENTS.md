@@ -30,7 +30,7 @@
 
 ### Data Flow
 
-- [ ] **FLOW-01**: Image list and pull policy flow from NodePool spec through TemplateConfig to BootstrapConfig to warmup script
+- [x] **FLOW-01**: Image list and pull policy flow from NodePool spec through TemplateConfig to BootstrapConfig to warmup script
 - [x] **FLOW-02**: Controller generates user data with size check — logs warning if generated user data approaches 16KB EC2 limit
 
 ### Code Generation
@@ -89,7 +89,7 @@
 | AMI-01 | Phase 19 | Complete |
 | AMI-02 | Phase 19 | Complete |
 | AMI-03 | Phase 19 | Complete |
-| FLOW-01 | Phase 20 | Pending |
+| FLOW-01 | Phase 20 | Complete |
 | FLOW-02 | Phase 19 | Complete |
 | GEN-01 | Phase 17 | Complete |
 | GEN-02 | Phase 17 | Complete |

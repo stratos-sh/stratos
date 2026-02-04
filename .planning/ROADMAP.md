@@ -5,7 +5,7 @@
 - v1.0 Codebase Restructure - Phases 1-6 (shipped 2026-02-03)
 - v1.1 Simplify Scaling - Phases 7-11 (shipped 2026-02-04)
 - v1.1.1 Naming & Dead Code Cleanup - Phases 12-16 (shipped 2026-02-04)
-- v1.2 Warmup Image Pre-Pull - Phases 17-20 (in progress)
+- v1.2 Warmup Image Pre-Pull - Phases 17-20 (shipped 2026-02-04)
 
 ## Phases
 
@@ -30,14 +30,14 @@ See .planning/milestones/v1.1.1-ROADMAP.md for v1.1.1 details (5 phases, 5 plans
 
 </details>
 
-### v1.2 Warmup Image Pre-Pull (In Progress)
+### v1.2 Warmup Image Pre-Pull (Shipped 2026-02-04)
 
 **Milestone Goal:** Standby nodes have expected container images cached, eliminating image pull latency when pods are scheduled
 
 - [x] **Phase 17: CRD Types and Code Generation** - PreWarmConfig fields, validation, deepcopy, nil-safe getters
 - [x] **Phase 18: Warmup Script Generator** - Dynamic bash script generation with ctr pull, ECR auth, retry, pinning
 - [x] **Phase 19: AMI Generator Integration** - Inject image pull script into AL2 and AL2023 user data, Bottlerocket warning
-- [ ] **Phase 20: Controller Data Threading** - Wire image config from NodePool spec through TemplateConfig to BootstrapConfig
+- [x] **Phase 20: Controller Data Threading** - Wire image config from NodePool spec through TemplateConfig to BootstrapConfig
 
 ## Phase Details
 
@@ -92,7 +92,7 @@ Plans:
   2. Changing the image list on a NodePool spec causes newly launched instances to use the updated image list (existing standby nodes are unaffected)
 **Plans**: 1 plan
 Plans:
-- [ ] 20-01-PLAN.md -- Wire PreWarmConfig through TemplateConfig, provider, and reconcile loop with tests
+- [x] 20-01-PLAN.md -- Wire PreWarmConfig through TemplateConfig, provider, and reconcile loop with tests
 
 ## Progress
 
@@ -112,4 +112,4 @@ Plans:
 | 17. CRD Types & Code Gen | v1.2 | 1/1 | Complete | 2026-02-04 |
 | 18. Warmup Script Generator | v1.2 | 1/1 | Complete | 2026-02-04 |
 | 19. AMI Generator Integration | v1.2 | 2/2 | Complete | 2026-02-04 |
-| 20. Controller Data Threading | v1.2 | 0/1 | Not started | - |
+| 20. Controller Data Threading | v1.2 | 1/1 | Complete | 2026-02-04 |
