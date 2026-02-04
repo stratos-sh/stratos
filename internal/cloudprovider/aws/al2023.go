@@ -19,6 +19,8 @@ package aws
 import (
 	"fmt"
 	"strings"
+
+	"github.com/stratos-sh/stratos/internal/warmup"
 )
 
 // AL2023Generator generates userData for Amazon Linux 2023 (AL2023) AMIs.
@@ -26,16 +28,42 @@ import (
 type AL2023Generator struct{}
 
 // Generate creates userData for AL2023.
-// For AL2023 with nodeadm, we pass just the NodeConfig YAML directly.
-// nodeadm-config.service reads this from IMDS and configures kubelet.
-// The Stratos controller handles stopping the instance when the node becomes Ready.
+// When no pre-warm images are configured, returns plain NodeConfig YAML.
+// When images are configured, returns MIME multipart with NodeConfig, image pull,
+// and warmup script parts. nodeadm-config.service reads this from IMDS.
 func (g *AL2023Generator) Generate(config *BootstrapConfig) (string, error) {
 	if config == nil {
 		return "", fmt.Errorf("config is nil")
 	}
 
-	// Just return the NodeConfig YAML - nodeadm will process it directly
-	return g.generateNodeadmConfig(config), nil
+	nodeConfig := g.generateNodeadmConfig(config)
+
+	// If no pre-warm images, return plain NodeConfig YAML (backward compatible)
+	hasImages := config.PreWarmConfig != nil && len(config.PreWarmConfig.Images) > 0
+	if !hasImages {
+		return nodeConfig, nil
+	}
+
+	// Build MIME multipart: NodeConfig + image pull + warmup
+	var parts []string
+
+	// Part 1: NodeConfig as application/node.eks.aws
+	parts = append(parts, mimePartNodeConfig(nodeConfig))
+
+	// Part 2: Image pull script
+	imagePullScript := warmup.GenerateScript(config.PreWarmConfig.GetImages(), config.PreWarmConfig.GetImagePullPolicy())
+	parts = append(parts, mimePartShellScript(imagePullScript, "image-pull.sh"))
+
+	// Part 3: Warmup script
+	parts = append(parts, mimePartShellScript(getWarmupScript(), "stratos-warmup.sh"))
+
+	userData := buildMIMEMultipart(parts)
+
+	if err := checkUserDataSize(userData, config.PoolName); err != nil {
+		return "", err
+	}
+
+	return userData, nil
 }
 
 // generateNodeadmConfig creates the nodeadm YAML configuration.
@@ -125,30 +153,6 @@ func collectTaints(config *BootstrapConfig, enableNetworkReadinessTaint bool) []
 		taints = append(taints, "stratos.sh/not-ready=true:NoSchedule")
 	}
 	return taints
-}
-
-// mimePartShellScript creates a MIME part for a shell script.
-func mimePartShellScript(content, filename string) string {
-	return fmt.Sprintf(`Content-Type: text/x-shellscript; charset="us-ascii"
-Content-Disposition: attachment; filename="%s"
-
-%s`, filename, content)
-}
-
-// buildMIMEMultipart assembles parts into a MIME multipart message.
-func buildMIMEMultipart(parts []string) string {
-	boundary := "==STRATOS_MIME_BOUNDARY=="
-	var sb strings.Builder
-
-	sb.WriteString(fmt.Sprintf("MIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"%s\"\n\n", boundary))
-
-	for _, part := range parts {
-		sb.WriteString(fmt.Sprintf("--%s\n%s\n", boundary, part))
-	}
-
-	sb.WriteString(fmt.Sprintf("--%s--\n", boundary))
-
-	return sb.String()
 }
 
 // sortStrings returns a sorted copy of the input strings.

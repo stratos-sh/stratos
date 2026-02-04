@@ -19,6 +19,8 @@ package aws
 import (
 	"fmt"
 	"strings"
+
+	"github.com/stratos-sh/stratos/internal/warmup"
 )
 
 // AL2Generator generates userData for Amazon Linux 2 (AL2) AMIs.
@@ -41,16 +43,28 @@ func (g *AL2Generator) Generate(config *BootstrapConfig) (string, error) {
 	bootstrapScript := g.generateBootstrapScript(config)
 	parts = append(parts, mimePartShellScript(bootstrapScript, "bootstrap.sh"))
 
-	// Part 2: Warmup script
+	// Part 2 (conditional): Image pull script when pre-warm images are configured
+	if config.PreWarmConfig != nil && len(config.PreWarmConfig.Images) > 0 {
+		imagePullScript := warmup.GenerateScript(config.PreWarmConfig.GetImages(), config.PreWarmConfig.GetImagePullPolicy())
+		parts = append(parts, mimePartShellScript(imagePullScript, "image-pull.sh"))
+	}
+
+	// Part 3: Warmup script
 	warmupScript := getWarmupScript()
 	parts = append(parts, mimePartShellScript(warmupScript, "stratos-warmup.sh"))
 
-	// Part 3: Optional custom userData
+	// Part 4: Optional custom userData
 	if config.CustomUserData != "" {
 		parts = append(parts, mimePartShellScript(config.CustomUserData, "custom-userdata.sh"))
 	}
 
-	return buildMIMEMultipart(parts), nil
+	userData := buildMIMEMultipart(parts)
+
+	if err := checkUserDataSize(userData, config.PoolName); err != nil {
+		return "", err
+	}
+
+	return userData, nil
 }
 
 // generateBootstrapScript creates the bootstrap.sh caller script.

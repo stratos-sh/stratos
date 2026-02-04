@@ -59,6 +59,10 @@ type BootstrapConfig struct {
 
 	// CustomUserData is optional user scripts to merge with generated bootstrap
 	CustomUserData string
+
+	// PreWarmConfig is the optional pre-warm configuration from NodePool.Spec.PreWarm.
+	// When set with images, the generator injects an image pull script into user data.
+	PreWarmConfig *stratosv1alpha1.PreWarmConfig
 }
 
 // BootstrapGenerator generates bootstrap userData for a specific AMI family.
