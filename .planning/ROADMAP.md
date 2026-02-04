@@ -36,7 +36,7 @@ See .planning/milestones/v1.1.1-ROADMAP.md for v1.1.1 details (5 phases, 5 plans
 
 - [x] **Phase 17: CRD Types and Code Generation** - PreWarmConfig fields, validation, deepcopy, nil-safe getters
 - [x] **Phase 18: Warmup Script Generator** - Dynamic bash script generation with ctr pull, ECR auth, retry, pinning
-- [ ] **Phase 19: AMI Generator Integration** - Inject image pull script into AL2 and AL2023 user data, Bottlerocket warning
+- [x] **Phase 19: AMI Generator Integration** - Inject image pull script into AL2 and AL2023 user data, Bottlerocket warning
 - [ ] **Phase 20: Controller Data Threading** - Wire image config from NodePool spec through TemplateConfig to BootstrapConfig
 
 ## Phase Details
@@ -80,8 +80,8 @@ Plans:
   4. Generated user data with images logs a warning if it approaches the 16KB EC2 user data size limit
 **Plans**: 2 plans
 Plans:
-- [ ] 19-01-PLAN.md -- AL2/AL2023 image pull MIME integration with shared utilities and size warning
-- [ ] 19-02-PLAN.md -- Bottlerocket image pre-pull status condition warning
+- [x] 19-01-PLAN.md -- AL2/AL2023 image pull MIME integration with shared utilities and size warning
+- [x] 19-02-PLAN.md -- Bottlerocket image pre-pull status condition warning
 
 ### Phase 20: Controller Data Threading
 **Goal**: Image list and pull policy flow end-to-end from NodePool spec through the controller to the cloud provider's user data generation
@@ -109,5 +109,5 @@ Plans:
 | 16. Struct Field Type Change | v1.1.1 | 1/1 | Complete | 2026-02-04 |
 | 17. CRD Types & Code Gen | v1.2 | 1/1 | Complete | 2026-02-04 |
 | 18. Warmup Script Generator | v1.2 | 1/1 | Complete | 2026-02-04 |
-| 19. AMI Generator Integration | v1.2 | 0/2 | Not started | - |
+| 19. AMI Generator Integration | v1.2 | 2/2 | Complete | 2026-02-04 |
 | 20. Controller Data Threading | v1.2 | 0/TBD | Not started | - |

@@ -24,14 +24,14 @@
 
 ### AMI Support
 
-- [ ] **AMI-01**: Image pre-pull works on AL2 instances (MIME part injected between bootstrap and warmup scripts)
-- [ ] **AMI-02**: Image pre-pull works on AL2023 instances (user data switches to MIME multipart when images specified, plain NodeConfig YAML when no images)
-- [ ] **AMI-03**: Bottlerocket instances with configured images produce a validation warning (image pre-pull not supported on Bottlerocket)
+- [x] **AMI-01**: Image pre-pull works on AL2 instances (MIME part injected between bootstrap and warmup scripts)
+- [x] **AMI-02**: Image pre-pull works on AL2023 instances (user data switches to MIME multipart when images specified, plain NodeConfig YAML when no images)
+- [x] **AMI-03**: Bottlerocket instances with configured images produce a validation warning (image pre-pull not supported on Bottlerocket)
 
 ### Data Flow
 
 - [ ] **FLOW-01**: Image list and pull policy flow from NodePool spec through TemplateConfig to BootstrapConfig to warmup script
-- [ ] **FLOW-02**: Controller generates user data with size check — logs warning if generated user data approaches 16KB EC2 limit
+- [x] **FLOW-02**: Controller generates user data with size check — logs warning if generated user data approaches 16KB EC2 limit
 
 ### Code Generation
 
@@ -41,8 +41,8 @@
 ### Tests
 
 - [x] **TEST-01**: Unit tests for warmup script generation with images, without images, Required policy, BestEffort policy
-- [ ] **TEST-02**: Unit tests for AL2 MIME multipart with image pull MIME part
-- [ ] **TEST-03**: Unit tests for AL2023 MIME multipart vs plain YAML conditional output
+- [x] **TEST-02**: Unit tests for AL2 MIME multipart with image pull MIME part
+- [x] **TEST-03**: Unit tests for AL2023 MIME multipart vs plain YAML conditional output
 - [x] **TEST-04**: Unit tests for nil-safe getter methods on PreWarmConfig (GetImages, GetImagePullPolicy)
 
 ## Future Requirements
@@ -86,16 +86,16 @@
 | WARM-06 | Phase 18 | Complete |
 | WARM-07 | Phase 18 | Complete |
 | WARM-08 | Phase 18 | Complete |
-| AMI-01 | Phase 19 | Pending |
-| AMI-02 | Phase 19 | Pending |
-| AMI-03 | Phase 19 | Pending |
+| AMI-01 | Phase 19 | Complete |
+| AMI-02 | Phase 19 | Complete |
+| AMI-03 | Phase 19 | Complete |
 | FLOW-01 | Phase 20 | Pending |
-| FLOW-02 | Phase 19 | Pending |
+| FLOW-02 | Phase 19 | Complete |
 | GEN-01 | Phase 17 | Complete |
 | GEN-02 | Phase 17 | Complete |
 | TEST-01 | Phase 18 | Complete |
-| TEST-02 | Phase 19 | Pending |
-| TEST-03 | Phase 19 | Pending |
+| TEST-02 | Phase 19 | Complete |
+| TEST-03 | Phase 19 | Complete |
 | TEST-04 | Phase 17 | Complete |
 
 **Coverage:**
