@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Kubernetes pod-driven scaling with no unnecessary abstraction layers
-**Current focus:** v1.2 Warmup Image Pre-Pull -- Phase 19 (AMI Generator Integration)
+**Current focus:** v1.2 Warmup Image Pre-Pull -- Phase 20 (Controller Data Threading) -- COMPLETE
 
 ## Current Position
 
-Phase: 19 of 20 (AMI Generator Integration)
-Plan: 2 of 2 in current phase
+Phase: 20 of 20 (Controller Data Threading)
+Plan: 1 of 1 in current phase
 Status: Phase complete
-Last activity: 2026-02-04 -- Completed Phase 19 (AMI Generator Integration)
+Last activity: 2026-02-04 -- Completed Phase 20 (Controller Data Threading)
 
-Progress: [===================.] 95% (milestone: [###.] 75%)
+Progress: [====================] 100% (milestone: [####] 100%)
 
 ## Performance Metrics
 
@@ -34,9 +34,9 @@ Progress: [===================.] 95% (milestone: [###.] 75%)
 - Total execution time: ~7min
 
 **v1.2 Velocity:**
-- Total plans completed: 4
+- Total plans completed: 5
 - Average duration: ~3min
-- Total execution time: ~11min
+- Total execution time: ~14min
 
 ## Accumulated Context
 
@@ -58,6 +58,8 @@ Progress: [===================.] 95% (milestone: [###.] 75%)
 - Size validation at generator level -- hard error at 16 KiB, warning at 14 KiB
 - PreWarmConfig as pointer field on BootstrapConfig -- nil means no pre-warm configured
 - checkImagePrePullSupport is non-blocking -- sets condition but doesn't prevent launch
+- PreWarmConfig as pointer on TemplateConfig -- nil passthrough is safe and backward compatible
+- Silent ignore of NodeClass fetch error in reconcileNodePool -- already validated before this point
 
 ### Pending Todos
 
@@ -70,5 +72,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: Completed Phase 19 (AMI Generator Integration). Ready for Phase 20.
+Stopped at: Completed Phase 20 (Controller Data Threading). v1.2 feature complete.
 Resume file: None
