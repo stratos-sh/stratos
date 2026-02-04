@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Kubernetes pod-driven scaling with no unnecessary abstraction layers
-**Current focus:** v1.2 Warmup Image Pre-Pull -- Phase 18 (Warmup Script Generator)
+**Current focus:** v1.2 Warmup Image Pre-Pull -- Phase 19 (AMI Generator Integration)
 
 ## Current Position
 
-Phase: 18 of 20 (Warmup Script Generator)
-Plan: 1 of 1 in current phase
+Phase: 19 of 20 (AMI Generator Integration)
+Plan: 2 of 2 in current phase
 Status: Phase complete
-Last activity: 2026-02-04 -- Completed 18-01-PLAN.md (warmup script generator)
+Last activity: 2026-02-04 -- Completed 19-02-PLAN.md (Bottlerocket image pre-pull warning)
 
-Progress: [==================..] 90% (milestone: [#...] 25%)
+Progress: [===================.] 95% (milestone: [##..] 50%)
 
 ## Performance Metrics
 
@@ -34,9 +34,9 @@ Progress: [==================..] 90% (milestone: [#...] 25%)
 - Total execution time: ~7min
 
 **v1.2 Velocity:**
-- Total plans completed: 2
+- Total plans completed: 3
 - Average duration: ~3min
-- Total execution time: ~6min
+- Total execution time: ~8min
 
 ## Accumulated Context
 
@@ -53,6 +53,8 @@ Progress: [==================..] 90% (milestone: [#...] 25%)
 - Use text/template with template.Must for compile-time validation -- fail-fast at init
 - ECR detection at generation time via regex -- cleaner template logic than bash pattern matching
 - No-op script for empty images -- caller always gets valid bash
+- ImagePrePullSupported condition is informational only -- non-blocking, does not prevent launch
+- Condition removed (not set True) when not applicable -- keeps conditions list clean
 
 ### Pending Todos
 
@@ -65,5 +67,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: Completed 18-01-PLAN.md (Phase 18 complete). Ready for Phase 19.
+Stopped at: Completed 19-02-PLAN.md (Phase 19 complete). Ready for Phase 20.
 Resume file: None
