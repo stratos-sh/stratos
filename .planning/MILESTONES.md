@@ -1,5 +1,30 @@
 # Project Milestones: Stratos
 
+## v1.2 Warmup Image Pre-Pull (Shipped: 2026-02-05)
+
+**Delivered:** Standby nodes can now have container images pre-pulled during warmup, eliminating image pull latency when pods are scheduled
+
+**Phases completed:** 17-20 (5 plans total)
+
+**Key accomplishments:**
+- Added `spec.preWarm.images` and `spec.preWarm.imagePullPolicy` fields to NodePool CRD with validation and nil-safe getters
+- Created warmup script generator with containerd readiness, ECR auth, exponential backoff retry, and image pinning
+- Integrated image pre-pull into AL2/AL2023 user data with conditional MIME multipart and 16KB size validation
+- Added `ImagePrePullSupported=False` status condition for Bottlerocket NodePools (informational warning)
+- Wired PreWarmConfig end-to-end from NodePool spec through TemplateConfig to BootstrapConfig
+
+**Stats:**
+- 50 files created/modified (+8,946 / -1,352 lines)
+- 23,417 lines of Go
+- 4 phases, 5 plans
+- 1 day from start to ship
+
+**Git range:** `feat(17-01)` → `docs(20)`
+
+**What's next:** TBD
+
+---
+
 ## v1.1.1 Naming & Dead Code Cleanup (Shipped: 2026-02-04)
 
 **Delivered:** Pure refactoring — renamed vestigial types (Strategy→Scaler), removed dead code (UncordonNode), aligned filenames to subject_role.go convention, and replaced unsafe interface{} with typed Pods field
